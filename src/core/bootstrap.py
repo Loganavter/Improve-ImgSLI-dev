@@ -1,0 +1,352 @@
+import logging
+import os
+from typing import Optional
+
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QApplication
+
+from core.plugin_coordinator import PluginCoordinator
+from core.runtime_flags import RuntimeFlags
+from core.session_manager import SessionManager
+from core.plugin_system import EventBus, PluginRegistry
+from core.store import Store
+from core.theme import DARK_THEME_PALETTE, LIGHT_THEME_PALETTE
+from plugins.settings.manager import SettingsManager
+from services.system.notifications import NotificationService
+from sli_ui_toolkit.core import setup_logging
+from sli_ui_toolkit.widgets import install_application_tooltips
+from shared_toolkit.ui.managers.ui_resource_manager import UIResourceManager
+from sli_ui_toolkit.theme import ThemeManager
+
+logger = logging.getLogger("ImproveImgSLI")
+
+class ApplicationContext:
+    def __init__(
+        self,
+        debug_mode: bool = False,
+        runtime_flags: RuntimeFlags | None = None,
+    ):
+        self.runtime_flags = runtime_flags or RuntimeFlags(debug=debug_mode)
+        self.debug_mode = self.runtime_flags.debug
+        self.store: Optional[Store] = None
+        self.bridge = None
+        self.settings_manager: Optional[SettingsManager] = None
+        self.theme_manager: Optional[ThemeManager] = None
+        self.notification_service: Optional[NotificationService] = None
+        self.thread_pool: Optional[QThreadPool] = None
+        self.event_bus: Optional[EventBus] = None
+        self.plugin_registry: Optional[PluginRegistry] = None
+        self.plugin_coordinator: Optional[PluginCoordinator] = None
+        self.session_manager: Optional[SessionManager] = None
+        self.ui_resource_manager: Optional[UIResourceManager] = None
+        self._cache_purge_reclaimed_bytes = 0
+        self.cache_purge_notice_bytes: Optional[int] = None
+        self._initialized = False
+        self._deferred_plugins_loaded = False
+        self._is_shutting_down = False
+
+    def initialize(self):
+        if self._initialized:
+            return
+
+        from core.startup_trace import startup_mark
+
+        startup_mark("ctx.begin")
+        from PySide6.QtGui import QImageReader
+        QImageReader.setAllocationLimit(16384)
+        self._maybe_install_tracer()
+        self._build_core_services()
+        startup_mark("ctx.core_services")
+        self._purge_stale_pixel_spill()
+        # Logging is configured BEFORE the persistent state is loaded so
+        # SettingsManager's load diagnostics are actually emitted — the
+        # previous order (logging last) silently dropped every load-time
+        # line, including the settings load/save debug. The saved
+        # ``debug_mode_enabled`` flag is only known after the load, so the
+        # configuration is applied again below to honor it.
+        self._configure_logging()
+        self._load_persistent_state()
+        self._maybe_flag_cache_purge_notice()
+        self._configure_logging()
+        self._configure_theme_manager()
+        self._configure_flyout_manager()
+        self._build_runtime_services()
+        self._initialize_plugins()
+        startup_mark("ctx.plugins.bootstrap")
+        self._load_canvas_feature_settings()
+
+        self._initialized = True
+        logger.debug("ApplicationContext initialized")
+
+    def _maybe_install_tracer(self):
+        from core.tracing.tracer import is_trace_env_enabled
+        if not (self.debug_mode or is_trace_env_enabled()):
+            return
+        try:
+            from core.tracing.instrumentation import install_instrumentation
+            install_instrumentation()
+        except Exception as exc:
+            logger.warning("tracer install failed: %s", exc, exc_info=True)
+            return
+        try:
+            from core.tracing.file_sink import install_file_sink
+            install_file_sink()
+        except Exception as exc:
+            logger.warning("tracer file sink install failed: %s", exc, exc_info=True)
+
+    def _purge_stale_pixel_spill(self) -> None:
+        """Purge leftover TiledPixelStore spill files from crashed sessions.
+
+        Runs synchronously: it's just a directory listing plus a handful of
+        unlinks (milliseconds even with hundreds of leftover files), and a
+        background daemon thread previously used for this raced the app's
+        own shutdown -- daemon threads get no guaranteed scheduling before
+        the interpreter exits, so a session that closed quickly (a crash,
+        or a force-kill during dev iteration -- both common enough that
+        stale sentinels/.raw files were observed accumulating across many
+        sessions in practice) could exit before the thread ever ran even
+        once. The purge logic acquires a cross-platform ``QLockFile`` on
+        the spill dir first (see tiled_pixel_store.resolve_pixel_spill_dir)
+        and only purges leftover files when that succeeds, i.e. no other
+        ImgSLI instance is currently live.
+        """
+        self._cache_purge_reclaimed_bytes = 0
+        try:
+            from shared.image_processing.tiled_pixel_store import (
+                purge_stale_spill_files,
+                resolve_pixel_spill_dir,
+            )
+            # Acquires the exclusive spill-dir lock for this process.
+            resolve_pixel_spill_dir()
+            self._cache_purge_reclaimed_bytes = purge_stale_spill_files()
+        except Exception as exc:
+            logger.debug("Stale spill purge failed: %s", exc)
+
+    # Reclaimed bytes below this are not worth a popup -- routine day-to-day
+    # leftovers (a handful of tiles from one crashed session) rather than
+    # the "years of accumulated cache" scenario the notice exists for.
+    _CACHE_PURGE_NOTICE_MIN_BYTES = 100 * 1024 * 1024
+
+    def _maybe_flag_cache_purge_notice(self) -> None:
+        """Decide, once per install, whether to surface the startup spill
+        purge as a user-visible notice.
+
+        Must run after ``_load_persistent_state`` (needs ``settings_manager``)
+        and after ``_purge_stale_pixel_spill`` (needs
+        ``_cache_purge_reclaimed_bytes``). Distinguishes "genuinely fresh
+        install" from "upgraded from a version that predates
+        last_seen_app_version tracking" via ``is_first_run()``: a fresh
+        install has never completed onboarding either, so it can't be the
+        stale-cache case even though both read back "" for the version.
+        Sets ``self.cache_purge_notice_bytes`` (None = don't show) for
+        ``__main__.py`` to act on once the main window exists; always
+        records the current version so this fires at most once per install.
+        """
+        self.cache_purge_notice_bytes = None
+        try:
+            from core.constants import AppConstants
+
+            sm = self.settings_manager
+            assert sm is not None
+            is_upgrade_from_untracked = (
+                not sm.is_first_run() and not sm.last_seen_app_version()
+            )
+            if (
+                is_upgrade_from_untracked
+                and self._cache_purge_reclaimed_bytes
+                >= self._CACHE_PURGE_NOTICE_MIN_BYTES
+            ):
+                self.cache_purge_notice_bytes = self._cache_purge_reclaimed_bytes
+            sm.set_last_seen_app_version(AppConstants.APP_VERSION)
+        except Exception as exc:
+            logger.debug("Cache purge notice flag failed: %s", exc)
+
+    def _load_canvas_feature_settings(self):
+        assert self.settings_manager is not None and self.store is not None
+        self.settings_manager._load_canvas_feature_settings(self.store.viewport)
+
+    def _build_core_services(self):
+        self.store = Store()
+
+        from core.state_management.dispatcher import Dispatcher
+
+        dispatcher = Dispatcher(self.store)
+        self.store.set_dispatcher(dispatcher)
+
+        from ui.store_bridge import QtStoreBridge
+
+        self.bridge = QtStoreBridge(self.store)
+        self.event_bus = EventBus()
+        self.notification_service = NotificationService()
+        self.thread_pool = QThreadPool()
+        self.thread_pool.setMaxThreadCount(4)
+
+    def _load_persistent_state(self):
+        self.settings_manager = SettingsManager("improve-imgsli", "improve-imgsli")
+        self.settings_manager.load_all_settings(self.store)
+        # Apply the persisted chrome scale before any widget is constructed:
+        # scaled_px()/UiScale read sites bake the factor in at build time
+        # (shell, dialogs, QSS first paint), so waiting for the lifecycle
+        # pipeline would leave the first frame at 1.0. Mirrors how the saved
+        # theme is applied early in _configure_theme_manager.
+        try:
+            from sli_ui_toolkit.managers import UiScale
+
+            UiScale.get_instance().set_factor(
+                getattr(self.store.settings, "ui_scale_factor", 1.0) or 1.0
+            )
+        except Exception as exc:
+            logger.debug("UiScale apply failed: %s", exc, exc_info=True)
+        if self.notification_service is not None:
+            self.notification_service.set_enabled(
+                getattr(self.store.settings, "system_notifications_enabled", True)
+            )
+
+    def _configure_logging(self):
+        effective_debug = self.debug_mode or getattr(
+            self.store.settings, "debug_mode_enabled", False
+        )
+        setup_logging("ImproveImgSLI", effective_debug, "IMPROVE_DEBUG")
+
+        if os.getenv("IMPROVE_DEBUG", "0") == "1":
+            from core.state_management.actions import SetDebugModeEnabledAction
+            self.store.get_dispatcher().dispatch(SetDebugModeEnabledAction(True))
+
+    def _configure_theme_manager(self):
+        self.theme_manager = ThemeManager.get_instance()
+        self.theme_manager.register_palettes(LIGHT_THEME_PALETTE, DARK_THEME_PALETTE)
+
+        # Resolve the saved theme now, before any icons get fetched (e.g. the
+        # title bar built in MainWindow.__init__). ThemeManager defaults to
+        # "light" until set_theme() is called; icons resolved against that
+        # default get cached forever in IconService and never refreshed, so
+        # is_dark() must already be correct by the time UI construction
+        # starts. lifecycle.py's ApplyThemeStep re-applies the same value
+        # later (to also push QSS/palette onto the QApplication instance),
+        # this call only needs to fix is_dark() early.
+        theme_from_env = os.getenv("APP_THEME", "auto").lower()
+        initial_theme = (
+            theme_from_env if theme_from_env != "auto" else self.store.settings.theme
+        )
+        self.theme_manager.set_theme(initial_theme)
+
+    def _configure_flyout_manager(self):
+        from ui.flyout_policy import install_flyout_show_policy
+
+        install_flyout_show_policy()
+
+    def _build_runtime_services(self):
+        self.plugin_registry = PluginRegistry(self)
+
+    def _initialize_plugins(self):
+        discovered_plugins = list(
+            self.plugin_registry.discover_plugins(tier="bootstrap")
+        )
+
+        self.plugin_coordinator = PluginCoordinator(self.event_bus)
+        self.plugin_coordinator.register_plugins(discovered_plugins)
+        self.plugin_coordinator.initialize(self)
+        self.session_manager = SessionManager(self.store, self.plugin_coordinator)
+
+    def ensure_deferred_plugins_loaded(self) -> tuple[str, ...]:
+        """Load deferred plugins if not already loaded. Idempotent."""
+        if self._deferred_plugins_loaded:
+            return ()
+        return self.load_deferred_plugins()
+
+    def load_deferred_plugins(self) -> tuple[str, ...]:
+        """Discover, register, and start deferred-tier plugins."""
+        from core.startup_trace import startup_mark
+
+        if self._deferred_plugins_loaded:
+            return ()
+
+        assert self.plugin_registry is not None
+        assert self.plugin_coordinator is not None
+        discovered = list(self.plugin_registry.discover_plugins(tier="deferred"))
+        if not discovered:
+            self._deferred_plugins_loaded = True
+            startup_mark("ctx.plugins.deferred")
+            return ()
+
+        assert self.theme_manager is not None
+        started = self.plugin_coordinator.register_and_start(discovered, self)
+        self._deferred_plugins_loaded = True
+
+        # Deferred plugins may register theme assets (QSS paths/palette
+        # contributions); push the composed theme live so deferred styles
+        # are not stuck on the pre-defer look. Best-effort: never break
+        # startup when no QApplication exists (headless) or theming fails.
+        if started:
+            try:
+                from PySide6.QtWidgets import QApplication
+
+                app = QApplication.instance()
+                if app is not None:
+                    self.theme_manager.apply_theme_to_app(app)
+            except Exception:
+                logger.exception("Deferred theme reapply failed")
+
+        startup_mark("ctx.plugins.deferred")
+        return started
+
+    def create_window_dependent_components(self, window):
+        if not self._initialized:
+            raise RuntimeError("ApplicationContext not initialized")
+        from ui.main_window.composer import MainWindowComposer
+
+        components = MainWindowComposer(self).compose(window)
+        self.ui_resource_manager = components.ui_resource_manager
+        return components
+
+    def apply_theme_to_app(self, app: QApplication):
+        assert self.theme_manager is not None
+        install_application_tooltips(app)
+        from shared_toolkit.ui.decorate_dialog import install_application_dialog_decorations
+        install_application_dialog_decorations(app)
+        from ui.context_menu.line_edit_menu import install_line_edit_context_menu_policy
+        install_line_edit_context_menu_policy(app)
+        self.theme_manager.apply_theme_to_app(app)
+        self.theme_manager.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self):
+        pass
+
+    def shutdown(self):
+        self._is_shutting_down = True
+        logger.debug("Начало завершения работы ApplicationContext...")
+
+        # Drain worker pool before plugin shutdown: a worker parked in
+        # gpu_export.GpuExportService._request waits for a GUI-thread slot
+        # (event.wait); blocking the GUI thread in waitForDone while the
+        # worker waits for the GUI thread is a mutual deadlock. The marshal
+        # now has a timeout (gpu_export.py), but ordering still matters —
+        # draining first lets pending GPU round-trips be delivered or time out
+        # before lifecycle shutdown tears down offscreen widgets.
+        if self.thread_pool:
+            self.thread_pool.clear()
+            if not self.thread_pool.waitForDone(2000):
+                logger.warning(
+                    "Некоторые потоки не завершились вовремя, принудительная очистка"
+                )
+                self.thread_pool.clear()
+
+        if self.plugin_coordinator and self.plugin_coordinator.lifecycle:
+            try:
+                self.plugin_coordinator.lifecycle.shutdown_all()
+            except Exception as e:
+                logger.error(f"Ошибка при остановке плагинов: {e}")
+
+        if self.notification_service:
+            try:
+                self.notification_service.shutdown()
+            except Exception as e:
+                logger.error(f"Ошибка при остановке NotificationService: {e}")
+
+        if self.ui_resource_manager:
+            try:
+                self.ui_resource_manager.shutdown()
+            except Exception as e:
+                logger.error(f"Ошибка при остановке UIResourceManager: {e}")
+
+        logger.debug("ApplicationContext завершен")
