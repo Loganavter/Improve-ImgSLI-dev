@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import time
+
+from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtGui import QPixmap
+
+from events.image_label_event_handler import ImageLabelEventHandler
+from events.window_event_handler import WindowEventHandler
+from tabs.image_compare.canvas.helpers import get_canvas
+
+_last_debug_log_time = 0
+_debug_log_interval = 1.0
+
+
+def initialize_canvas_presenter(presenter) -> None:
+    presenter.image_label_handler = ImageLabelEventHandler(
+        presenter.store, presenter.main_controller, presenter
+    )
+    presenter.window_handler = WindowEventHandler(
+        presenter.store,
+        presenter.main_controller,
+        presenter.widget,
+        presenter.main_window_app,
+    )
+
+    presenter.current_displayed_pixmap = None
+    presenter.current_rendering_task_id = 0
+    presenter._last_displayed_task_id = 0
+    presenter._cached_base_pixmap = None
+    presenter._last_bg_signature = None
+    presenter._last_mag_signature = None
+    presenter._cached_split_pos = -1.0
+    presenter._cached_render_params = None
+    presenter._last_magnifier_pos = None
+    presenter._last_capture_pos = None
+    presenter._last_label_dims = None
+    presenter._pending_interactive_mode = None
+    presenter._is_magnifier_worker_running = False
+    presenter._magnifier_update_pending = False
+    presenter._magnifier_request_seq = 0
+    presenter._active_magnifier_task_id = 0
+    presenter._active_magnifier_request_seq = 0
+    presenter._active_magnifier_signature = None
+    presenter._active_magnifier_started_at = 0.0
+    presenter._pending_magnifier_signature = None
+    presenter._pending_magnifier_request_seq = 0
+    presenter._pending_magnifier_requested_at = 0.0
+    presenter._pending_cached_diff_request_key = None
+    presenter._active_diff_toast_id = None
+    presenter._active_diff_toast_key = None
+
+    presenter._update_scheduler_timer = QTimer(presenter)
+    presenter._update_scheduler_timer.setSingleShot(True)
+    target_fps = getattr(presenter.store.settings, "video_recording_fps", 60)
+    target_fps = max(10, min(144, target_fps))
+    presenter._update_scheduler_timer.setInterval(int(1000 / target_fps))
+    presenter._update_scheduler_timer.timeout.connect(
+        presenter.update_comparison_if_needed
+    )
+
+
+def debug_log_gate():
+    return {
+        "last": _last_debug_log_time,
+        "interval": _debug_log_interval,
+        "time_fn": time.time,
+        "setter": lambda value: globals().__setitem__("_last_debug_log_time", value),
+    }
+
+
+def get_current_label_dimensions(presenter) -> tuple[int, int]:
+    canvas = get_canvas(presenter.widget)
+    if canvas is not None:
+        size = canvas.size()
+        return (size.width(), size.height())
+    return (0, 0)
+
+
+def update_minimum_window_size(presenter):
+    main_window = presenter.main_window_app
+    if not getattr(main_window, "_is_ui_stable", False):
+        return
+
+    from ui.layout_geometry import apply_main_window_minimum
+
+    apply_main_window_minimum(main_window)
+
+
+def invalidate_render_state(presenter):
+    presenter._last_bg_signature = None
+    presenter._last_mag_signature = None
+    presenter._last_img_sig = None
+    presenter._cached_base_pixmap = None
+    presenter.current_displayed_pixmap = None
+    presenter._pending_interactive_mode = None
+    presenter._pending_cached_diff_request_key = None
+    toast_manager = getattr(presenter.main_window_app, "toast_manager", None)
+    active_toast_id = getattr(presenter, "_active_diff_toast_id", None)
+    if active_toast_id is None:
+        presenter._active_diff_toast_key = None
+        return
+    if toast_manager is None:
+        # No manager to close with — keep the id so a later manager can close it.
+        return
+    try:
+        toast_manager.close_toast(active_toast_id)
+    except Exception:
+        pass
+    presenter._active_diff_toast_id = None
+    presenter._active_diff_toast_key = None
+    # Deliberately not clear_canvas_diff_source(image_label) here anymore:
+    # this runs on every image swap (loading.py's post-load
+    # _invalidate_image_canvas_render_state calls), and unconditionally
+    # wiping the GPU-side diff texture reference the instant a swap starts
+    # defeated the whole point of keeping the stale diff visible until the
+    # new one is ready (cached_diff_source_key-based staleness, see
+    # diff_cache.py) -- sync_diff_texture already re-uploads reactively
+    # whenever cached_diff_image actually changes, and already clears the
+    # texture itself when diff_mode leaves "ssim", so nothing here needs to
+    # force it (docs/dev/KNOWN_BUGS.md same-slot-swap SSIM follow-up).
+
+
+def start_interactive_movement(presenter):
+    if not presenter.store.viewport.view_state.optimize_interactive_movement:
+        dispatcher = presenter.store.get_dispatcher()
+        if dispatcher is not None:
+            from core.state_management.interaction_actions import SetInteractiveModeAction
+
+            dispatcher.dispatch(SetInteractiveModeAction(False), scope="viewport")
+        if presenter.main_controller is not None:
+            presenter.main_controller.update_requested.emit()
+        return
+    dispatcher = presenter.store.get_dispatcher()
+    if dispatcher is not None:
+        from core.state_management.interaction_actions import SetInteractiveModeAction
+
+        dispatcher.dispatch(SetInteractiveModeAction(True), scope="viewport")
+    presenter.schedule_update()
