@@ -98,7 +98,7 @@ def _set_snapshot_capture_state(snap, state: CaptureWidgetState) -> None:
     view_state = snap.viewport_state.view_state
     canvas_widget_state = dict(getattr(view_state, "canvas_widget_state", None) or {})
     canvas_widget_state["capture"] = state
-    setattr(view_state, "canvas_widget_state", canvas_widget_state)
+    view_state.canvas_widget_state = canvas_widget_state
 
 
 def build_capture_properties() -> tuple[CanvasFeatureProperty, ...]:
@@ -224,7 +224,7 @@ def _set_slider_value_quietly(slider, value: int) -> None:
 
 
 def _sync_capture_toolbar_state(presenter) -> None:
-    slider = getattr(getattr(presenter, "widget", None), "slider_capture", None)
+    slider = getattr(getattr(presenter, "ui", None), "slider_capture", None)
     if slider is None:
         return
     size = _capture_size_from_view_state(presenter.store.viewport.view_state)

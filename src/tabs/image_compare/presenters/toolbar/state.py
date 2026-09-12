@@ -3,7 +3,7 @@ from PySide6.QtCore import QSignalBlocker
 from sli_ui_toolkit.i18n import tr
 from tabs.image_compare.canvas.registry import registry
 from ui.canvas_infra.viewport.state import get_zoom_level
-from tabs.image_compare.icons import Icon
+from ui.icon_manager import AppIcon
 
 logger = logging.getLogger("ImproveImgSLI")
 
@@ -37,55 +37,55 @@ def _set_slider_value_quietly(slider, value: int) -> None:
         del blocker
 
 def check_name_lengths(presenter):
-    len1 = len(presenter.widget.edit_name1.text().strip())
-    len2 = len(presenter.widget.edit_name2.text().strip())
+    len1 = len(presenter.ui.edit_name1.text().strip())
+    len2 = len(presenter.ui.edit_name2.text().strip())
     limit = presenter.store.viewport.render_config.max_name_length
     if (
         len1 > limit or len2 > limit
     ) and presenter.store.viewport.render_config.include_file_names_in_saved:
         warning = tr(
-            "image_compare.misc.name_length_limit_exceeded",
+            "misc.name_length_limit_exceeded",
             presenter.store.settings.current_language,
             limit=limit,
         )
-        presenter.widget.update_name_length_warning(warning, "", True)
+        presenter.ui.update_name_length_warning(warning, "", True)
     else:
-        presenter.widget.update_name_length_warning("", "", False)
+        presenter.ui.update_name_length_warning("", "", False)
 
 def _update_canvas_feature_control_availability(presenter) -> None:
-    widget = getattr(presenter, "widget", None)
-    if widget is None:
+    ui = getattr(presenter, "ui", None)
+    if ui is None:
         return
     for attr_name, control_ids in _TOOLBAR_CONTROL_GROUPS:
-        control = getattr(widget, attr_name, None)
-        if control is None or not hasattr(control, "setEnabled"):
+        widget = getattr(ui, attr_name, None)
+        if widget is None or not hasattr(widget, "setEnabled"):
             continue
-        control.setEnabled(
+        widget.setEnabled(
             any(registry().get_feature_toolbar_binding(control_id) is not None for control_id in control_ids)
         )
 
 def update_toolbar_states(presenter):
-    presenter.widget.btn_file_names.setChecked(
+    presenter.ui.btn_file_names.setChecked(
         presenter.store.viewport.render_config.include_file_names_in_saved, emit_signal=False
     )
-    image_label = getattr(presenter.widget, "image_label", None)
+    image_label = getattr(presenter.ui, "image_label", None)
     zoom_level = get_zoom_level(image_label) if image_label is not None else 1.0
     file_names_temporarily_hidden = (
         presenter.store.viewport.render_config.include_file_names_in_saved and abs(zoom_level - 1.0) > 1e-6
     )
-    if hasattr(presenter.widget.btn_file_names, "setVisualIconOverride"):
-        presenter.widget.btn_file_names.setVisualIconOverride(
-            Icon.DIVIDER_HIDDEN if file_names_temporarily_hidden else None
+    if hasattr(presenter.ui.btn_file_names, "setVisualIconOverride"):
+        presenter.ui.btn_file_names.setVisualIconOverride(
+            AppIcon.DIVIDER_HIDDEN if file_names_temporarily_hidden else None
         )
     lang = presenter.store.settings.current_language
-    presenter.widget.btn_file_names.setToolTip(
+    presenter.ui.btn_file_names.setToolTip(
         tr("tooltip.file_names_hidden_on_zoom", lang)
         if file_names_temporarily_hidden
-        else tr("image_compare.ui.include_file_names_in_saved_image", lang)
+        else tr("ui.include_file_names_in_saved_image", lang)
     )
     _update_canvas_feature_control_availability(presenter)
     _set_slider_value_quietly(
-        presenter.widget.slider_speed,
+        presenter.ui.slider_speed,
         int(presenter.store.viewport.view_state.movement_speed_per_sec * 100),
     )
     for binding in registry().get_feature_toolbar_bindings():
@@ -107,11 +107,8 @@ def on_color_option_clicked(presenter, option: str):
     elif option == "laser":
         settings_presenter.show_laser_color_picker()
 
-def _get_window_presenter(presenter):
-    return getattr(presenter.main_window_app, "presenter", None)
-
 def _get_settings_presenter_from_window(presenter):
-    window_presenter = _get_window_presenter(presenter)
+    window_presenter = getattr(presenter.main_window_app, "presenter", None)
     if window_presenter is not None and hasattr(window_presenter, "get_feature"):
         return window_presenter.get_feature("settings")
     return None

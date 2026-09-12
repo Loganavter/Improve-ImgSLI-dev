@@ -127,9 +127,7 @@ def clear(widget):
     state._clip_overlays_to_content_rect = False
     state._content_scissor_depth = 0
     state._letterbox_params = [None, None]
-    state._canvas_frame_letterbox = None
-    state._letterbox_fill_rgba = None
-    state._store = None
+    state._feature_overlay_quad_ndc = None
     state._capture_center = None
     state._capture_radius = 0.0
     state._capture_circles = []
@@ -137,9 +135,14 @@ def clear(widget):
     state._hidden_capture_circles = []
     state._occluded_capture_arcs = []
     state._hidden_overlay_circles = []
-    # NOTE: drag overlay is DnD UI state, not texture state — clearing textures
-    # during image load while a drag is active would desync canvas (False) vs
-    # widget DragDropOverlay (True) and block new input. Leave it untouched.
+    state._drag_overlay_visible = False
+    state._drag_overlay_horizontal = False
+    state._drag_overlay_texts = ("", "")
+    state._drag_overlay_cache_key = None
+    state._drag_overlay_cached_image = None
+    state._paste_overlay_visible = False
+    state._paste_overlay_horizontal = False
+    state._paste_overlay_hovered_button = None
     state._pending_texture_uploads.clear()
     cache = getattr(state, "_texture_upload_cache", None)
     if cache is not None:

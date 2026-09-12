@@ -1,23 +1,22 @@
 import logging
+import os
+import tempfile
+import time
+import urllib.request
 
+from PySide6.QtWidgets import QApplication
 from sli_ui_toolkit.i18n import tr
 from sli_ui_toolkit.workers import GenericWorker
-
-from shared.clipboard_images import (
-    collect_clipboard_image_items,
-    download_images_from_urls,
-)
-from shared.clipboard_paste import split_clipboard_items
 
 logger = logging.getLogger("ImproveImgSLI")
 
 
 class ClipboardService:
-    def __init__(self, store, main_controller, widget):
+    def __init__(self, store, main_controller):
         self.store = store
         self.main_controller = main_controller
-        self.widget = widget
         self._paste_dialog = None
+        self._paste_overlay_canvas = None
 
     def paste_image_from_clipboard(self):
         try:
@@ -27,8 +26,50 @@ class ClipboardService:
                         return False
                 except Exception:
                     self._paste_dialog = None
+            if (
+                self._paste_overlay_canvas is not None
+                and self._paste_overlay_canvas.is_paste_overlay_visible()
+            ):
+                return False
 
-            items_to_process = collect_clipboard_image_items()
+            clipboard = QApplication.clipboard()
+            mime_data = clipboard.mimeData()
+
+            items_to_process = []
+
+            text_content = mime_data.text()
+            if text_content:
+                for line in text_content.strip().split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    if os.path.exists(line) or line.startswith("file://"):
+                        path = line[7:] if line.startswith("file://") else line
+                        if os.path.exists(path):
+                            items_to_process.append(path)
+
+                    elif line.startswith(("http://", "https://")):
+                        items_to_process.append(line)
+
+            if mime_data.hasUrls():
+                for url in mime_data.urls():
+                    url_str = url.toString()
+                    if url.isLocalFile():
+                        items_to_process.append(url.toLocalFile())
+                    elif url_str.startswith(("http://", "https://")):
+                        items_to_process.append(url_str)
+
+            if not items_to_process and mime_data.hasImage():
+                qimage = clipboard.image()
+                if not qimage.isNull():
+                    temp_path = os.path.join(
+                        tempfile.gettempdir(),
+                        f"clip_{int(time.time()*1000)}.png",
+                    )
+                    qimage.save(temp_path, "PNG")
+                    items_to_process.append(temp_path)
+
             if not items_to_process:
                 if self.main_controller:
                     self.main_controller.error_occurred.emit(
@@ -47,7 +88,29 @@ class ClipboardService:
             return False
 
     def download_images_from_urls(self, urls: list[str], timeout: int = 10):
-        return download_images_from_urls(urls, timeout)
+        downloaded_paths = []
+        try:
+            for url_str in urls:
+                try:
+                    with urllib.request.urlopen(url_str, timeout=timeout) as response:
+                        content_type = response.headers.get_content_type()
+                        if content_type and content_type.startswith("image/"):
+                            temp_dir = tempfile.gettempdir()
+                            timestamp = int(time.time() * 1000)
+                            ext = (content_type.split("/")[-1] or "png").lower()
+                            if ext == "jpeg":
+                                ext = "jpg"
+                            temp_filename = f"url_image_{os.getpid()}_{timestamp}.{ext}"
+                            image_path = os.path.join(temp_dir, temp_filename)
+                            with open(image_path, "wb") as f:
+                                f.write(response.read())
+                            downloaded_paths.append(image_path)
+                except Exception as e:
+                    logger.warning(f"Failed to download image from URL {url_str}: {e}")
+            return downloaded_paths
+        except Exception as e:
+            logger.error(f"Unexpected error during URL downloads: {e}")
+            return downloaded_paths
 
     def show_paste_direction_dialog(self, items_to_process: list):
         try:
@@ -58,9 +121,11 @@ class ClipboardService:
                 return False
 
             def on_direction_selected(direction: str):
+                self._clear_canvas_paste_overlay()
                 slot_number = 1 if direction in ("up", "left") else 2
 
-                local_files, urls = split_clipboard_items(items_to_process)
+                local_files = [i for i in items_to_process if os.path.exists(i)]
+                urls = [i for i in items_to_process if i.startswith("http")]
 
                 if local_files and self.main_controller and self.main_controller.sessions:
                     self.main_controller.sessions.load_images_from_paths(
@@ -93,17 +158,38 @@ class ClipboardService:
                         self.main_controller.thread_pool.start(worker)
 
             from services.system.paste_direction_overlay import (
-                show_paste_direction_overlay,
+                PasteDirectionOverlay,
             )
 
-            self._paste_dialog = show_paste_direction_overlay(
-                parent=main_window,
-                image_label=self.widget.image_label,
+            self._clear_canvas_paste_overlay()
+            overlay = PasteDirectionOverlay(
+                main_window,
+                main_window.ui.image_label,
                 is_horizontal=self.store.viewport.view_state.is_horizontal,
-                language=self.store.settings.current_language,
-                on_direction=on_direction_selected,
-                on_cancelled=lambda: setattr(self, "_paste_dialog", None),
             )
+            overlay.set_language(self.store.settings.current_language)
+            self._paste_dialog = overlay
+            overlay.direction_selected.connect(on_direction_selected)
+            overlay.cancelled.connect(lambda: setattr(self, "_paste_dialog", None))
+            overlay.show_overlay()
             return True
         except Exception as e:
             logger.error(f"Overlay error: {e}")
+
+    def _clear_canvas_paste_overlay(self):
+        canvas = self._paste_overlay_canvas
+        self._paste_overlay_canvas = None
+        if canvas is None:
+            return
+        try:
+            canvas.pasteOverlayDirectionSelected.disconnect()
+        except Exception:
+            pass
+        try:
+            canvas.pasteOverlayCancelled.disconnect()
+        except Exception:
+            pass
+        try:
+            canvas.set_paste_overlay_state(False)
+        except Exception:
+            pass

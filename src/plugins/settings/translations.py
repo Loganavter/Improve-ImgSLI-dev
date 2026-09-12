@@ -12,20 +12,24 @@ _INTERPOLATION_KEY_MAP = {
 
 _THEME_KEYS = ("auto", "light", "dark")
 
+_RESOLUTION_KEY_MAP = {
+    "Original": "settings.original",
+    "8K (4320p)": "settings.resolution_8k",
+    "4K (2160p)": "settings.resolution_4k",
+    "2K (1440p)": "settings.resolution_2k",
+    "Full HD (1080p)": "settings.resolution_full_hd",
+}
+
 
 def apply_translations(dialog, lang: str) -> None:
-    title = dialog.tr("misc.settings", lang)
-    dialog.setWindowTitle(title)
-    title_bar = getattr(dialog, "_csd_title_bar", None)
-    set_title = getattr(title_bar, "set_title", None) if title_bar is not None else None
-    if callable(set_title):
-        set_title(title)
+    dialog.setWindowTitle(dialog.tr("misc.settings", lang))
     _apply_buttons(dialog, lang)
     _apply_simple_texts(dialog, lang)
     _apply_group_titles(dialog, lang)
     _apply_label_with_colon(dialog, lang)
     _rebuild_theme_combo(dialog, lang)
     _rebuild_font_family_combo(dialog, lang)
+    _rebuild_resolution_combo(dialog, lang)
     _rebuild_interpolation_combos(dialog, lang)
     _rebuild_rhi_backend_combo(dialog, lang)
 
@@ -37,12 +41,10 @@ def _apply_buttons(dialog, lang: str) -> None:
 
 def _apply_simple_texts(dialog, lang: str) -> None:
     candidates = [
-        ("radio_en", "settings.language_en"),
-        ("radio_ru", "settings.language_ru"),
-        ("radio_zh", "settings.language_zh"),
-        ("radio_pt_br", "settings.language_pt_br"),
         ("system_notifications_checkbox", "settings.system_notifications"),
         ("debug_checkbox", "settings.enable_debug_logging"),
+        ("show_workspace_tabs_checkbox", "settings.show_workspace_tabs"),
+        ("use_custom_decorations_checkbox", "settings.use_custom_decorations"),
         ("radio_ui_mode_beginner", "settings.ui_mode_beginner"),
         ("radio_ui_mode_advanced", "settings.ui_mode_advanced"),
         ("radio_ui_mode_expert", "settings.ui_mode_expert"),
@@ -74,12 +76,12 @@ def _apply_simple_texts(dialog, lang: str) -> None:
 def _apply_group_titles(dialog, lang: str) -> None:
     groups = [
         ("lang_group", "label.language"),
-        ("sys_group", "settings.appearance"),
         ("general_group", "settings.general"),
         ("appearance_group", "settings.appearance"),
         ("ui_mode_group", "settings.ui_mode"),
         ("font_group", "settings.ui_font"),
         ("other_ui_group", "settings.maximum_name_length_ui"),
+        ("res_group", "settings.display_cache_resolution"),
         ("interactive_opt_group", "settings.interactive_optimization"),
         ("render_backend_group", "settings.render_backend"),
         ("auto_group", "settings.auto"),
@@ -93,6 +95,9 @@ def _apply_group_titles(dialog, lang: str) -> None:
 
 
 def _apply_label_with_colon(dialog, lang: str) -> None:
+    theme_label = getattr(dialog, "theme_label", None)
+    if theme_label is not None:
+        theme_label.setText(dialog.tr("label.theme", lang) + ":")
     rhi_label = getattr(dialog, "lbl_rhi_backend", None)
     if rhi_label is not None:
         rhi_label.setText(dialog.tr("settings.render_backend_label", lang) + ":")
@@ -150,6 +155,20 @@ def _rebuild_font_family_combo(dialog, lang: str) -> None:
     for fam in QFontDatabase.families():
         combo.addItem(fam, fam)
     idx = combo.findData(current or "")
+    if idx != -1:
+        combo.setCurrentIndex(idx)
+
+
+def _rebuild_resolution_combo(dialog, lang: str) -> None:
+    combo = getattr(dialog, "combo_resolution", None)
+    if combo is None:
+        return
+    current = combo.currentData()
+    combo.clear()
+    for name_key, limit in AppConstants.DISPLAY_RESOLUTION_OPTIONS.items():
+        translated = dialog.tr(_RESOLUTION_KEY_MAP.get(name_key, name_key), lang)
+        combo.addItem(translated, userData=limit)
+    idx = combo.findData(current)
     if idx != -1:
         combo.setCurrentIndex(idx)
 

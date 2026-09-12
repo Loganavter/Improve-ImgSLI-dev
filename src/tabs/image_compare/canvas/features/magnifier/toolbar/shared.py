@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from domain.qt_adapters import ensure_visible_qcolor, qcolor_to_color
+from domain.qt_adapters import qcolor_to_color
 from tabs.image_compare.canvas.registry import registry
 
 
@@ -71,16 +71,16 @@ def show_canvas_feature_color_picker(
 def show_magnifier_divider_color_picker(presenter) -> None:
     def _post_apply(color):
         button = getattr(
-            getattr(presenter, "widget", None), "btn_magnifier_orientation", None
+            getattr(presenter, "ui", None), "btn_magnifier_orientation", None
         )
         if button is not None:
-            button.setUnderlineColor(ensure_visible_qcolor(color))
+            button.setUnderlineColor(color)
 
     show_canvas_feature_color_picker(
         presenter,
         key="magnifier_divider",
         setting_key="magnifier.divider.color",
-        title_key="image_compare.ui.choose_magnifier_divider_line_color",
+        title_key="ui.choose_magnifier_divider_line_color",
         command_id="settings.set_divider_color",
         post_apply=_post_apply,
     )
@@ -91,7 +91,7 @@ def show_magnifier_border_color_picker(presenter) -> None:
         presenter,
         key="magnifier_border",
         setting_key="magnifier.border.color",
-        title_key="image_compare.ui.choose_magnifier_border_color",
+        title_key="ui.choose_magnifier_border_color",
         command_id="settings.set_border_color",
     )
 

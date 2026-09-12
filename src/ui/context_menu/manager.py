@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 from sli_ui_toolkit.widgets import (
     ContextMenu,
@@ -13,22 +12,6 @@ from ui.context_menu.models import ContextMenuProvider, ContextMenuRequest
 
 logger = logging.getLogger("ImproveImgSLI")
 
-ContextMenuSurface = Literal["in_window", "popup"]
-
-
-def rmb_context_menu_surface() -> ContextMenuSurface:
-    """Surface for right-click menus opened via ``ContextMenuManager``.
-
-    Always ``"popup"``: RMB menus are real ``Qt.Popup`` top-levels so they
-    stack above ``UnifiedFlyout`` and behave like native menus. Historical
-    platform fallbacks (in-window on Wayland for the xdg_popup grab race, and
-    on Windows with ``sli-ui-toolkit < 3.1.4`` for the frameless-CSD alpha
-    bug) were deliberately removed so every context menu in the app is a
-    popup. The multi-compare ``IMGSLI_MC_RMB_SURFACE`` env override still
-    allows forcing ``in_window`` for A/B debugging.
-    """
-    return "popup"
-
 
 class ContextMenuManager:
     """Application-level router for native toolkit context menus."""
@@ -37,8 +20,6 @@ class ContextMenuManager:
         self._providers: list[ContextMenuProvider] = []
         self._active_request: ContextMenuRequest | None = None
         self._active_menu: ContextMenu | None = None
-        self._active_key: tuple[object, object] | None = None
-        self._ignore_outside_close = False
 
     def register_provider(self, provider: ContextMenuProvider) -> None:
         if provider not in self._providers:
@@ -67,144 +48,15 @@ class ContextMenuManager:
         entries = self.entries_for(request)
         if not entries:
             return None
-        key = (request.source_widget, ("request", request.target.kind, request.target.id))
-        return self._open_menu(
-            source_widget=request.source_widget,
-            global_pos=request.global_pos,
-            entries=entries,
-            key=key,
-            on_triggered=lambda action_id, data: self.execute(action_id, request, data),
-            request=request,
-        )
-
-    def open_entries(
-        self,
-        *,
-        source_widget,
-        global_pos,
-        entries: tuple[ContextMenuEntry, ...],
-        key: object,
-        on_triggered=None,
-    ) -> ContextMenu | None:
-        if not entries:
-            return None
-        return self._open_menu(
-            source_widget=source_widget,
-            global_pos=global_pos,
-            entries=entries,
-            key=(source_widget, key),
-            on_triggered=on_triggered,
-            request=None,
-        )
-
-    def _open_menu(
-        self,
-        *,
-        source_widget,
-        global_pos,
-        entries: tuple[ContextMenuEntry, ...],
-        key: tuple[object, object],
-        on_triggered,
-        request: ContextMenuRequest | None,
-    ) -> ContextMenu | None:
-        active = self._active_menu
-        if active is not None and active.isVisible():
-            if self._active_key == key:
-                active.hide()
-                self._clear_active_menu()
-                return None
-            active.hide()
-            self._clear_active_menu()
         self._active_request = request
-        self._active_key = key
-        self._ignore_outside_close = True
-        surface = (
-            request.surface
-            if request is not None and request.surface is not None
-            else rmb_context_menu_surface()
-        )
-        menu_parent = source_widget
-        if request is not None and request.menu_parent is not None:
-            menu_parent = request.menu_parent
         menu = ContextMenu(
-            menu_parent,
+            request.source_widget,
             entries=entries,
-            on_triggered=on_triggered,
-            surface=surface,
+            on_triggered=lambda action_id, data: self.execute(action_id, request, data),
         )
         self._active_menu = menu
-        menu.aboutToHide.connect(lambda: self._on_menu_hidden(menu))
-        try:
-            from ui.canvas_infra.rhi.rhi_focus import park_keyboard_focus_off_qrhi
-
-            park_keyboard_focus_off_qrhi()
-        except Exception:
-            pass
-        menu.popup_at(global_pos)
-        self.raise_active_menus()
+        menu.popup_at(request.global_pos)
         return menu
-
-    def _on_menu_hidden(self, menu: ContextMenu) -> None:
-        if self._active_menu is menu:
-            self._clear_active_menu()
-
-    def _clear_active_menu(self) -> None:
-        self._active_menu = None
-        self._active_request = None
-        self._active_key = None
-
-    def hide_active_menu(self) -> None:
-        active = self._active_menu
-        if active is not None and active.isVisible():
-            active.hide()
-        self._clear_active_menu()
-
-    def raise_active_menus(self) -> None:
-        """Keep the open context menu (and submenu) above sibling flyouts."""
-        active = self._active_menu
-        if active is None:
-            return
-        try:
-            if not active.isVisible():
-                return
-            from PySide6.QtWidgets import QWidget
-
-            QWidget.raise_(active)
-            submenu = getattr(active, "_open_submenu", None)
-            if submenu is not None and submenu.isVisible():
-                QWidget.raise_(submenu)
-        except RuntimeError:
-            self._clear_active_menu()
-        except Exception:
-            logger.exception("raise_active_menus failed")
-
-    def hide_active_menu_if_outside(self, global_pos) -> None:
-        if self._ignore_outside_close:
-            self._ignore_outside_close = False
-            return
-        if not self.active_menu_contains_global(global_pos):
-            self.hide_active_menu()
-
-    def active_menu_contains_global(self, global_pos) -> bool:
-        active = self._active_menu
-        if active is None or not active.isVisible():
-            return False
-        try:
-            return bool(active.contains_global(global_pos))
-        except Exception:
-            return False
-
-    def active_menu_has_focus_inside(self, widget) -> bool:
-        active = self._active_menu
-        if active is None or not active.isVisible() or widget is None:
-            return False
-        current = widget
-        while current is not None:
-            if current is active:
-                return True
-            parent = getattr(current, "parentWidget", None)
-            current = parent() if callable(parent) else None
-        return False
 
     def execute(self, action_id: str, request: ContextMenuRequest, data: object = None) -> bool:
         for provider in tuple(self._providers):
@@ -232,23 +84,6 @@ def get_context_menu_manager() -> ContextMenuManager:
 
 def open_context_menu(request: ContextMenuRequest) -> ContextMenu | None:
     return get_context_menu_manager().open(request)
-
-
-def open_context_menu_entries(
-    *,
-    source_widget,
-    global_pos,
-    entries: tuple[ContextMenuEntry, ...],
-    key: object,
-    on_triggered=None,
-) -> ContextMenu | None:
-    return get_context_menu_manager().open_entries(
-        source_widget=source_widget,
-        global_pos=global_pos,
-        entries=entries,
-        key=key,
-        on_triggered=on_triggered,
-    )
 
 
 def install_context_menu_provider(provider: ContextMenuProvider) -> ContextMenuProvider:

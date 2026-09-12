@@ -16,6 +16,7 @@ class RenderConfig:
     zoom_interpolation_method: str = "BILINEAR"
     movement_interpolation_method: str = "BILINEAR"
     interactive_movement_interpolation_method: str = "BILINEAR"
+    display_resolution_limit: int = 0
     jpeg_quality: int = 95
 
     include_file_names_in_saved: bool = False
@@ -37,6 +38,7 @@ class RenderConfig:
             "zoom_interpolation_method": self.zoom_interpolation_method,
             "movement_interpolation_method": self.movement_interpolation_method,
             "interactive_movement_interpolation_method": self.interactive_movement_interpolation_method,
+            "display_resolution_limit": self.display_resolution_limit,
             "jpeg_quality": self.jpeg_quality,
             "include_file_names_in_saved": self.include_file_names_in_saved,
             "font_size_percent": self.font_size_percent,
@@ -58,66 +60,6 @@ class RenderConfig:
             "text_placement_mode": self.text_placement_mode,
             "max_name_length": self.max_name_length,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict | None) -> "RenderConfig":
-        cfg = cls()
-        if not data:
-            return cfg
-
-        def _color(value, default: Color) -> Color:
-            from domain.qt_adapters import ensure_visible_color
-
-            if value is None:
-                return default
-            if isinstance(value, Color):
-                return ensure_visible_color(value, fallback=default)
-            if isinstance(value, (list, tuple)) and len(value) >= 3:
-                a = int(value[3]) if len(value) > 3 else 255
-                return ensure_visible_color(
-                    (int(value[0]), int(value[1]), int(value[2]), a),
-                    fallback=default,
-                )
-            if isinstance(value, dict):
-                return ensure_visible_color(
-                    (
-                        int(value.get("r", default.r)),
-                        int(value.get("g", default.g)),
-                        int(value.get("b", default.b)),
-                        int(value.get("a", default.a)),
-                    ),
-                    fallback=default,
-                )
-            return default
-
-        for key in (
-            "interpolation_method",
-            "zoom_interpolation_method",
-            "movement_interpolation_method",
-            "interactive_movement_interpolation_method",
-            "text_placement_mode",
-        ):
-            if key in data and data[key] is not None:
-                setattr(cfg, key, str(data[key]))
-        for key in (
-            "jpeg_quality",
-            "font_size_percent",
-            "font_weight",
-            "text_alpha_percent",
-            "max_name_length",
-        ):
-            if key in data and data[key] is not None:
-                setattr(cfg, key, int(data[key]))
-        for key in ("include_file_names_in_saved", "draw_text_background"):
-            if key in data and data[key] is not None:
-                setattr(cfg, key, bool(data[key]))
-        if "file_name_color" in data:
-            cfg.file_name_color = _color(data["file_name_color"], cfg.file_name_color)
-        if "file_name_bg_color" in data:
-            cfg.file_name_bg_color = _color(
-                data["file_name_bg_color"], cfg.file_name_bg_color
-            )
-        return cfg
 
 class SessionData:
     """Generic container for a tab's per-session, non-``state_slots`` data.
@@ -252,12 +194,8 @@ class ViewState:
     text_bg_visual_width: float = 0.0
 
     def clone(self):
-        # Long-term Store lock fix: avoid heavy deepcopy inside the critical
-        # section. ``canvas_widget_state`` values are immutable feature states,
-        # so a shallow dict copy is sufficient and keeps the prepare step
-        # cheap. Deepcopy (if ever needed) is done outside Dispatcher._lock.
         new_obj = copy.copy(self)
-        new_obj.canvas_widget_state = dict(self.canvas_widget_state)
+        new_obj.canvas_widget_state = copy.deepcopy(self.canvas_widget_state)
         return new_obj
 
 class ViewportState:

@@ -13,10 +13,10 @@ class SettingsDialogContext:
     max_limit: int
     debug_mode_enabled: bool
     system_notifications_enabled: bool
+    current_resolution_limit: int
     tr_func: Callable
     current_ui_font_mode: str = "builtin"
     current_ui_font_family: str = ""
-    current_ui_scale_factor: float = 1.0
     current_ui_mode: str = "beginner"
     optimize_magnifier_movement: bool = True
     movement_interpolation_method: str = "BILINEAR"
@@ -31,7 +31,6 @@ class SettingsDialogContext:
     current_video_fps: int = 60
     rhi_backend: str = "default"
     store: object | None = None
-    keyboard_overrides: dict[str, str] = field(default_factory=dict)
     tab_extras: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def get_section(self, section_id: str) -> dict[str, Any]:

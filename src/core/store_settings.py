@@ -15,16 +15,15 @@ class SettingsState:
     theme: str = "auto"
     ui_font_mode: str = "builtin"
     ui_font_family: str = ""
-    ui_scale_factor: float = 1.0
     ui_mode: str = "beginner"
     debug_mode_enabled: bool = False
     system_notifications_enabled: bool = True
     auto_crop_black_borders: bool = True
     video_recording_fps: int = 60
     video_editor_preview_render_scale: float = 1.0
+    show_workspace_tabs: bool = True
     rhi_backend: str = "default"
-    # Sparse map action_id → PortableText chord ("" = explicitly unbound).
-    keyboard_overrides: dict[str, str] = field(default_factory=dict)
+    use_custom_decorations: bool = True
 
     export_use_default_dir: bool = True
     export_default_dir: str | None = None
@@ -49,7 +48,6 @@ class SettingsState:
     export_comment_text: str = ""
     export_comment_keep_default: bool = False
     export_resolution_scale: float = 1.0
-    export_suppress_untested_resolution_warning: bool = False
 
     window_width: int = 1024
     window_height: int = 768
@@ -70,17 +68,3 @@ class WorkerStoreSnapshot:
         self.viewport = viewport
         self.settings = settings
         self.document = document
-
-    def get_session_state_slot(self, slot: str):
-        """Store-compatible slot access for worker threads.
-
-        Export (`export_image`, `build_live_frame_snapshot`,
-        `_get_current_display_name`) runs on a snapshot, not the live
-        Store — without this it crashed with
-        `AttributeError: ... has no attribute 'get_session_state_slot'`
-        and the whole export failed. Only "document" exists on a snapshot;
-        anything else is a loud KeyError (never silent wrong data).
-        """
-        if slot == "document":
-            return self.document
-        raise KeyError(f"WorkerStoreSnapshot has no session slot: {slot!r}")

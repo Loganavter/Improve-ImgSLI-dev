@@ -23,7 +23,7 @@ flowchart LR
 | `core/` | bootstrap, dispatcher, store, state_management (reducers/actions), plugin_system, event bus |
 | `domain/` | Qt-agnostic data shapes (workspace/session model, geometry types) and Qt adapters |
 | `ui/` | main window shell, presenters, canvas infra shared across tabs, dialogs, transient UI |
-| `plugins/` | app-wide capability modules not tied to a single tab: export, settings, help, image_properties, layout |
+| `plugins/` | capability modules that are not tied to a single tab: export, settings, help, image_properties, layout, video file I/O |
 | `tabs/` | self-contained workspace modes (image_compare, multi_compare, session_picker), each owning its own widget tree, state slot, and canvas features |
 | `shared/` | app-specific rendering and image-processing utilities (analysis, offscreen render, interpolation) |
 | `shared_toolkit/` | vendored `sli-ui-toolkit` — base widgets, theming, i18n, gesture resolvers |
@@ -61,24 +61,19 @@ flowchart TB
 sequenceDiagram
     participant Main as __main__.py
     participant Ctx as ApplicationContext
-    participant Startup as MainWindowStartupRuntime
     participant Composer as MainWindowComposer
 
     Main->>Main: configure QRhi backend / Qt logging
     Main->>Ctx: create QApplication, MainWindow(runtime_flags)
-    Ctx->>Ctx: build core services (Store, Dispatcher, EventBus)
+    Ctx->>Ctx: build core services (Store, Dispatcher, EventBus, PluginUIRegistry)
     Ctx->>Ctx: load persistent state (SettingsManager -> Store)
-    Ctx->>Ctx: discover_plugins(tier=bootstrap) + initialize
-    Startup->>Startup: TabRegistry.discover(tier=bootstrap)
-    Startup->>Composer: compose main window (lazy import)
-    Composer->>Composer: GeometryManager, MainController, Presenter
-    Startup->>Startup: QRhi first-frame gate -> startupVisualReady
-    Startup->>Ctx: load_deferred_plugins() via QTimer.singleShot(0)
-    Ctx->>Ctx: discover_plugins(tier=deferred) + register_and_start
-    Startup->>Startup: TabRegistry.discover(tier=deferred), install_missing_pages
+    Ctx->>Ctx: build runtime services (PluginRegistry, PluginDefinitionRegistry)
+    Ctx->>Ctx: discover + initialize plugins (PluginCoordinator, SessionManager)
+    Ctx->>Composer: compose main window
+    Composer->>Composer: GeometryManager, UIResourceManager, MainController, EventHandler, Presenter
 ```
 
-`core/bootstrap.py` (`ApplicationContext`) owns bootstrap-tier plugin initialization; deferred plugins load after the startup cover is dismissed. `ui/main_window/composer.py` (`MainWindowComposer`) is imported lazily inside `create_window_dependent_components()`.
+`core/bootstrap.py` (`ApplicationContext`) owns steps up through plugin initialization; `ui/main_window/composer.py` (`MainWindowComposer`) assembles the window shell on top of it.
 
 ## Main Data Flow
 
@@ -116,17 +111,6 @@ A tab is a self-contained workspace mode: it owns its widget tree, a state slot 
 
 Each tab implements a `TabContract` (`tab.py`) responsible for page creation and session lifecycle.
 
-### Extending tab capabilities
-
-Beyond the fixed lifecycle hooks (`create_page`, `on_activated`, `accepts_drop`, ...),
-host code and tabs exchange capabilities through a small set of sanctioned
-mechanisms — `create_service` (the default), `notify_all` (broadcast-only),
-and `CanvasGeometryProvider` (typed protocol, canvas hot-path only). Full
-reference, current status, and the "never do this instead" rules (no 11th
-abstract method on `TabContract`, no `getattr(widget, "btn_x", None)`
-implied lookups) live in [tabs/capability-mechanisms.md](tabs/capability-mechanisms.md) —
-that is the single source of truth for this topic, not duplicated here.
-
 ## Canvas Stack
 
 The canvas is treated as its own subsystem per tab because it mixes interaction, scene building, and QRhi rendering. Shared canvas infrastructure lives in `ui/canvas_infra/` and `ui/canvas_presentation/`; each canvas-owning tab (currently `image_compare`) has its own `canvas/` package built on top of that infrastructure.
@@ -147,15 +131,12 @@ flowchart LR
 | Part | Role |
 |---|---|
 | `ui/canvas_infra/` | shared viewport geometry/zoom/focus, scene hit-testing, stacking rules, gesture resolution — used by all canvas-owning tabs |
-| `ui/canvas_infra/viewport/contract.py` | `CanvasGeometryProvider` protocol — the one `TabContract`-adjacent extension point for hot-path canvas coordinate math (see "Extending tab capabilities" above) |
 | `ui/canvas_presentation/` | shared render-plan contracts (`CanvasRenderPlan`, `CompositionNode`, `plan_applicator`) |
 | `tabs/image_compare/canvas/` | tab-specific `CanvasWidget` (QRhiWidget), renderer, scene, interaction, state, shaders, textures |
 | `tabs/image_compare/canvas/presentation/` | tab-specific render plan assembly |
 | `tabs/image_compare/canvas/features/` | auto-discovered canvas features (masks, analysis, rulers, guides, etc.) |
 
-Rendering uses **QRhi**, not raw OpenGL — see [rendering/index.md](rendering/index.md) for the feature contract and auto-discovery mechanism.
-
-Comparison letterbox (`image_compare`): `update_common_letterbox_geometry` (`canvas/texture_parts/base_images.py:189`) / `_update_comparison_geometry` (`presenters/image_canvas/background_parts/render_flow.py:75`) compute eager envelope `pw,ph = max(w1,w2), max(h1,h2)` from `get_image_dims` and derive a single `resolve_canvas_content_geometry(cw,ch,pw,ph)` fitted rect for both sides — `letterbox` stable from first `gap draw_plan` (no `UNION_LETTERBOX_HOLD_MS` / `more_pending` freeze for geometry; `HOLD` + `atomic` remain only for pixel fallback LOD in `rhi_renderer/renderer.py:463`).
+Rendering uses **QRhi**, not raw OpenGL — see [QRHI_CANVAS_FEATURES.md](QRHI_CANVAS_FEATURES.md) for the feature contract and auto-discovery mechanism.
 
 ### Important constraint
 
@@ -163,9 +144,7 @@ Canvas features are discovered automatically from `tabs/<tab>/canvas/features/<n
 
 ## Plugins
 
-Anything with `@plugin(...)` participates in the same lifecycle — both
-app-wide modules under `plugins/` and tab/session modules under `tabs/`.
-Full inventory (tiers, interfaces, layouts): [PLUGINS.md](PLUGINS.md).
+Plugins hold app-level capabilities that are not tied to a single tab.
 
 ```mermaid
 flowchart LR
@@ -175,33 +154,22 @@ flowchart LR
     Act --> Shutdown["Shutdown Cleanly"]
 ```
 
-### App-wide (`src/plugins/`)
-
 | Plugin | Role |
 |---|---|
+| `plugins/export/` | export pipeline integration (image/video) |
 | `plugins/settings/` | settings dialog + `SettingsManager` (disk persistence) |
-| `plugins/layout/` | UI-mode bridge; resolves tab `layout_manager` via registry |
-| `plugins/onboarding/` | first-run UI-mode picker (startup stack); uses settings `is_first_run` |
-| `plugins/export/` | export pipeline integration (image/video) + recording commands |
-| `plugins/help/` | in-app help dialog |
+| `plugins/help/` | in-app help widget |
 | `plugins/image_properties/` | image metadata display |
+| `plugins/layout/` | multi-column / side-by-side layout management |
 
-### Tab / session plugins (`src/tabs/`)
-
-| Plugin name | Path | Role |
-|---|---|---|
-| `comparison` | `tabs/image_compare/` | primary two-image compare session (incl. analysis services) |
-| `session_picker` | `tabs/session_picker/` | transient new-session switcher |
-| `multi_compare` | `tabs/multi_compare/` | grid multi-image compare session |
-| `video_editor` | `tabs/image_compare/plugins/video_editor/` | tab-owned video editor (deferred, before export) |
-
-Note: `video_editor` (dialogs, timeline, keyframing, recorder/export flows, and
-preview-canvas integration) is tab-owned under
-`tabs/image_compare/plugins/video_editor/` — not a `plugins/<name>/` entry —
-because it has no consumer outside `image_compare`. Discovery still finds it
-via nested filesystem scan (`discovery_scan.iter_plugin_entry_points`); the
-plugin lifecycle (`get_plugin("video_editor")`, event bus) is the same as for
-app-wide plugins.
+Note: `video_editor` (file I/O, dialogs, timeline, keyframing, and
+preview-canvas integration) lives under `tabs/image_compare/plugins/video_editor/` —
+it is tab-owned code, not a `plugins/<name>/` entry, since it has no consumer
+outside `tabs/image_compare/`. It still registers itself as a `Plugin` (via
+an explicit import from `tabs/image_compare/plugin.py`, since
+`PluginRegistry`'s scan of `tabs/` is one level deep) so the rest of the
+plugin lifecycle (event bus, `get_plugin("video_editor")` lookups) is
+unaffected by where the code lives.
 
 The keyframe snapshot contracts (`FrameSnapshot`, `ChannelDescriptor`,
 `TrackDescriptor`, `ToolDescriptor`, `KeyframeToolAdapter`) live in
@@ -226,10 +194,6 @@ The store is intentionally small at the top level (`core/store.py`).
 | `settings` | theme, language, performance and UI preferences |
 | `workspace` | sessions/tabs, active session, per-session state slots |
 | `runtime_cache` | ephemeral, non-persistent GPU/rendering cache (`ViewportRuntimeCache`) |
-
-### Image-compare SlotSource vs PipelineView (Phase 5–6)
-
-`DocumentModel` (`tabs/image_compare/state/document.py`) is now a **SlotSource** only — list + index + path. Pixel-bearing fields (`full_res_image*`, `preview_image*`, `original_image*`) are **PipelineView** (`tabs/image_compare/pipeline/pipeline.py:PipelineView`) published via a single `Store.transact(Transaction)` from `PipelineCache` (LRU 8, memo by `(uid1,uid2,method)`). Browsing is `O(1)` cache hit; `rehydrate_session` restores only `SlotSource` paths (0 decodes). `ImageSession` per `session_id` (`pipeline/session.py`) holds `SlotSource` + `ImagePipeline` + `AbortSignal`. `SessionController` (`_session_controller.py:287` Phase 6) is a ≤300 LOC thin owner (MethodObject split per CODE_PATTERNS.md:161) forwarding to `use_cases/canvas_invalidate, image_decode, document_slot, metrics_trigger, session_api, session_init` + `ui_batcher` + `ImageSession`. Chrome stale is single `StaleGate` (`use_cases/stale_gate.py`) merging `widget._render_stale/_metrics_stale` and `chrome_sync._render_stale`. See `plan_image_pipeline.md` Phase 5 and `plan_loading_simplification.md` Phase 4.
 
 ### Rules
 
@@ -276,5 +240,5 @@ For onboarding into the codebase, read files in this order:
 2. `src/ui/main_window/composer.py`
 3. `src/core/state_management/` and [STORE.md](STORE.md)
 4. `src/ui/canvas_infra/` and `src/ui/canvas_presentation/`
-5. `src/tabs/image_compare/tab.py`, then `src/tabs/image_compare/canvas/` and [rendering/index.md](rendering/index.md)
+5. `src/tabs/image_compare/tab.py`, then `src/tabs/image_compare/canvas/` and [QRHI_CANVAS_FEATURES.md](QRHI_CANVAS_FEATURES.md)
 6. the specific plugin or tab you want to modify

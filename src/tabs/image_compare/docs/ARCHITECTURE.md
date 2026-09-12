@@ -59,6 +59,7 @@ Current feature packages include:
 - `guides`
 - `filename_overlay`
 - `capture`
+- `paste_overlay`
 
 Feature packages register through the generic canvas contracts in
 `src/ui/canvas_infra/scene/`, but the feature implementations are tab-local.
@@ -70,12 +71,12 @@ The old shared/export split has been collapsed into tab-owned services:
 
 | Responsibility | Current owner |
 |---|---|
-| Still image export | `services/image_export/` (`service.py`, `context_builder.py`, …) |
-| Export context construction | `services/image_export/context_builder.py` |
+| Still image export | `services/image_export.py` |
+| Export context construction | `services/export_context_builder.py` |
 | GPU export scene | `services/gpu_export_scene.py` |
 | Snapshot render plan | `services/snapshot_render_plan_builder.py` |
 | Live snapshot | `services/live_snapshot.py` |
-| Video snapshot render | `services/video_snapshot_rendering/` |
+| Video snapshot render | `services/video_snapshot_rendering.py` |
 | Video editor export pipeline | `video_editor/services/` |
 
 When changing visual output, inspect live canvas, still export, and video

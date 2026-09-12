@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .composition import CompositionNode, CompositionPlan
+from .composition import CompositionNode
 
 @dataclass(frozen=True)
 class CaptureCircle:
@@ -81,16 +81,11 @@ class CanvasRenderPlan:
     """
     Set by the plan builder (never inferred downstream). ``True`` means
     ``image1``/``image2`` already have virtual-canvas padding baked into
-    their pixels (dimensions == ``canvas_w x canvas_h``). ``False`` (default)
-    means they are the raw, unpadded source pair.
-    """
-    geometry_letterbox: bool = False
-    """
-    Export / video snapshot prepare: ``canvas_w/h`` is the authoritative
-    padded framebuffer and unpadded images are placed via
-    ``overlay_clip_rect`` + shader letterbox. Must stay ``False`` on the
-    live main-window canvas — live may set ``overlay_clip_rect`` for
-    uncrop/magnifier without making the canvas the letterbox owner.
+    their pixels (dimensions == ``canvas_w x canvas_h``, real content offset
+    inside via ``render_scene.overlay_clip_rect``) — the export/video-snapshot
+    shape. ``False`` (default) means they are the raw, unpadded source pair —
+    the live/interactive shape, where ``canvas_w/h`` may still exceed the
+    image for overlay-positioning (magnifier) purposes only.
     """
     composition_root: CompositionNode | None = None
     """
@@ -101,7 +96,7 @@ class CanvasRenderPlan:
     handlers; the legacy fields hold a single-image placeholder so existing
     code paths that read them remain safe.
     """
-    composition_plan: CompositionPlan | None = None
+    composition_plan: object | None = None
     """
     Optional source ``CompositionPlan`` (see composition.py), carried through
     verbatim. When set, the applicator uses it as-is instead of rebuilding a

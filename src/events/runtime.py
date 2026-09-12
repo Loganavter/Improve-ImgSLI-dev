@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
+
+from PySide6.QtCore import QTimer
 
 from events.app_event import GlobalKeyboardHandler
 from events.app_event.null_movement import NullKeyboardMovementController
 from events.keyboard_state_service import KeyboardStateService
 from ui.canvas_infra.scene.registry import get_canvas_registry
 
-logger = logging.getLogger("ImproveImgSLI")
-
 @dataclass(slots=True)
 class EventHandlerRuntime:
     interactive_movement: Any
     keyboard_handler: GlobalKeyboardHandler
     keyboard_state: KeyboardStateService
+    resize_timer: QTimer
 
 class _LazyKeyboardMovementController:
     """Resolves the real per-session movement controller on first use.
@@ -53,12 +53,6 @@ class _LazyKeyboardMovementController:
                     parent=self._parent,
                 )
             except Exception:
-                logger.error(
-                    "keyboard_movement controller build failed for session %r; "
-                    "falling back to no-op controller",
-                    session_type,
-                    exc_info=True,
-                )
                 controller = NullKeyboardMovementController()
         self._built_by_session_type[session_type] = controller
         return controller
@@ -81,8 +75,11 @@ def build_event_handler_runtime(store, presenter_provider, parent=None) -> Event
         movement_controller=interactive_movement,
         keyboard_state=keyboard_state,
     )
+    resize_timer = QTimer(parent)
+    resize_timer.setSingleShot(True)
     return EventHandlerRuntime(
         interactive_movement=interactive_movement,
         keyboard_handler=keyboard_handler,
         keyboard_state=keyboard_state,
+        resize_timer=resize_timer,
     )

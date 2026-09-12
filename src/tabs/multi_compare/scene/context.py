@@ -7,17 +7,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ProjectedLayer:
-    """One composition layer projected for a frame.
-
-    ``rect_fb`` stays in framebuffer pixels for CPU overlays (labels,
-    dividers). Image draws use ``slot_rect_uv`` + context letterbox in the
-    fragment shader on a fullscreen quad — not per-slot NDC vertices.
-    """
+    """One composition layer projected into framebuffer coordinates."""
 
     layer: object
     slot_id: int
     rect_fb: tuple[float, float, float, float]
-    slot_rect_uv: tuple[float, float, float, float]
     fit_x: float
     fit_y: float
     zoom: float

@@ -123,9 +123,6 @@ def test_snapshot_render_plan_export_preview_parity_matrix(
         return RenderScene(
             diff_mode_active=mode != "off",
             diff_mode_int={"off": 0, "highlight": 1, "grayscale": 2, "edges": 3, "ssim": 4}[mode],
-            # Nonzero channel-mode flag simulates a channel view (R/G/B) being
-            # active in the export scene; a precomputed diff base must reset it.
-            channel_mode_int=2 if mode != "off" else 0,
             zoom_interpolation_method=get_effective_export_interpolation_method(store.viewport),
         )
 
@@ -143,8 +140,6 @@ def test_snapshot_render_plan_export_preview_parity_matrix(
             render_scene=kwargs["render_scene"],
             display_cache_key=kwargs["display_cache_key"],
             fill_rgba=kwargs["fill_color"],
-            image_is_padded_composite=kwargs.get("image_is_padded_composite", False),
-            geometry_letterbox=kwargs.get("geometry_letterbox", False),
         )
 
     monkeypatch.setattr(builder_module, "build_canvas_plan", _capture_build_canvas_plan)
@@ -173,35 +168,44 @@ def test_snapshot_render_plan_export_preview_parity_matrix(
     assert captured["pad_top"] == canvas_geometry.padding_top
     assert plan.fill_rgba == fill_rgba
     assert plan.render_scene.zoom_interpolation_method == "LANCZOS"
-    assert plan.image_is_padded_composite is False
-    assert plan.geometry_letterbox is True
-    if fit_content:
-        assert getattr(plan.render_scene, "overlay_clip_rect", None) == (
-            canvas_geometry.padding_left,
-            canvas_geometry.padding_top,
-            canvas_geometry.image_width,
-            canvas_geometry.image_height,
-        )
 
     if diff_mode == "off":
         assert plan.render_scene.diff_mode_int == 0
         assert plan.display_cache_key == ("display",)
-        # Unpadded sources — fill/pads live in geometry + clear color, not pixels.
-        assert captured["image1"].getpixel((0, 0)) == (1, 2, 3, 255)
-        assert captured["image1"].size == (
-            canvas_geometry.image_width,
-            canvas_geometry.image_height,
-        )
+        if fit_content:
+            assert captured["image1"].getpixel((0, 0)) == fill_rgba
+            assert captured["image1"].getpixel((canvas_geometry.padding_left, 0)) == (
+                1,
+                2,
+                3,
+                255,
+            )
+        else:
+            assert captured["image1"].getpixel((0, 0)) == (1, 2, 3, 255)
         return
 
     assert plan.render_scene.diff_mode_int == 0
-    assert plan.render_scene.diff_mode_active is False
-    assert plan.render_scene.channel_mode_int == 0
     assert plan.display_cache_key[0] == "diff_base"
     assert captured["image1"] is captured["image2"]
     assert store.viewport.session_data.render_cache.cached_diff_image is diff_image
-    assert captured["image1"].getpixel((0, 0)) == (240, 10, 20, 255)
-    assert captured["image1"].size == (
-        canvas_geometry.image_width,
-        canvas_geometry.image_height,
-    )
+    if fit_content:
+        assert captured["image1"].getpixel((0, 0)) == fill_rgba
+        assert captured["image1"].getpixel((canvas_geometry.padding_left, 0)) == (
+            240,
+            10,
+            20,
+            255,
+        )
+    else:
+        assert captured["image1"].getpixel((0, 0)) == (240, 10, 20, 255)
+
+def test_prescale_pair_keeps_mismatched_sources_at_one_shared_target_size():
+    """QRHI_CANVAS_FEATURES.md: video prescale must not downscale low-res side then upscale it."""
+    img1 = Image.new("RGBA", (5760, 4288), (0, 0, 0, 255))
+    img2 = Image.new("RGBA", (1440, 1072), (255, 255, 255, 255))
+
+    out1, out2 = prescale_pair(img1, img2, 1451, 1080, "LANCZOS")
+
+    assert out1.size == out2.size
+    assert out2.size != (384, 285)
+    assert out2.width >= 1400

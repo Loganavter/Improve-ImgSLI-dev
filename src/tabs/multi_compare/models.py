@@ -6,24 +6,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Union
 
+import numpy as np
+
 
 @dataclass
 class CompareSlot:
-    """One image slot referenced by a Leaf in the layout tree.
-
-    Path-only ``SlotSource`` (B1, IC ``ImageItem`` parity): pixels live in
-    the session-owned :class:`pipeline.cache.MultiComparePixelCache`
-    (keyed ``(normpath, mtime, size)``), never here — so Redux snapshots
-    (incl. undo) stay small, serializable, and free of closable stores.
-    ``revision`` bumps once per decoded-tier arrival (``NoteSlotPixels``)
-    so tier fills still produce a new state object for subscribers without
-    carrying any pixels through the reducer.
-    """
+    """One image slot referenced by a Leaf in the layout tree."""
 
     id: int
     path: Path | None = None
     label: str = ""
-    revision: int = 0
+    image: np.ndarray | None = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self.image is not None
 
 
 @dataclass
@@ -67,18 +64,13 @@ class MultiCompareLabelSettings:
     text_alpha_percent: int = 100
 
 
-# Default / safe fallback when unset or alpha is zero — match image_compare /
-# domain.qt_adapters.DEFAULT_VISIBLE_COLOR (opaque white).
-DEFAULT_DIVIDER_COLOR_RGBA: tuple[int, int, int, int] = (255, 255, 255, 255)
-
-
 @dataclass(frozen=True)
 class MultiCompareDividerSettings:
     """User-controllable divider line styling for multi-compare splits."""
 
     visible: bool = True
     thickness: int = 4
-    color_rgba: tuple[int, int, int, int] = DEFAULT_DIVIDER_COLOR_RGBA
+    color_rgba: tuple[int, int, int, int] = (180, 180, 180, 230)
 
 
 def leaves(node: LayoutNode | None) -> list[LeafNode]:

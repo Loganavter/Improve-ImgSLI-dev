@@ -92,48 +92,6 @@ any file outside `viewport/zoom.py`/`viewport/pipeline.py` that combines
 — the exact shape all three deleted duplicates had. A new hand-rolled copy of
 either fails CI immediately instead of silently drifting.
 
-### Comparison letterbox: eager max envelope (one fitted rect)
-
-The comparison tab (two images side-by-side) does **not** build its letterbox
-by fitting each image separately and unioning the two fitted rects
-(`min(x)+max(x+w)` style). That approach produced a size-dependent extra width
-(e.g. `1138` vs the per-image `1080` fitted width) and forced a late resize.
-
-Instead it is an **eager envelope**, single owner, stable from the first frame:
-
-```python
-pw, ph = max(w1, w2), max(h1, h2)   # eager, from get_image_dims(i1/i2)
-geometry = resolve_canvas_content_geometry(
-    widget_width=cw, widget_height=ch,
-    image_width=pw, image_height=ph, virtual_layout=None,
-)
-letterbox = (ux/cw, uy/ch, uw/cw, uh/ch)  # same for both slots
-```
-
-- `cw,ch` — widget size (`_canvas_dims`, export canvas viewport when tiling).
-- `w1,h1,w2,h2` — `get_image_dims()` of whatever pixels are already available
-  (preview `QImage`, full-res `TiledPixelStore`, or unified store). If both
-  sides have a size, `pw,ph` is the max — no store `predicted_unified_size`
-  needed, no waiting for the unify worker.
-- `resolve_canvas_content_geometry(cw,ch,pw,ph)` returns one fitted rect.
-  Both `state._letterbox_params[0/1]`, `state._content_rect_px` and
-  `state._inner_content_rect_px` receive that same rect (`outer == inner`
-  with `virtual_layout=None`), dispatched via `store.transact()` — see
-  `tabs/image_compare/canvas/texture_parts/base_images.py:189`
-  `update_common_letterbox_geometry` and
-  `presenters/image_canvas/background_parts/render_flow.py:75`
-  `_update_comparison_geometry`.
-- Fallback: when only one side has a size, fit that single image (no `max`).
-
-Result: `letterbox` is stable from the first `gap draw_plan` (the `44.007`
-frame that already has two previews), not after a `350 ms` hold. There is no
-`UNION_LETTERBOX_HOLD_MS` / `more_pending` freeze for geometry — `HOLD`
-and the `atomic` fallback-LOD guard remain only for **pixel** coverage
-(`rhi_renderer/renderer.py:463` `resolve_fallback_lod(atomic=True)` /
-`more_pending` tiling), not for rect placement. The old
-`union fitted rects: min(x)..max(x+w)` description and the `1138 vs 1080`
-example no longer apply and must not be reintroduced.
-
 ## Canvas-px overlay model
 
 Overlay geometry (magnifier center, capture rect, guide endpoint) uses
@@ -171,25 +129,15 @@ by combining primitives by hand.**
 
 - For overlay geometry: call the existing canvas-px → widget-px conversion.
   Don't hand-roll `sr`.
-- For base-image-anchored geometry:
-  - **Image halves** use store ``split_position_visual`` in letterboxed UV
-    inside ``base.frag`` (magnifier ``internalSplit`` parity).
-  - **White divider line** uses the view-transformed letterbox AABB
-    (``map_content_rect_through_view`` / ``clip.origin + clip.size * spit``)
-    and clips in the fragment shader — do not rely on live QRhi content
-    scissor for that segment.
-  - ``compute_zoom_display_split_position`` is the shared content→screen
-    formula when you need a full-widget fraction; do not clamp it to
-    ``[0, 1]``, and do not recombine its output with ``content_rect_px`` /
-    zoom by hand.
-  - Semantic ``split_position_visual`` stays in content ``[0, 1]``. At
-    ``zoom <= 1`` it is not rewritten on pan/zoom; at ``zoom > 1`` it is
-    rewritten (still clamped) so the screen spit stays fixed — see
-    [zoom-pan.md](zoom-pan.md) and the divider-zoom-pan-detach investigation
-    (`src/tabs/image_compare/docs/investigations/divider-zoom-pan-detach.md`
-    in `improve-imgsli-internal-docs`, private).
-
-  Details and failure modes: same investigation as above.
+- For base-image-anchored geometry: call the viewport-layer formula
+  (`get_display_split_position` / `compute_display_split_position` /
+  `compute_zoom_split_position_for_view_transform`) and treat its output as
+  **already fully resolved** — already widget-normalized, already
+  letterbox-aware, already zoom/pan-aware. Do not take that output and
+  combine it *again* with `content_rect_px`, widget dimensions, or zoom by
+  hand "just to be sure." If the formula didn't already do what you need,
+  the fix belongs inside the formula (one owner), not layered on top of its
+  output (two owners silently disagreeing).
 
 Violating this rule looks identical in both models: correct-looking code
 that's subtly wrong by an amount proportional to distance from some neutral
@@ -212,19 +160,43 @@ inside the formula and once again by the caller.
   if a pass's `prepare()` step is reasoning about DPR, that's a sign the
   concern leaked one layer too early.
 
-## QRhi / compositing surprises (not coordinate math)
+## `isYUpInFramebuffer()` is not the whole Y-flip story for offscreen widgets
 
-Two frequent traps look like “wrong `content_rect_px` / wrong zoom” but are
-downstream of perfect CPU numbers:
+`resolve_rhi_scissor()` (`tabs/image_compare/canvas/rhi_feature_common.py`)
+flips a scissor's Y when `rhi.isYUpInFramebuffer()` is true — correct for a
+widget that eventually gets composited on screen. But `QRhiWidget` always
+renders into a backing texture regardless of visibility; a **visible**
+widget goes through an extra compositing step (its backing texture is
+drawn into the top-level window, e.g. via `QPainter`) that silently absorbs
+the backend's Y convention. A widget that is never shown — created with
+`Qt.WidgetAttribute.WA_DontShowOnScreen` purely to call `grabFramebuffer()`
+on it (the GPU export/preview canvas, `gpu_export_canvas` in
+`plugins/export/services/gpu_export_proxy.py`) — never runs that
+compositing step, so the raw scissor Y must be flipped by hand even when
+`isYUpInFramebuffer()` reports `false` for that same RHI backend.
 
-- **Offscreen scissor Y-flip** — visible widgets absorb backend Y in
-  compositing; `WA_DontShowOnScreen` grab canvases do not.
-- **Display lagging the store** — Wayland + Vulkan can show a stale frame
-  until a transient restacks; zoom chip already correct.
+Symptom this produces if missed: a scissor-clipped pass (in practice,
+`DividerPass`) renders with the *correct height* but the *wrong offset* —
+shifted by exactly `framebuffer_height - 2*content_y - content_height`,
+i.e. it looks like it's anchored to the wrong edge — while anything drawn
+via direct vertex/UV geometry (the base image) is unaffected, because it
+never goes through a scissor rect at all. This is easy to misdiagnose as a
+`content_rect_px`/`_inner_content_rect_px`/split-position bug — a real
+instance of this misdiagnosis cost a full debugging pass: detailed log
+tracing of `resolve_rhi_scissor`/`_resolve_divider_state` confirmed
+`content_rect_px`, `display_split`, `position_px` and the computed scissor
+were all numerically correct on every frame, and the actual bug was purely
+in how the GPU backend consumed that already-correct scissor. Every geometry
+log along the way reports numerically correct values — the bug is downstream
+of all of them, at the point the scissor is actually consumed by the
+backend.
 
-Catalog: `docs/dev/rendering/qrhi-gotchas.md`. Short rules:
-`docs/dev/rendering/patterns.md`. Both in `improve-imgsli-internal-docs`
-(private, not in this repo).
+Fix in place: `resolve_rhi_scissor` flips when `y_up OR
+widget.testAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)`, not `y_up`
+alone. Any future pass or helper that builds its own `QRhiScissor`/
+`QRhiViewport` by hand (instead of calling `resolve_rhi_scissor`) must
+apply the same rule, or route through that function instead of
+reimplementing it.
 
 ## Target rule of thumb
 
@@ -232,8 +204,3 @@ Before combining a viewport-resolved value with `content_rect_px`, widget
 dimensions, or zoom "by hand," ask: did this value already come out of a
 viewport-formula function? If yes, it's already resolved — treat it as an
 opaque final answer, not a raw ingredient.
-
-And before “fixing zoom” because the picture jumped: if the zoom chip did
-not move, treat it as a display/compositor catch-up until proven otherwise
-(see "Display lags store" in `docs/dev/rendering/qrhi-gotchas.md`,
-`improve-imgsli-internal-docs`, private).

@@ -1,13 +1,36 @@
 from __future__ import annotations
 
-import logging
-
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
 
-logger = logging.getLogger("ImproveImgSLI")
+SHOW_WORKSPACE_TABS = False
+
+
+def apply_workspace_tabs_visibility(ui) -> None:
+    """Sync workspace-tabs row visibility with current store.settings.
+
+    Safe to call before or after the store is attached: falls back to
+    SHOW_WORKSPACE_TABS when no settings are available yet.
+    """
+    main_window = getattr(ui, "main_window", None)
+    settings = getattr(getattr(main_window, "store", None), "settings", None)
+    show = (
+        getattr(settings, "show_workspace_tabs", SHOW_WORKSPACE_TABS)
+        if settings is not None
+        else SHOW_WORKSPACE_TABS
+    )
+    tabs = getattr(ui, "workspace_tabs", None)
+    if tabs is not None:
+        tabs.setVisible(show)
+    btn = getattr(ui, "btn_new_session", None)
+    if btn is not None:
+        btn.setVisible(show)
+    container = getattr(ui, "workspace_tabs_bar", None)
+    if container is not None:
+        container.setVisible(show)
 
 
 class LayoutComposer:
@@ -37,21 +60,36 @@ class LayoutComposer:
 
     def _finalize(self) -> None:
         ui = self.ui
-        ui._tab_registry.finalize_host_pages(ui)
+        ui.toggle_edit_layout_visibility(False)
+        ui.magnifier_settings_panel.setVisible(False)
         active = getattr(getattr(ui.main_window, "store", None), "get_active_workspace_session", lambda: None)()
         if active is not None:
             ui.sync_session_mode(active.session_type)
+        self.apply_icon_sizes()
         self._configure_workspace_tabs()
+
+    def apply_icon_sizes(self) -> None:
+        ui = self.ui
+        ui.btn_quick_save.setIconSizePx(24)
+        ui.help_button.setIconSizePx(24)
+        ui.btn_clear_list1.setIconSizePx(22)
+        ui.btn_clear_list2.setIconSizePx(22)
+        ui.btn_divider_color.setIconSizePx(22)
+        ui.btn_divider_width.setIconSizePx(22)
+        ui.btn_magnifier_divider_width.setIconSizePx(22)
+        ui.btn_magnifier_guides_width.setIconSizePx(22)
 
     def _configure_workspace_tabs(self) -> None:
         ui = self.ui
         tabs = ui.workspace_tabs
         tabs.setObjectName("WorkspaceTabsBar")
         tabs.tab_bar.setObjectName("WorkspaceTabs")
+        apply_workspace_tabs_visibility(ui)
 
     def _workspace_bar_widget(self, main_window: QWidget) -> QWidget:
         ui = self.ui
         ui.workspace_tabs.setParent(main_window)
+        ui.workspace_tabs.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         ui.workspace_tabs_bar = ui.workspace_tabs
         return ui.workspace_tabs
 
@@ -89,17 +127,6 @@ class LayoutComposer:
                 activate=activate,
             )
 
-        def replace_workspace_session(
-            session_type: str, *, closing_session_id: str | None = None
-        ):
-            return (
-                _presenter()
-                .main_controller.workspace.replace_workspace_session(
-                    session_type,
-                    closing_session_id=closing_session_id,
-                )
-            )
-
         def close_workspace_session(session_id: str):
             return _presenter().main_controller.workspace.close_workspace_session(
                 session_id
@@ -113,36 +140,15 @@ class LayoutComposer:
                 else None
             )
 
-        def show_help_dialog(
-            *, page: str | None = None, anchor: str | None = None, video_url: str | None = None, learn_more_url: str | None = None
-        ):
+        def show_help_dialog():
             mgr = _ui_manager()
             if mgr is not None:
-                mgr.dialogs.show_help_dialog(
-                    page=page, anchor=anchor, video_url=video_url, learn_more_url=learn_more_url
-                )
+                mgr.dialogs.show_help_dialog()
 
-        def show_settings_dialog(*, section_id: str | None = None):
+        def show_settings_dialog():
             mgr = _ui_manager()
             if mgr is not None:
-                mgr.dialogs.show_settings_dialog(section_id=section_id)
-
-        def show_command_palette(
-            query: str = "",
-            topic: str | None = None,
-            preselect_action_id: str | None = None,
-            auto_pulse: bool = False,
-        ):
-            from ui.actions.palette import show_command_palette as _show
-
-            parent = ui.main_window.window()
-            _show(
-                query=query,
-                topic=topic,
-                preselect_action_id=preselect_action_id,
-                auto_pulse=auto_pulse,
-                parent=parent,
-            )
+                mgr.dialogs.show_settings_dialog()
 
         def open_image_export_dialog(*, dialog_state, **kwargs):
             from PySide6.QtWidgets import QDialog
@@ -161,21 +167,16 @@ class LayoutComposer:
         )
 
         ui._tab_registry = TabRegistry()
-        ui._tab_registry.discover(tier="bootstrap")
-        # `ui.main_window` is still the `_app_host` stand-in here; startup later
-        # reassigns ``ui.main_window = window`` (MainWindow). Attach the mask to
-        # the real top-level window so tab-switch cover lookups find it.
-        real_window = ui.main_window.window()
-        transition_mask = WorkspaceTransitionMask(real_window)
-        real_window._workspace_transition_mask = transition_mask
+        ui._tab_registry.discover()
+        transition_mask = WorkspaceTransitionMask(ui.main_window)
         ui.main_window._workspace_transition_mask = transition_mask
-        logger.debug(
-            "[workspace-transition] compose attached mask id=%s "
-            "real_window=%r app_host=%r",
-            id(transition_mask),
-            type(real_window).__name__,
-            type(ui.main_window).__name__,
-        )
+        # `ui.main_window` is set inside `Ui_ImageComparisonApp.setupUi()` to the
+        # widget passed in (`window._app_host`, a plain QWidget), *before* the
+        # caller overwrites it with the real MainWindow instance. So at this point
+        # in startup, `ui.main_window` is still the app_host stand-in and lacks
+        # `main_controller`/`app_context`/`thread_pool`. Walk up to the real
+        # top-level window instead of trusting `ui.main_window` here.
+        real_window = ui.main_window.window()
         store = getattr(ui.main_window, "store", None)
         main_controller = getattr(real_window, "main_controller", None)
         app_context = getattr(real_window, "app_context", None)
@@ -185,15 +186,6 @@ class LayoutComposer:
         thread_pool = getattr(main_controller, "thread_pool", None) or getattr(
             app_context, "thread_pool", None
         )
-        def get_tab_icon(session_type: str):
-            from PySide6.QtGui import QIcon
-
-            tab = ui._tab_registry.get_tab(session_type)
-            if tab is None:
-                return QIcon()
-            icon = tab.icon
-            return icon if icon is not None else QIcon()
-
         context = TabContext(
             store=store,
             event_bus=event_bus,
@@ -203,33 +195,17 @@ class LayoutComposer:
             services={
                 "list_session_blueprints": list_session_blueprints,
                 "create_workspace_session": create_workspace_session,
-                "replace_workspace_session": replace_workspace_session,
                 "close_workspace_session": close_workspace_session,
                 "show_help_dialog": show_help_dialog,
                 "show_settings_dialog": show_settings_dialog,
-                "show_command_palette": show_command_palette,
                 "open_image_export_dialog": open_image_export_dialog,
-                "get_tab_icon": get_tab_icon,
                 "workspace.transition_mask": transition_mask,
             },
         )
         ui._tab_registry.install_pages(ui.workspace_stack, context)
-        # Seed the bootstrap-default tab so that `create_service`
-        # (active-tab-only) has an active tab to route to during the narrow
-        # window before the first workspace session exists. Legacy shell
-        # construction (`create_startup_service` /
-        # `create_main_window_feature`) routes by capability, not by active
-        # tab (see docs/dev/tabs/capability-mechanisms.md), so it does not
-        # depend on this seeding — it succeeds purely because the tab that
-        # implements those shell capabilities answers. The first real
-        # `sync_session_mode()` call reconciles active with the actual initial
-        # session type. Deliberately tab-name-agnostic: this file must not
-        # know which tab that is (see `TabContract.is_bootstrap_default`).  # ALLOWED
-        ui._tab_registry.activate_default()
 
         if event_bus is not None:
             from core.events import (
-                WorkspaceSessionActivatedEvent,
                 WorkspaceSessionClosedEvent,
                 WorkspaceSessionCreatedEvent,
             )
@@ -246,22 +222,3 @@ class LayoutComposer:
                     e.session_type, e.session_id
                 ),
             )
-            event_bus.subscribe(
-                WorkspaceSessionActivatedEvent,
-                lambda e: ui._tab_registry.notify_active_session_changed(
-                    e.session_id,
-                    e.session_type,
-                    e.previous_session_id,
-                ),
-            )
-            dispatcher = getattr(store, "get_dispatcher", lambda: None)()
-            if dispatcher is not None:
-                event_bus.subscribe(
-                    WorkspaceSessionActivatedEvent,
-                    lambda e: dispatcher.bind_history_for_session(e.session_id),
-                )
-                if store is None:
-                    return
-                active = store.get_active_workspace_session()
-                if active is not None:
-                    dispatcher.bind_history_for_session(active.id)

@@ -12,50 +12,34 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import (
     Button,
     CustomLineEdit,
-    DEFER_CLICK_AWAIT_RIPPLE,
     InstancesCounterButton,
     Label,
     ScrollableComboBox,
+    Slider,
 )
 from ui.widgets.scroll_value_button import ScrollValueButton
-from ui.widgets.slider_hint import ValueSlider
 
 from sli_ui_toolkit.i18n import tr
 from tabs.image_compare.canvas.widget import CanvasWidget
 from tabs.image_compare.ui.magnifier_color_controls import ColorSettingsButton
-from tabs.image_compare.icons import Icon
-from tabs.host_helpers import ModePicker
+from ui.icon_manager import AppIcon
 from ui.theming import resolve_theme_color
 
 logger = logging.getLogger("ImproveImgSLI")
 
-# InfoHUD's own labels (resolution_label1/2, file_name_label1/2) get a
-# larger size than the "group-title" variant's shared default (13px) --
-# other "group-title" labels (magnifier/capture-size settings rows etc.)
-# are NOT touched, since that variant is a shared toolkit preset used well
-# beyond the HUD.
-_INFO_HUD_LABEL_PIXEL_SIZE = 16
-
 
 class ImageComparePrimitivesFactory:
-    """Creates image_compare's primitive widgets and attaches them to the tab widget.
+    """Creates image_compare's primitive widgets and attaches them to host UI."""
 
-    ``target`` is the tab-owned ``ImageCompareWidget`` — the widgets this
-    factory builds are its attributes, not the host's. ``host`` is only used
-    for the handful of host-side helpers (e.g. current language) these
-    widgets need at construction time.
-    """
-
-    def __init__(self, target: Any, host: Any) -> None:
-        self.target = target
-        self.host = host
+    def __init__(self, ui: Any) -> None:
+        self.ui = ui
 
     def build(self, parent: QWidget) -> object:
-        target = self.target
-        if target is None:
-            raise RuntimeError("ImageComparePrimitivesFactory requires a target widget")
-        if getattr(target, "_image_compare_primitives_built", False):
-            return target
+        ui = self.ui
+        if ui is None:
+            raise RuntimeError("ImageComparePrimitivesFactory requires ui")
+        if getattr(ui, "_image_compare_primitives_built", False):
+            return ui
 
         self._create_static_widgets(parent)
         self._create_selection_controls(parent)
@@ -65,49 +49,34 @@ class ImageComparePrimitivesFactory:
         self._create_text_and_status_widgets(parent)
         self._configure_image_label()
         self._init_warning_label()
-        target._image_compare_primitives_built = True
-        return target
+        ui._image_compare_primitives_built = True
+        return ui
 
     def _create_static_widgets(self, parent: QWidget) -> None:
-        target = self.target
-        target.resolution_label1 = Label(
-            "--x--",
-            variant="group-title",
-            pixel_size=_INFO_HUD_LABEL_PIXEL_SIZE,
-            alignment=Qt.AlignmentFlag.AlignCenter,
-        )
-        target.resolution_label2 = Label(
-            "--x--",
-            variant="group-title",
-            pixel_size=_INFO_HUD_LABEL_PIXEL_SIZE,
-            alignment=Qt.AlignmentFlag.AlignCenter,
-        )
-        target.magnifier_settings_panel = QWidget(parent)
-        target.image_label = CanvasWidget(parent)
-        target.length_warning_label = Label(parent=parent)
+        ui = self.ui
+        ui.resolution_label1 = Label("--x--", variant="group-title")
+        ui.resolution_label2 = Label("--x--", variant="group-title")
+        ui.magnifier_settings_panel = QWidget(parent)
+        ui.image_label = CanvasWidget(parent)
+        ui.length_warning_label = Label(parent=parent)
 
     def _create_selection_controls(self, parent: QWidget) -> None:
-        target = self.target
-        language = self.host._current_language()
-        target.btn_image1 = Button(
-            Icon.PHOTO,
-            text=tr("image_compare.button.add_images_1", language),
+        ui = self.ui
+        language = ui._current_language()
+        ui.btn_image1 = Button(
+            AppIcon.PHOTO,
+            text=tr("button.add_images_1", language),
             variant="surface",
             parent=parent,
-            # Opens the native QFileDialog (modal, blocks the event loop
-            # immediately) -- without this the click ripple never gets to
-            # finish animating.
-            defer_click=DEFER_CLICK_AWAIT_RIPPLE,
         )
-        target.btn_image2 = Button(
-            Icon.PHOTO,
-            text=tr("image_compare.button.add_images_2", language),
+        ui.btn_image2 = Button(
+            AppIcon.PHOTO,
+            text=tr("button.add_images_2", language),
             variant="surface",
             parent=parent,
-            defer_click=DEFER_CLICK_AWAIT_RIPPLE,
         )
-        target.btn_swap = Button(
-            Icon.SYNC,
+        ui.btn_swap = Button(
+            AppIcon.SYNC,
             long_press=True,
             variant="surface",
             background_color=QColor(
@@ -115,15 +84,15 @@ class ImageComparePrimitivesFactory:
             ),
             parent=parent,
         )
-        target.btn_clear_list1 = Button(
-            Icon.DELETE,
+        ui.btn_clear_list1 = Button(
+            AppIcon.DELETE,
             long_press=True,
             variant="surface",
             background_color=QColor("#D93025"),
             parent=parent,
         )
-        target.btn_clear_list2 = Button(
-            Icon.DELETE,
+        ui.btn_clear_list2 = Button(
+            AppIcon.DELETE,
             long_press=True,
             variant="surface",
             background_color=QColor("#D93025"),
@@ -132,147 +101,133 @@ class ImageComparePrimitivesFactory:
         accent_color = QColor(
             resolve_theme_color(ThemeManager.get_instance(), "accent")
         )
-        target.help_button = Button(
-            Icon.HELP,
+        ui.help_button = Button(
+            AppIcon.HELP,
             variant="surface",
             background_color=accent_color,
             parent=parent,
         )
-        target.btn_settings = Button(
-            Icon.SETTINGS,
+        ui.btn_settings = Button(
+            AppIcon.SETTINGS,
             variant="surface",
             background_color=accent_color,
             parent=parent,
         )
-        target.btn_settings.hide()
-        target.help_button.hide()
-        target.btn_text_settings = Button(
-            Icon.TEXT_MANIPULATOR,
+        ui.btn_text_settings = Button(
+            AppIcon.TEXT_MANIPULATOR,
             variant="surface",
             background_color=accent_color,
             parent=parent,
         )
-        target.btn_quick_save = Button(
-            Icon.QUICK_SAVE,
+        ui.btn_quick_save = Button(
+            AppIcon.QUICK_SAVE,
             variant="surface",
             background_color=accent_color,
             parent=parent,
-            # quick_save() can synchronously pop a modal
-            # confirm-untested-resolution dialog -- ripple must finish first.
-            defer_click=DEFER_CLICK_AWAIT_RIPPLE,
         )
-        target.btn_magnifier_orientation = ScrollValueButton(
-            icon=(Icon.VERTICAL_SPLIT, Icon.HORIZONTAL_SPLIT),
+        ui.btn_magnifier_orientation = ScrollValueButton(
+            icon=(AppIcon.VERTICAL_SPLIT, AppIcon.HORIZONTAL_SPLIT),
             toggle=True,
             show_underline=True,
             min_value=0,
             max_value=10,
-            zero_icon=Icon.DIVIDER_HIDDEN,
+            zero_icon=AppIcon.DIVIDER_HIDDEN,
             parent=parent,
         )
-        target.btn_save = Button(
-            Icon.SAVE,
-            text=tr("image_compare.button.save_result", language),
+        ui.btn_save = Button(
+            AppIcon.SAVE,
+            text=tr("button.save_result", language),
             variant="surface",
             parent=parent,
-            # save_result() opens the modal ExportDialog -- ripple must
-            # finish before .exec() blocks the event loop.
-            defer_click=DEFER_CLICK_AWAIT_RIPPLE,
         )
 
-        target.label_rating1 = Label("–", parent, variant="group-title", elide=False)
-        target.label_rating2 = Label("–", parent, variant="group-title", elide=False)
-        target.combo_image1 = ScrollableComboBox(parent)
-        target.combo_image2 = ScrollableComboBox(parent)
-        target.combo_interpolation = ScrollableComboBox(parent)
-        target.combo_interpolation.setAutoWidthEnabled(True)
+        ui.label_rating1 = Label("–", parent, variant="group-title", elide=False)
+        ui.label_rating2 = Label("–", parent, variant="group-title", elide=False)
+        ui.combo_image1 = ScrollableComboBox(parent)
+        ui.combo_image2 = ScrollableComboBox(parent)
+        ui.combo_interpolation = ScrollableComboBox(parent)
+        ui.combo_interpolation.setAutoWidthEnabled(True)
 
     def _create_view_controls(self, parent: QWidget) -> None:
-        target = self.target
-        target.btn_orientation = ScrollValueButton(
-            icon=(Icon.VERTICAL_SPLIT, Icon.HORIZONTAL_SPLIT),
+        ui = self.ui
+        ui.btn_orientation = ScrollValueButton(
+            icon=(AppIcon.VERTICAL_SPLIT, AppIcon.HORIZONTAL_SPLIT),
             toggle=True,
             show_underline=True,
             min_value=0,
             max_value=10,
-            zero_icon=Icon.DIVIDER_HIDDEN,
+            zero_icon=AppIcon.DIVIDER_HIDDEN,
             parent=parent,
         )
-        target.btn_magnifier = Button(Icon.MAGNIFIER, toggle=True, parent=parent)
-        target.btn_magnifier_instances = InstancesCounterButton(parent=parent)
-        target.btn_freeze = Button(Icon.FREEZE, toggle=True, parent=parent)
-        target.btn_file_names = Button(Icon.TEXT_FILENAME, toggle=True, parent=parent)
+        ui.btn_magnifier = Button(AppIcon.MAGNIFIER, toggle=True, parent=parent)
+        ui.btn_magnifier_instances = InstancesCounterButton(parent=parent)
+        ui.btn_freeze = Button(AppIcon.FREEZE, toggle=True, parent=parent)
+        ui.btn_file_names = Button(AppIcon.TEXT_FILENAME, toggle=True, parent=parent)
 
-        target.btn_diff_mode = Button(
-            Icon.HIGHLIGHT_DIFFERENCES, parent=parent
+        ui.btn_diff_mode = Button(
+            AppIcon.HIGHLIGHT_DIFFERENCES, menu=[], parent=parent
         )
-        target.btn_channel_mode = Button(Icon.PHOTO, parent=parent)
-        target.btn_diff_mode_picker = ModePicker.attach(
-            target.btn_diff_mode, id_prefix="diff_mode"
-        )
-        target.btn_channel_mode_picker = ModePicker.attach(
-            target.btn_channel_mode, id_prefix="channel_mode"
-        )
+        ui.btn_channel_mode = Button(AppIcon.PHOTO, menu=[], parent=parent)
 
-        target.btn_magnifier_color_settings = ColorSettingsButton(
+        ui.btn_magnifier_color_settings = ColorSettingsButton(
             parent=parent, current_language="en"
         )
-        target.btn_magnifier_guides = ScrollValueButton(
-            icon=Icon.MAGNIFIER_GUIDES,
+        ui.btn_magnifier_guides = ScrollValueButton(
+            icon=AppIcon.MAGNIFIER_GUIDES,
             toggle=True,
             show_underline=True,
             min_value=0,
             max_value=10,
-            zero_icon=Icon.DIVIDER_HIDDEN,
+            zero_icon=AppIcon.DIVIDER_HIDDEN,
             parent=parent,
         )
 
-        target.btn_orientation_simple = Button(
-            icon=(Icon.VERTICAL_SPLIT, Icon.HORIZONTAL_SPLIT),
+        ui.btn_orientation_simple = Button(
+            icon=(AppIcon.VERTICAL_SPLIT, AppIcon.HORIZONTAL_SPLIT),
             toggle=True,
             parent=parent,
         )
-        target.btn_divider_visible = Button(
-            icon=(Icon.DIVIDER_VISIBLE, Icon.DIVIDER_HIDDEN),
+        ui.btn_divider_visible = Button(
+            icon=(AppIcon.DIVIDER_VISIBLE, AppIcon.DIVIDER_HIDDEN),
             toggle=True,
             parent=parent,
         )
-        target.btn_divider_color = Button(
-            Icon.DIVIDER_COLOR, show_underline=True, parent=parent
+        ui.btn_divider_color = Button(
+            AppIcon.DIVIDER_COLOR, show_underline=True, parent=parent
         )
-        target.btn_divider_width = ScrollValueButton(
-            icon=Icon.DIVIDER_WIDTH,
+        ui.btn_divider_width = ScrollValueButton(
+            icon=AppIcon.DIVIDER_WIDTH,
             min_value=0,
             max_value=10,
-            zero_icon=Icon.DIVIDER_HIDDEN,
+            zero_icon=AppIcon.DIVIDER_HIDDEN,
             parent=parent,
         )
-        target.btn_magnifier_orientation_simple = Button(
-            icon=(Icon.VERTICAL_SPLIT, Icon.HORIZONTAL_SPLIT),
+        ui.btn_magnifier_orientation_simple = Button(
+            icon=(AppIcon.VERTICAL_SPLIT, AppIcon.HORIZONTAL_SPLIT),
             toggle=True,
             parent=parent,
         )
-        target.btn_magnifier_divider_visible = Button(
-            icon=(Icon.DIVIDER_VISIBLE, Icon.DIVIDER_HIDDEN),
+        ui.btn_magnifier_divider_visible = Button(
+            icon=(AppIcon.DIVIDER_VISIBLE, AppIcon.DIVIDER_HIDDEN),
             toggle=True,
             parent=parent,
         )
 
-        target.btn_magnifier_color_settings_beginner = ColorSettingsButton(
+        ui.btn_magnifier_color_settings_beginner = ColorSettingsButton(
             parent=parent, current_language="en"
         )
-        target.btn_magnifier_divider_width = ScrollValueButton(
-            icon=Icon.DIVIDER_WIDTH,
+        ui.btn_magnifier_divider_width = ScrollValueButton(
+            icon=AppIcon.DIVIDER_WIDTH,
             show_underline=True,
             min_value=1,
             max_value=10,
             parent=parent,
         )
-        target.btn_magnifier_guides_simple = Button(
-            Icon.MAGNIFIER_GUIDES, toggle=True, parent=parent
+        ui.btn_magnifier_guides_simple = Button(
+            AppIcon.MAGNIFIER_GUIDES, toggle=True, parent=parent
         )
-        target.btn_magnifier_guides_width = ScrollValueButton(
-            icon=Icon.DIVIDER_WIDTH,
+        ui.btn_magnifier_guides_width = ScrollValueButton(
+            icon=AppIcon.DIVIDER_WIDTH,
             show_underline=True,
             min_value=1,
             max_value=10,
@@ -280,74 +235,49 @@ class ImageComparePrimitivesFactory:
         )
 
     def _create_video_controls(self, parent: QWidget) -> None:
-        target = self.target
-        target.btn_record = Button(
-            icon=(Icon.RECORD, Icon.STOP), toggle=True, parent=parent
+        ui = self.ui
+        ui.btn_record = Button(
+            icon=(AppIcon.RECORD, AppIcon.STOP), toggle=True, parent=parent
         )
-        target.btn_pause = Button(
-            icon=(Icon.PAUSE, Icon.PLAY), toggle=True, parent=parent
+        ui.btn_pause = Button(
+            icon=(AppIcon.PAUSE, AppIcon.PLAY), toggle=True, parent=parent
         )
-        target.btn_pause.setEnabled(False)
-        target.btn_video_editor = Button(
-            Icon.EXPORT_VIDEO,
-            # Opening the dialog is heavy (snapshot load, layout) — finish
-            # the ripple first so the press feedback doesn't stutter.
-            defer_click=DEFER_CLICK_AWAIT_RIPPLE,
-            parent=parent,
-        )
+        ui.btn_pause.setEnabled(False)
+        ui.btn_video_editor = Button(AppIcon.EXPORT_VIDEO, parent=parent)
 
     def _create_slider_controls(self, parent: QWidget) -> None:
-        target = self.target
-        # ValueSlider: toolkit slider + hover value flyout above the thumb
-        # (was wired externally via SliderHintController in widget.py).
-        target.slider_size = ValueSlider(Qt.Orientation.Horizontal, parent)
-        target.slider_capture = ValueSlider(Qt.Orientation.Horizontal, parent)
-        target.slider_speed = ValueSlider(Qt.Orientation.Horizontal, parent)
+        ui = self.ui
+        ui.slider_size = Slider(Qt.Orientation.Horizontal, parent)
+        ui.slider_capture = Slider(Qt.Orientation.Horizontal, parent)
+        ui.slider_speed = Slider(Qt.Orientation.Horizontal, parent)
 
     def _create_text_and_status_widgets(self, parent: QWidget) -> None:
-        target = self.target
-        target.edit_name1 = CustomLineEdit(parent)
-        target.edit_name2 = CustomLineEdit(parent)
-        # QLineEdit accepts file drags by default (mime has text/plain), which
-        # steals the drag target from the main-window routing chain: the
-        # window gets DragLeave, the 80ms deferred-leave timer hides the DnD
-        # zone and no routed DragEnter ever restores it (regression: the DnD
-        # tiles vanish whenever the caption edit row is visible). The caption
-        # fields are not drop targets.
-        target.edit_name1.setAcceptDrops(False)
-        target.edit_name2.setAcceptDrops(False)
-        target.label_magnifier_size = Label(parent=parent, variant="group-title")
-        target.label_capture_size = Label(parent=parent, variant="group-title")
-        target.label_movement_speed = Label(parent=parent, variant="group-title")
-        target.label_interpolation = Label(parent=parent, variant="group-title")
+        ui = self.ui
+        ui.edit_name1 = CustomLineEdit(parent)
+        ui.edit_name2 = CustomLineEdit(parent)
+        ui.label_magnifier_size = Label(parent=parent, variant="group-title")
+        ui.label_capture_size = Label(parent=parent, variant="group-title")
+        ui.label_movement_speed = Label(parent=parent, variant="group-title")
+        ui.label_interpolation = Label(parent=parent, variant="group-title")
 
-        target.file_name_label1 = Label(
-            "--", parent, variant="group-title", pixel_size=_INFO_HUD_LABEL_PIXEL_SIZE
-        )
-        target.file_name_label2 = Label(
-            "--", parent, variant="group-title", pixel_size=_INFO_HUD_LABEL_PIXEL_SIZE
-        )
-        target.label_edit_name1 = Label(parent=parent, variant="group-title")
-        target.label_edit_name2 = Label(parent=parent, variant="group-title")
+        ui.file_name_label1 = Label("--", parent, variant="group-title")
+        ui.file_name_label2 = Label("--", parent, variant="group-title")
+        ui.label_edit_name1 = Label(parent=parent, variant="group-title")
+        ui.label_edit_name2 = Label(parent=parent, variant="group-title")
 
     def _configure_image_label(self) -> None:
-        target = self.target
-        target.image_label.setMinimumSize(200, 150)
-        target.image_label.setSizePolicy(
+        ui = self.ui
+        ui.image_label.setMinimumSize(200, 150)
+        ui.image_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        target.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        target.image_label.setMouseTracking(True)
-        target.image_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        target.image_label.setAutoFillBackground(True)
+        ui.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ui.image_label.setMouseTracking(True)
+        ui.image_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        ui.image_label.setAutoFillBackground(True)
 
     def _init_warning_label(self) -> None:
-        target = self.target
-        from PySide6.QtGui import QColor
-
-        if hasattr(target.length_warning_label, "setBold"):
-            target.length_warning_label.setBold(True)
-        if hasattr(target.length_warning_label, "setTextColor"):
-            target.length_warning_label.setTextColor(QColor("#FF4500"))
-        target.length_warning_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        target.length_warning_label.setVisible(False)
+        ui = self.ui
+        ui.length_warning_label.setProperty("class", "warning-label")
+        ui.length_warning_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ui.length_warning_label.setVisible(False)

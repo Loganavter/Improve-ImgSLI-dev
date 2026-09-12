@@ -23,13 +23,10 @@ class SettingsPresenter(QObject):
             main_window_app=main_window_app,
             tr_func=self._tr,
         )
-        setattr(
-            self,
-            "view_state",
-            SettingsViewStateCoordinator(
-                store=store,
-                tr_func=self._tr,
-            ),
+        self.view_state = SettingsViewStateCoordinator(
+            store=store,
+            main_window_app=main_window_app,
+            tr_func=self._tr,
         )
 
     def show_canvas_feature_color_picker(
@@ -61,27 +58,6 @@ class SettingsPresenter(QObject):
     def show_capture_ring_color_picker(self):
         self.color_pickers.show_capture_ring_color_picker()
 
-    def show_color_picker(
-        self,
-        *,
-        key: str,
-        current_color,
-        title_key: str,
-        on_selected,
-        post_apply=None,
-        show_alpha: bool = True,
-        parent_window=None,
-    ):
-        self.color_pickers.show_color_picker(
-            key=key,
-            current_color=current_color,
-            title_key=title_key,
-            on_selected=on_selected,
-            post_apply=post_apply,
-            show_alpha=show_alpha,
-            parent_window=parent_window,
-        )
-
     def apply_smart_magnifier_colors(self):
         self.color_pickers.apply_smart_magnifier_colors()
 
@@ -95,9 +71,20 @@ class SettingsPresenter(QObject):
         return tr(text, self.store.settings.current_language)
 
     def _create_color_picker_coordinator(self, **kwargs):
-        from tabs.registry import LazyTabService
+        from tabs.registry import TabRegistry
 
-        return LazyTabService("settings_color_picker_coordinator", **kwargs)
+        registry = TabRegistry()
+        registry.discover()
+        coordinator = registry.create_service(
+            "settings_color_picker_coordinator",
+            **kwargs,
+        )
+        if coordinator is None:
+            raise RuntimeError(
+                "No tab provides settings_color_picker_coordinator; "
+                "canvas feature color pickers must be supplied by the tab owner."
+            )
+        return coordinator
 
     def on_language_changed(self):
         self.update_interpolation_combo_box_ui()

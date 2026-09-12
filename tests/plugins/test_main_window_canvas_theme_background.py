@@ -1,8 +1,11 @@
-"""Generic main-window startup surfaces self-repaint on theme change.
+"""Generic main-window startup surfaces follow theme background changes.
 
-Startup placeholder/cover widgets are ThemedSurface instances that subscribe
-to theme_changed directly. MainWindowAppearance only forwards to tab
-apply_appearance hooks for canvas-specific surfaces.
+Image-canvas-specific painting (image_label/container/placeholder) is owned
+by each tab's ``apply_appearance`` hook and tested there — see
+tabs/image_compare/tests/runtime/test_canvas_theme_background.py — since
+``update_image_label_background`` only reaches ``window.ui`` widgets via
+``registry.apply_appearance(window)``, which is a no-op without a real
+``_tab_registry``.
 """
 
 from __future__ import annotations
@@ -12,10 +15,10 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication, QWidget
 
-from ui.widgets.themed_surface import ThemedSurface
+from ui.main_window.appearance import MainWindowAppearance
 
 _APP: QApplication | None = None
 
@@ -33,29 +36,24 @@ class _ThemeManager:
     def get_color(self, _key: str) -> QColor:
         return QColor(self.color)
 
-    def try_get_color(self, _key: str) -> QColor:
-        # Production resolves via try_get_color (see ui.theming
-        # .try_resolve_theme_color); the fake must offer the same hook or
-        # ThemedSurface falls back to the white placeholder.
-        return QColor(self.color)
 
-
-def test_themed_surface_repaints_on_theme_change():
+def test_canvas_theme_background_updates_startup_placeholder_and_cover():
     app = _app()
-    first = QColor("#123456")
-    second = QColor("#abcdef")
-    theme_manager = _ThemeManager(first)
-    surface = ThemedSurface()
+    color = QColor("#123456")
+    startup_placeholder = QWidget()
+    startup_cover = QWidget()
+    window = SimpleNamespace(
+        theme_manager=_ThemeManager(color),
+        _startup_placeholder=startup_placeholder,
+        _startup_cover=startup_cover,
+        ui=None,
+    )
 
-    surface._theme_manager = theme_manager
-    surface.on_theme_changed()
+    MainWindowAppearance(window).update_image_label_background()
 
-    assert surface._bg_color == first
+    assert startup_placeholder.palette().color(QPalette.ColorRole.Window) == color
+    assert startup_cover.palette().color(QPalette.ColorRole.Window) == color
 
-    theme_manager.color = second
-    surface.on_theme_changed()
-
-    assert surface._bg_color == second
-
-    surface.deleteLater()
+    startup_cover.deleteLater()
+    startup_placeholder.deleteLater()
     app.processEvents()

@@ -23,47 +23,11 @@
     "name": "Name",
     "duplicate": "Duplicate",
     "properties": "Properties",
-    "carry_image": "Move",
     "remove": "Remove",
     "path": "Path",
     "size": "Size"
   },
   "drop_image_here": "Drop image here",
   "drop_move_here": "Move here",
-  "drop_swap": "Swap",
-  "multi_compare": {
-    "help": {
-      "hub": {
-        "desc": "Many-image layouts"
-      },
-      "page": {
-        "overview": {
-          "title": "Multi Compare Overview",
-          "desc": "Layouts and drop zones"
-        }
-      }
-    },
-    "action": {
-      "add_images": "Add Images",
-      "add_images_desc": "Add images to the multi-compare canvas",
-      "divider_visible": "Grid Visibility",
-      "divider_color": "Grid Color",
-      "divider_width": "Grid Lines",
-      "divider_width_desc": "Grid line width, color (right-click), and visibility (set to zero)",
-      "text_settings": "Label Settings",
-      "text_settings_desc": "Open layer label text settings",
-      "quick_save": "Quick Save",
-      "save": "Save Grid",
-      "breadcrumb": {
-        "toolbar": "Toolbar",
-        "session": "Session",
-        "labels": "Labels",
-        "export": "Export",
-        "divider": "Grid"
-      }
-    },
-    "tooltip": {
-      "save_grid": "Save Grid"
-    }
-  }
+  "drop_swap": "Swap"
 }

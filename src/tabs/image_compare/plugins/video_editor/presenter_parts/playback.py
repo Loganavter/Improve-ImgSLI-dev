@@ -108,9 +108,8 @@ class PlaybackCoordinator:
         exporter = getattr(self.export_controller, "video_exporter", None)
         if exporter is not None:
             exporter.invalidate_bounds_cache()
-        # Unconditional: keeps the fit-content toggle's enabled state correct
-        # as edits change whether the canvas still fits within 0..1.
-        self.preview_coordinator.recalculate_global_bounds()
+        if self.preview_coordinator.fit_content_mode:
+            self.preview_coordinator.recalculate_global_bounds()
 
         self.preview_coordinator.schedule_update()
 

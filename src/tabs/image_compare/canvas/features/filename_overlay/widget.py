@@ -71,7 +71,7 @@ def _command_toggle_filename_overlay(actions, enabled: bool) -> None:
 
 
 def _sync_filename_overlay_toolbar_state(presenter) -> None:
-    control = getattr(getattr(presenter, "widget", None), "btn_file_names", None)
+    control = getattr(getattr(presenter, "ui", None), "btn_file_names", None)
     if control is None:
         return
     enabled = bool(presenter.store.viewport.render_config.include_file_names_in_saved)
@@ -172,7 +172,7 @@ def build_filename_overlay_render_scene_overrides(store) -> dict:
     split_position_visual = float(
         getattr(viewport.view_state, "split_position_visual", 0.5)
     )
-    divider_style: dict = {}
+    divider_style = {}
     query_divider_style = registry().get_feature_command_by_alias("splitter.overlay_style")
     if query_divider_style is not None:
         divider_style = query_divider_style(store) or {}

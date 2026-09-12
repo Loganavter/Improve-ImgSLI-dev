@@ -16,7 +16,7 @@ The tab owns:
 | Canvas features | `canvas/features/<name>/` |
 | Canvas input routing | `events/` |
 | Image-compare presenters | `presenters/` |
-| Export and snapshots for this tab | `services/image_export/`, `services/gpu_export_scene.py`, `services/snapshot_render_plan_builder.py`, `services/video_snapshot_rendering/` |
+| Export and snapshots for this tab | `services/image_export.py`, `services/gpu_export_scene.py`, `services/snapshot_render_plan_builder.py`, `services/video_snapshot_rendering.py` |
 | Analysis/diff/metrics | `services/analysis/` |
 | Video recording/editor integration | `video_editor/` |
 | Tab-specific state reducers/models | `state/` |
@@ -29,14 +29,6 @@ shared by multiple tabs.
 ## Local Docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - current tab architecture and boundaries.
-- [plugins/](plugins/) - tab-owned plugins: [comparison](plugins/comparison.md),
-  [video_editor](plugins/video_editor.md).
-- `investigations/` — case write-ups for bugs confined to
-  this tab (divider, magnifier).
-  This folder mirrors a private `improve-imgsli-internal-docs` repo
-  (same relative path) for long-form write-ups that stay out of the public
-  history; cross-tab investigations live at
-  `docs/dev/rendering/investigations/` in that same private repo.
 
 ## Rules
 

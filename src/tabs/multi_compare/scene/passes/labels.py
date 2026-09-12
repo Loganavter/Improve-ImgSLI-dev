@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor, QPainter
 
-from tabs.multi_compare.scene.projection import layer_fit_scale
 from tabs.multi_compare.ui.layer_labels import LayerLabelStyle, paint_layer_label
-from ui.canvas_infra.rhi.render_metrics import resolve_relative_px
+from ui.widgets.canvas.render_metrics import resolve_relative_px
 
 
 class LabelsOverlaySource:
@@ -25,7 +24,6 @@ class LabelsOverlaySource:
     LABEL_CORNER_RADIUS_PX = 6.0
     LABEL_SAFE_GAP_PX = 8.0
     LABEL_TEXT_INSET_PX = 10.0
-    LABEL_GLYPH_OVERSCAN_PX = 2.0
 
     def should_paint(self, composition) -> bool:
         return bool(
@@ -57,40 +55,17 @@ class LabelsOverlaySource:
             if layer.label is None or not layer.label.text:
                 continue
             lx, ly, lw, lh = layer.rect
-            cell_y_fb = oy + ly * scale
-            cell_h_fb = lh * scale
             paint_layer_label(
                 painter,
                 cell_rect_fb=(
                     ox + lx * scale,
-                    cell_y_fb,
+                    oy + ly * scale,
                     lw * scale,
-                    cell_h_fb,
+                    lh * scale,
                 ),
                 text=layer.label.text,
                 style=style,
-                image_bottom_fb=self._image_bottom_fb(
-                    layer, cell_y_fb=cell_y_fb, cell_h_fb=cell_h_fb, lw=lw, lh=lh
-                ),
             )
-
-    @staticmethod
-    def _image_bottom_fb(
-        layer, *, cell_y_fb: float, cell_h_fb: float, lw: float, lh: float
-    ) -> float:
-        """fb-px y of the bottom edge of ``layer``'s actual displayed image.
-
-        Mirrors the shader-side letterbox math documented in
-        ``ui.canvas_presentation.composition``: the visible image rect in
-        cell-uv space is centered at ``0.5 + pan_y * fit_y * zoom`` with
-        size ``fit_y * zoom``, clamped to the cell bounds (the shader clips
-        anything outside the slot).
-        """
-        _, fit_y = layer_fit_scale(layer.image, lw, lh)
-        half_h_uv = (fit_y * float(layer.zoom)) / 2.0
-        center_uv = 0.5 + float(layer.pan_y) * fit_y * float(layer.zoom)
-        bottom_uv = max(0.0, min(1.0, center_uv + half_h_uv))
-        return cell_y_fb + bottom_uv * cell_h_fb
 
     def _resolve_label_style(
         self, settings=None, *, short_edge_fb: float = 1000.0
@@ -129,7 +104,6 @@ class LabelsOverlaySource:
             corner_radius_fb=_du(self.LABEL_CORNER_RADIUS_PX),
             safe_gap_fb=_du(self.LABEL_SAFE_GAP_PX),
             text_inset_fb=_du(self.LABEL_TEXT_INSET_PX),
-            glyph_overscan_fb=_du(self.LABEL_GLYPH_OVERSCAN_PX),
             text_color=text_color,
             bg_color=bg_color,
             font_weight=max(0, int(getattr(settings, "font_weight", 0) or 0)),

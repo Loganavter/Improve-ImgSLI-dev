@@ -7,10 +7,8 @@ from PySide6.QtGui import (
     QColor,
     QRhiBuffer,
     QRhiCommandBuffer,
-    QRhi,
     QRhiGraphicsPipeline,
     QRhiShaderResourceBinding,
-    QRhiShaderResourceBindings,
     QRhiShaderStage,
     QRhiVertexInputAttribute,
     QRhiVertexInputBinding,
@@ -25,11 +23,8 @@ from ui.canvas_infra.scene.pass_contract import (
     is_single_image_preview_scene,
 )
 from ui.canvas_infra.scene.stacking_policy import CanvasStackRole
-from tabs.image_compare.canvas.render_config import (
-    get_view_transformed_content_rect_widget_px,
-)
-from tabs.image_compare.canvas.rhi_feature_common import scissor_from_widget_rect
-from shared.rendering.uniform_layout import assert_uniform_size
+from ui.canvas_infra.viewport.state import get_display_split_position
+from tabs.image_compare.canvas.rhi_feature_common import resolve_rhi_scissor
 
 _SHADER_DIR = Path(__file__).resolve().parent / "shaders"
 _VERTICES = struct.pack(
@@ -51,11 +46,7 @@ _VERTICES = struct.pack(
     1.0,
     1.0,
 )
-# std140: mat4(64) + vec2(8) + 2 floats(8) + vec4 color(16) + vec4 clip(16)
-# + int(4) + pad(12) = 128
-_UNIFORM_FMT = "<24f4fi3f"
-_UNIFORM_SIZE = 128
-assert_uniform_size(_UNIFORM_FMT, _UNIFORM_SIZE, label="DividerPass uniform")
+_UNIFORM_SIZE = 112
 
 
 def _load_shader(name: str) -> QShader:
@@ -65,28 +56,19 @@ def _load_shader(name: str) -> QShader:
     return shader
 
 
-def _content_split_visual(ctx) -> float:
-    scene = getattr(ctx, "scene_frame", None)
-    raw = getattr(scene, "split_position_visual", 0.5)
-    split_override = getattr(scene, "split_override", None)
-    if split_override is not None:
-        raw = split_override
-    return max(0.0, min(1.0, float(raw if raw is not None else 0.5)))
-
-
 class DividerPass(CanvasRenderPass):
     stack_role = CanvasStackRole.UNDERLAY_SPLIT
     visibility = SceneVisibility.ALL
 
     def __init__(self) -> None:
-        self.rhi: QRhi | None = None
-        self.vertex_buffer: QRhiBuffer | None = None
-        self.uniform_buffer: QRhiBuffer | None = None
-        self.srb: QRhiShaderResourceBindings | None = None
-        self.pipeline: QRhiGraphicsPipeline | None = None
+        self.rhi = None
+        self.vertex_buffer = None
+        self.uniform_buffer = None
+        self.srb = None
+        self.pipeline = None
 
     @staticmethod
-    def _resolve_divider_state(widget, ctx):
+    def _resolve_divider_state(widget, ctx) -> tuple[bool, float, float, bool, QColor]:
         payloads = (
             ctx.scene_frame.feature_payloads
             if isinstance(getattr(ctx.scene_frame, "feature_payloads", None), dict)
@@ -96,20 +78,26 @@ class DividerPass(CanvasRenderPass):
         thickness_px = float(payloads.get("divider_thickness", 0) or 0)
         color = QColor(payloads.get("divider_color", QColor(255, 255, 255, 255)))
         is_horizontal = bool(getattr(ctx.scene_frame, "is_horizontal", False))
-        spit = _content_split_visual(ctx)
-
-        # Position + clip from the letterbox *after* the same zoom/pan as
-        # base.frag. See src/tabs/image_compare/docs/investigations/divider-zoom-pan-detach.md.
-        clip = get_view_transformed_content_rect_widget_px(widget)
-        if clip is None:
-            clip = (0.0, 0.0, float(ctx.canvas_width), float(ctx.canvas_height))
-        cx, cy, cw, ch = (float(v) for v in clip)
-        if is_horizontal:
-            position_px = cy + ch * spit - float(ctx.canvas_offset_y)
-        else:
-            position_px = cx + cw * spit - float(ctx.canvas_offset_x)
-
-        return show_divider, position_px, thickness_px, is_horizontal, color, (cx, cy, cw, ch)
+        display_split = float(get_display_split_position(widget) or 0.5)
+        # display_split (ui.canvas_infra.viewport.state.get_display_split_position)
+        # is already a fully-resolved full-widget fraction: it's written by
+        # update_display_split_position -> compute_zoom_display_split_position,
+        # which itself bakes content_rect/zoom/pan in at the point it's
+        # computed. Per the base-image-anchored-geometry contract (see
+        # QRHI_CANVAS_FEATURES.md "Coordinate Systems"), that output must be
+        # treated as final and multiplied straight against the widget
+        # dimension — recombining it with content_rect_px here a second time
+        # double-applies the letterbox transform.
+        # Position is computed against the logical canvas (ctx.canvas_width/
+        # height), then shifted into this render target's tile-local pixel
+        # space via canvas_offset_x/y — identical to canvas_width/height/
+        # offset_x/y == widget.width()/height()/0/0 outside tiled export.
+        extent = (
+            float(ctx.canvas_height) if is_horizontal else float(ctx.canvas_width)
+        )
+        offset = ctx.canvas_offset_y if is_horizontal else ctx.canvas_offset_x
+        position_px = extent * display_split - offset
+        return show_divider, position_px, thickness_px, is_horizontal, color
 
     def initialize(self, rhi, target) -> None:
         self.release()
@@ -169,7 +157,7 @@ class DividerPass(CanvasRenderPass):
             raise RuntimeError("Failed to create divider QRhi pipeline")
 
     def should_paint(self, ctx) -> bool:
-        show, _position, thickness, _horizontal, _color, _clip = self._resolve_divider_state(
+        show, _position, thickness, _horizontal, _color = self._resolve_divider_state(
             ctx.widget, ctx
         )
         if is_single_image_preview_scene(ctx):
@@ -189,14 +177,12 @@ class DividerPass(CanvasRenderPass):
         )
 
     def prepare(self, widget, ctx, resource_updates) -> None:
-        _show, position, thickness, horizontal, color, clip = self._resolve_divider_state(
+        _show, position, thickness, horizontal, color = self._resolve_divider_state(
             widget, ctx
         )
-        assert self.rhi is not None
         matrix = tuple(float(value) for value in self.rhi.clipSpaceCorrMatrix().data())
-        cx, cy, cw, ch = clip
         block = struct.pack(
-            _UNIFORM_FMT,
+            "<24fi3f",
             *matrix,
             float(ctx.width),
             float(ctx.height),
@@ -206,10 +192,6 @@ class DividerPass(CanvasRenderPass):
             color.greenF(),
             color.blueF(),
             color.alphaF(),
-            cx,
-            cy,
-            cw,
-            ch,
             int(horizontal),
             0.0,
             0.0,
@@ -219,25 +201,17 @@ class DividerPass(CanvasRenderPass):
         resource_updates.updateDynamicBuffer(self.uniform_buffer, 0, block)
 
     def record(self, command_buffer: QRhiCommandBuffer, widget, ctx) -> None:
-        assert self.rhi is not None
         target_size = widget.renderTarget().pixelSize()
-        assert self.pipeline is not None
         command_buffer.setGraphicsPipeline(self.pipeline)
         command_buffer.setViewport(
             QRhiViewport(
                 0.0, 0.0, float(target_size.width()), float(target_size.height())
             )
         )
-        # Full-target scissor only — content clip lives in the fragment shader
-        # (src/tabs/image_compare/docs/investigations/divider-zoom-pan-detach.md).
         command_buffer.setScissor(
-            scissor_from_widget_rect(
-                widget, self.rhi, ctx, 0.0, 0.0, float(ctx.width), float(ctx.height)
-            )
+            resolve_rhi_scissor(widget, self.rhi, ctx, clip_to_content=True)
         )
-        assert self.srb is not None
         command_buffer.setShaderResources(self.srb)
-        assert self.vertex_buffer is not None
         command_buffer.setVertexInput(0, [(self.vertex_buffer, 0)])
         command_buffer.draw(4)
 

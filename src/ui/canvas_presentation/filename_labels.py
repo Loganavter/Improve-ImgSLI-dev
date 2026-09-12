@@ -12,20 +12,15 @@ from PySide6.QtGui import (
 )
 
 from ui.canvas_presentation.label_style import FilenameOverlayStyle
-from ui.canvas_infra.rhi.render_common import new_overlay_image
+from ui.widgets.canvas.render_common import new_overlay_image
 
 
 def qcolor(value, fallback: QColor) -> QColor:
-    from domain.qt_adapters import ensure_visible_qcolor
-    from domain.types import Color
-
-    fb = Color(
-        fallback.red(),
-        fallback.green(),
-        fallback.blue(),
-        max(1, fallback.alpha()) if fallback.isValid() else 255,
-    )
-    return ensure_visible_qcolor(value, fallback=fb)
+    if isinstance(value, QColor):
+        return QColor(value)
+    if value is not None and all(hasattr(value, attr) for attr in ("r", "g", "b", "a")):
+        return QColor(int(value.r), int(value.g), int(value.b), int(value.a))
+    return QColor(fallback)
 
 
 def font_for_style(widget, style: FilenameOverlayStyle) -> QFont:
@@ -152,10 +147,7 @@ def draw_round_rect(
 
 
 def fit_text(text: str, font_metrics: QFontMetrics, available_width: float) -> str:
-    # Compare against the full float width — truncating with int() falsely
-    # elides when fractional padding/overscan leaves e.g. advance=141 and
-    # available=140.6 after pixel snap.
-    if font_metrics.horizontalAdvance(text) <= available_width:
+    if font_metrics.horizontalAdvance(text) <= int(available_width):
         return text
     return font_metrics.elidedText(
         text, Qt.TextElideMode.ElideRight, max(1, int(available_width))
@@ -172,16 +164,6 @@ def draw_text_bold_supersampled(
     rh: int,
     text_inset_px: float,
 ) -> None:
-    """Draws synthetic-bold text supersampled 4x then CPU-downscaled back
-    down onto ``painter`` at 1x -- used by callers that rasterize a label at
-    1x resolution and have no GPU downsample pass of their own to lean on
-    instead (``tabs.multi_compare.ui.layer_labels``). ``image_compare``'s
-    own filename_overlay feature uses ``draw_text_bold`` instead (see that
-    function's docstring for why): it rasterizes its *entire* label,
-    background included, supersampled already, then downsamples once via a
-    dedicated GPU Lanczos-2 pass -- stacking this function's own internal
-    supersample on top of that would double-downscale for no benefit.
-    """
     from shared_toolkit.ui.managers.font_manager import FontManager
 
     pixel_size = font.pixelSize()
@@ -245,37 +227,3 @@ def draw_text_bold_supersampled(
         big_img,
         QRectF(0.0, 0.0, float(big_w), float(big_h)),
     )
-
-
-def draw_text_bold(
-    painter: QPainter,
-    text: str,
-    font: QFont,
-    color: QColor,
-    font_weight: int,
-    rw: int,
-    rh: int,
-    text_inset_px: float,
-) -> None:
-    """Draws synthetic-bold text (a filled+stroked QPainterPath, since Qt
-    has no variable font-weight axis to lean on here) directly at
-    ``painter``'s *current* transform -- no internal supersample/downscale
-    step of its own. For callers whose *entire* rasterization (background
-    rect included) already happens supersampled and gets downsampled once
-    via a dedicated GPU pass afterward -- currently only
-    ``image_compare``'s ``render/label_raster.py`` -- see
-    ``draw_text_bold_supersampled`` for the CPU-side alternative other
-    callers still use.
-    """
-    pixel_size = font.pixelSize()
-    metrics = QFontMetrics(font)
-    baseline_y = (float(rh) - metrics.height()) / 2.0 + metrics.ascent()
-    stroke_px = float(pixel_size) * font_weight / 500.0
-    path = QPainterPath()
-    path.addText(QPointF(float(text_inset_px), baseline_y), font, text)
-    pen = QPen(color, stroke_px)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    painter.setPen(pen)
-    painter.setBrush(color)
-    painter.drawPath(path)

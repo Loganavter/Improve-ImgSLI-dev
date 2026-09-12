@@ -23,7 +23,7 @@ from tabs.image_compare.canvas.features.magnifier.render.tile_capture import (
     uv_segment_to_tc_range,
 )
 from tabs.image_compare.canvas.rhi_renderer import _apron_rect, _TILE_APRON_PX
-from shared.rendering.tile_texture_service import (
+from tabs.image_compare.canvas.texture_parts.tile_texture_service import (
     TileTextureService,
 )
 
@@ -70,15 +70,7 @@ def test_tile_uv_slices_non_tiled_source_is_passthrough():
         apron_px=1, apron_rect_fn=_apron_rect, visible_tiles_fn=None,
     )
     assert slices == [
-        {
-            "tile_key": "img",
-            "tile_index": (0, 0),
-            "uv_rect": (0.1, 0.2, 0.3, 0.4),
-            "tc_x": (0.0, 1.0),
-            "tc_y": (0.0, 1.0),
-            "core_tc_x": (0.0, 1.0),
-            "core_tc_y": (0.0, 1.0),
-        }
+        {"tile_key": "img", "uv_rect": (0.1, 0.2, 0.3, 0.4), "tc_x": (0.0, 1.0), "tc_y": (0.0, 1.0)}
     ]
 
 
@@ -101,12 +93,6 @@ def test_tile_uv_slices_capture_spanning_two_tiles():
     assert ranges[0][0] == pytest.approx(0.0)
     assert ranges[-1][1] == pytest.approx(1.0)
     assert ranges[0][1] >= ranges[1][0]
-    # core_tc (scissor-only, apron-free) must NOT overlap -- otherwise the
-    # magnifier draws both tiles' scissors over the same screen pixels,
-    # visible as tile-riding/ghosting under magnifier zoom (unlike the main
-    # canvas, whose per-tile geometry footprint is already non-overlapping).
-    core_ranges = sorted(s["core_tc_x"] for s in slices)
-    assert core_ranges[0][1] <= core_ranges[1][0] + 1e-9
 
 
 def test_tile_uv_slices_single_tile_capture_stays_one_slice():
@@ -120,35 +106,6 @@ def test_remap_slice_uv_to_tc_narrower_range_is_linear_subset():
     slice_ = {"uv_rect": (0.0, 0.0, 1.0, 1.0), "tc_x": (0.0, 1.0), "tc_y": (0.0, 1.0)}
     remapped = remap_slice_uv_to_tc(slice_, (0.25, 0.75), (0.0, 0.5))
     assert remapped == pytest.approx((0.25, 0.0, 0.75, 0.5))
-
-
-def test_expand_uv_rect_to_absolute_tc_is_identity_on_full_domain():
-    from tabs.image_compare.canvas.features.magnifier.render.tile_capture import (
-        expand_uv_rect_to_absolute_tc,
-    )
-
-    uv = (0.1, 0.2, 0.3, 0.4)
-    assert expand_uv_rect_to_absolute_tc(uv, (0.0, 1.0), (0.0, 1.0)) == pytest.approx(uv)
-
-
-def test_expand_uv_rect_to_absolute_tc_preserves_endpoint_samples():
-    """mix(expanded, t) at the scissor endpoints recovers the local uv."""
-    from tabs.image_compare.canvas.features.magnifier.render.tile_capture import (
-        expand_uv_rect_to_absolute_tc,
-    )
-
-    local = (0.2, 0.1, 0.8, 0.9)
-    tc_x, tc_y = (0.0, 0.5), (0.25, 0.75)
-    expanded = expand_uv_rect_to_absolute_tc(local, tc_x, tc_y)
-    u0, v0, u1, v1 = expanded
-
-    def mix(a, b, t):
-        return a + (b - a) * t
-
-    assert mix(u0, u1, tc_x[0]) == pytest.approx(local[0])
-    assert mix(u0, u1, tc_x[1]) == pytest.approx(local[2])
-    assert mix(v0, v1, tc_y[0]) == pytest.approx(local[1])
-    assert mix(v0, v1, tc_y[1]) == pytest.approx(local[3])
 
 
 def test_restrict_tc_axis_x_splits_correctly():
@@ -187,10 +144,10 @@ def test_tc_rect_to_widget_px_full_range_matches_quad_bounds():
     assert rect == pytest.approx((50.0, 150.0, 100.0, 100.0))
 
 
-def test_tc_rect_to_widget_px_y_matches_tc_direction():
-    # per mag.vert: tc.y=0 -> screen top (smaller pixel y), tc.y=1 -> screen bottom
-    top_half = tc_rect_to_widget_px(100.0, 200.0, 50.0, (0.0, 1.0), (0.0, 0.5))
-    bottom_half = tc_rect_to_widget_px(100.0, 200.0, 50.0, (0.0, 1.0), (0.5, 1.0))
+def test_tc_rect_to_widget_px_y_is_flipped_relative_to_tc():
+    # per mag.vert: tc.y=1 -> screen top (smaller pixel y), tc.y=0 -> screen bottom
+    top_half = tc_rect_to_widget_px(100.0, 200.0, 50.0, (0.0, 1.0), (0.5, 1.0))
+    bottom_half = tc_rect_to_widget_px(100.0, 200.0, 50.0, (0.0, 1.0), (0.0, 0.5))
     assert top_half[1] < bottom_half[1]
 
 
@@ -222,9 +179,9 @@ def test_build_tile_records_single_source_non_tiled_is_one_full_record():
     assert len(records) == 1
     rec = records[0]
     assert is_full_tc(rec["tc_x"], rec["tc_y"])
-    assert rec["tex1"]["key"] == "img"
-    assert rec["tex2"]["key"] is None
-    assert rec["texd"] is None
+    assert rec["tex1_key"] == "img"
+    assert rec["tex2_key"] is None
+    assert rec["texd_key"] is None
     assert rec["uv_rect1"] == pytest.approx((0.1, 0.1, 0.3, 0.3))
 
 
@@ -246,72 +203,31 @@ def test_build_tile_records_single_source_tiled_spans_two_tiles():
         comb_horizontal=False,
     )
     assert len(records) == 2
-    assert all(r["tex1"]["key"] is not None and r["tex2"]["key"] is None for r in records)
+    assert all(r["tex1_key"] is not None and r["tex2_key"] is None for r in records)
     assert all(r["uv_rect2"] == pytest.approx((0.0, 0.0, 1.0, 1.0)) for r in records)
 
 
 def test_build_tile_records_combined_mode_splits_into_two_source_halves():
     grid1, service1 = _grid_and_service(width=100, height=100, source="img1")
     service1.register_source("img2", (100, 100))
-    capture = (0.1, 0.2, 0.7, 0.8)
     records = build_tile_records(
         source_slices_fn=_slices_fn(service1, "img1"),
         combined=True,
         source_mode=0,
         diff_mode=0,
-        uv_rect1=capture,
-        uv_rect2=capture,
+        uv_rect1=(0.0, 0.0, 1.0, 1.0),
+        uv_rect2=(0.0, 0.0, 1.0, 1.0),
         tex_key_1="img1",
         tex_key_2="img2",
         diff_key="diff",
         internal_split=0.5,
         comb_horizontal=False,
     )
-    # Untiled capture → one dual-texture draw (no half scissors).
-    assert len(records) == 1
-    rec = records[0]
-    assert is_full_tc(rec["tc_x"], rec["tc_y"])
-    assert rec["tex1"]["key"] == "img1"
-    assert rec["tex2"]["key"] == "img2"
-    assert rec["uv_rect1"] == pytest.approx(capture)
-    assert rec["uv_rect2"] == pytest.approx(capture)
-
-
-def test_build_tile_records_combined_tiled_uses_half_scissors():
-    grid, service = _grid_and_service()
-    service.register_source("img2", (6000, 4000))
-    boundary_frac = 2048.0 / grid.total_width
-    # Capture spans a tile boundary → multi-slice path with half scissors.
-    uv_rect = (boundary_frac - 0.01, 0.0, boundary_frac + 0.01, 0.1)
-
-    def source_slices_fn(key, rect):
-        return tile_uv_slices(
-            service.grid_for(key),
-            service.tile_key,
-            key,
-            rect,
-            apron_px=_TILE_APRON_PX,
-            apron_rect_fn=_apron_rect,
-            visible_tiles_fn=(lambda r: service.visible_tiles(key, r)),
-        )
-
-    records = build_tile_records(
-        source_slices_fn=source_slices_fn,
-        combined=True,
-        source_mode=0,
-        diff_mode=0,
-        uv_rect1=uv_rect,
-        uv_rect2=uv_rect,
-        tex_key_1="img",
-        tex_key_2="img2",
-        diff_key="diff",
-        internal_split=0.5,
-        comb_horizontal=False,
-    )
-    assert len(records) >= 2
-    assert all(not is_full_tc(r["tc_x"], r["tc_y"]) for r in records)
-    assert any(r["tex1"]["key"] is not None for r in records)
-    assert any(r["tex2"]["key"] is not None for r in records)
+    assert len(records) == 2
+    half0 = next(r for r in records if r["tex1_key"] == "img1")
+    half1 = next(r for r in records if r["tex2_key"] == "img2")
+    assert half0["tc_x"] == pytest.approx((0.0, 0.5))
+    assert half1["tc_x"] == pytest.approx((0.5, 1.0))
 
 
 def test_build_tile_records_dual_source_diff_mode_cross_joins_tiles():
@@ -345,8 +261,8 @@ def test_build_tile_records_dual_source_diff_mode_cross_joins_tiles():
         comb_horizontal=False,
     )
     assert len(records) == 4  # 2 tiles on each side, cross-joined
-    assert all(r["tex1"]["key"] is not None and r["tex2"]["key"] is not None for r in records)
-    assert all(r["texd"] is None for r in records)
+    assert all(r["tex1_key"] is not None and r["tex2_key"] is not None for r in records)
+    assert all(r["texd_key"] is None for r in records)
 
 
 def test_build_tile_records_diff_edges_mode_uses_only_source_one():
@@ -367,7 +283,4 @@ def test_build_tile_records_diff_edges_mode_uses_only_source_one():
         comb_horizontal=False,
     )
     assert len(records) == 2
-    assert all(
-        r["tex1"]["key"] is not None and r["tex2"]["key"] is None and r["texd"] is None
-        for r in records
-    )
+    assert all(r["tex1_key"] is not None and r["tex2_key"] is None and r["texd_key"] is None for r in records)

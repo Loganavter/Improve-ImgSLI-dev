@@ -1,1 +1,0 @@
-"""Render helpers for drag_drop_overlay."""

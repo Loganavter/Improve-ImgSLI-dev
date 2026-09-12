@@ -2,16 +2,25 @@
   "common": {
     "cancel": "Cancel",
     "error": "Error",
-    "file_type": {},
+    "file_type": {
+      "all_files": "All Files",
+      "image_files": "Image Files"
+    },
     "ok": "OK",
     "position": {
+      "bottom": "Bottom",
+      "center": "Center",
       "down": "Down",
       "left": "Left",
       "right": "Right",
+      "top": "Top",
       "up": "Up"
     },
     "switch": {
-      "off": "Off"
-    }
+      "off": "Off",
+      "switch_off": "Off",
+      "switch_on": "On"
+    },
+    "warning": "Warning"
   }
 }

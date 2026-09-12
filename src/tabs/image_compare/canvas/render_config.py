@@ -1,3 +1,5 @@
+import logging
+
 from PySide6.QtCore import QRect
 
 from ui.canvas_infra.viewport.contract import DisplaySplitPositionRequest
@@ -5,7 +7,9 @@ from ui.canvas_infra.viewport.geometry import QuickContentRect
 from ui.canvas_infra.viewport.pipeline import compute_display_split_position
 from ui.canvas_infra.viewport.state import set_display_split_position
 
-from ui.canvas_infra.rhi.render_common import widget_px_to_screen_px
+from ui.widgets.canvas.render_common import widget_px_to_screen_px
+
+_dlog = logging.getLogger("ImproveImgSLI.divider_debug")
 
 
 def update_display_split_position(
@@ -34,15 +38,12 @@ def update_display_split_position(
             cx, cy, cw, ch = content_rect_px
             if cw > 0 and ch > 0:
                 content_rect = QuickContentRect(x=cx, y=cy, width=cw, height=ch)
-        from shared.image_processing.image_dims import get_image_dims
-
-        iw, ih = get_image_dims(img1)
         result = compute_display_split_position(
             DisplaySplitPositionRequest(
                 widget_width=w,
                 widget_height=h,
-                image_width=iw,
-                image_height=ih,
+                image_width=img1.width,
+                image_height=img1.height,
                 split_visual=scene.split_position_visual,
                 is_horizontal=scene.is_horizontal,
                 zoom_level=zoom_level if anchor_to_viewport else 1.0,
@@ -78,48 +79,33 @@ def get_content_rect_screen_px(widget) -> tuple[int, int, int, int] | None:
     return (left, top, width, height)
 
 
-def get_view_transformed_content_rect_widget_px(
+def get_local_visible_image_rect(
     widget,
-) -> tuple[float, float, float, float] | None:
-    """Letterbox content rect after the live zoom/pan camera (widget-px).
-
-    Used by ``DividerPass`` so the line's clip/position track the base image
-    on both axes after zoom/pan.
-    """
-    from ui.canvas_infra.viewport.geometry import map_content_rect_through_view
-    from ui.canvas_infra.viewport.state import (
-        get_pan_offset_x,
-        get_pan_offset_y,
-        get_zoom_level,
+    *,
+    img_x: int,
+    img_y: int,
+    img_w: int,
+    img_h: int,
+) -> QRect | None:
+    visible_left = max(0, img_x)
+    visible_top = max(0, img_y)
+    visible_right = min(widget.width(), img_x + img_w)
+    visible_bottom = min(widget.height(), img_y + img_h)
+    if visible_right <= visible_left or visible_bottom <= visible_top:
+        return None
+    return QRect(
+        int(visible_left - img_x),
+        int(visible_top - img_y),
+        int(visible_right - visible_left),
+        int(visible_bottom - visible_top),
     )
-
-    state = getattr(widget, "runtime_state", None)
-    if state is None:
-        return None
-    content_rect = (
-        getattr(state, "_inner_content_rect_px", None) or state._content_rect_px
-    )
-    if not content_rect:
-        return None
-    x, y, w, h = content_rect
-    if w <= 0 or h <= 0:
-        return None
-    widget_w = float(widget.width())
-    widget_h = float(widget.height())
-    if widget_w <= 0 or widget_h <= 0:
-        return None
-    return map_content_rect_through_view(
-        (float(x), float(y), float(w), float(h)),
-        widget_width=widget_w,
-        widget_height=widget_h,
-        zoom_level=get_zoom_level(widget),
-        pan_offset_x=get_pan_offset_x(widget),
-        pan_offset_y=get_pan_offset_y(widget),
-    )
-
 
 
 def begin_content_scissor(widget, force: bool = False):
     """No-op in the QRhi pipeline (QRhi passes set scissor per-draw)."""
     return False
 
+
+def end_content_scissor(widget, enabled):
+    """No-op counterpart to ``begin_content_scissor``."""
+    return

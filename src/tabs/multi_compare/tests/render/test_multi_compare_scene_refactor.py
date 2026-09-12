@@ -7,7 +7,7 @@ from tabs.multi_compare.scene.passes import (
     BaseImagesPass,
     DragDropOverlaySource,
 )
-from tabs.multi_compare.scene.passes import slot_resources as slot_resources_module
+from tabs.multi_compare.scene.passes import base_images as base_images_module
 
 
 def test_multi_compare_canvas_widget_does_not_own_qrhi_rendering_resources():
@@ -65,10 +65,6 @@ def test_multi_compare_base_image_pass_reuses_slot_srb_until_texture_changes(
             return ("uniform", args)
 
         @staticmethod
-        def uniformBufferWithDynamicOffset(*args):
-            return ("uniform_dynamic", args)
-
-        @staticmethod
         def sampledTexture(*args):
             return ("texture", args)
 
@@ -90,26 +86,25 @@ def test_multi_compare_base_image_pass_reuses_slot_srb_until_texture_changes(
         def newShaderResourceBindings(self):
             return _FakeSrb()
 
-    monkeypatch.setattr(
-        slot_resources_module, "QRhiShaderResourceBinding", _FakeBinding
-    )
+    monkeypatch.setattr(base_images_module, "QRhiShaderResourceBinding", _FakeBinding)
 
     render_pass = BaseImagesPass()
-    texture_a = object()
-    render_pass.slot_resources.slot_textures[1] = texture_a
-    render_pass.slot_resources.slot_uniform_buffers.append(object())
+    render_pass.slot_textures[1] = object()
+    render_pass.slot_uniform_buffers.append(object())
+    render_pass.slot_srbs.append(_FakeSrb())
+    render_pass.slot_srb_texture_ids.append(None)
     renderer = SimpleNamespace(rhi=_FakeRhi(), sampler=object())
 
-    first_bound = render_pass.slot_resources.ensure_tile_srb(renderer, 0, 1, texture_a)
+    render_pass._ensure_slot_srb(renderer, 0, 1)
+    first_bound = render_pass.slot_srbs[0]
 
-    assert (
-        render_pass.slot_resources.ensure_tile_srb(renderer, 0, 1, texture_a)
-        is first_bound
-    )
+    render_pass._ensure_slot_srb(renderer, 0, 1)
 
-    texture_b = object()
-    render_pass.slot_resources.slot_textures[1] = texture_b
-    second_bound = render_pass.slot_resources.ensure_tile_srb(renderer, 0, 1, texture_b)
+    assert render_pass.slot_srbs[0] is first_bound
 
-    assert second_bound is not first_bound
+    render_pass._invalidate_slot_srbs_for_texture(1)
+    render_pass.slot_textures[1] = object()
+    render_pass._ensure_slot_srb(renderer, 0, 1)
+
+    assert render_pass.slot_srbs[0] is not first_bound
     assert first_bound.destroyed is True

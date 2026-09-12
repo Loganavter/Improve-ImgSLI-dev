@@ -4,10 +4,8 @@ Reuses the shared filename label rasterization primitives so labels look
 identical to the ones in main compare: pixel-snapped rounded background,
 supersampled bold text, ellipsis on overflow.
 
-The label is positioned at the bottom-left of its layer's *displayed image* in
-framebuffer pixels (not the raw slot rect), so it hugs the image edge even when
-the image is letterboxed/pillarboxed within its slot. Its visual size is stable
-regardless of composition canvas scale.
+The label is positioned at the bottom-left of its layer in framebuffer pixels, so
+its visual size is stable regardless of composition canvas scale.
 """
 
 from __future__ import annotations
@@ -40,7 +38,6 @@ class LayerLabelStyle:
     corner_radius_fb: float = 6.0
     safe_gap_fb: float = 8.0
     text_inset_fb: float = 10.0
-    glyph_overscan_fb: float = 2.0
     text_color: QColor = field(default_factory=lambda: QColor(255, 255, 255, 255))
     bg_color: QColor = field(default_factory=lambda: QColor(0, 0, 0, 170))
     font_weight: int = 0
@@ -51,7 +48,7 @@ class LayerLabelStyle:
             label_safe_gap_px=float(self.safe_gap_fb),
             label_padding_x_px=float(self.padding_x_fb),
             label_padding_y_px=float(self.padding_y_fb),
-            glyph_overscan_px=float(self.glyph_overscan_fb),
+            glyph_overscan_px=2.0,
             label_corner_radius_px=float(self.corner_radius_fb),
             text_inset_px=float(self.text_inset_fb),
             text_alpha=1.0,
@@ -72,7 +69,6 @@ def _label_rect_for_cell(
     cell_rect_fb: tuple[float, float, float, float],
     text: str,
     style: LayerLabelStyle,
-    image_bottom_fb: float | None = None,
 ) -> QRectF | None:
     if not text:
         return None
@@ -84,22 +80,12 @@ def _label_rect_for_cell(
     fm = QFontMetrics(font)
 
     max_w = max(1.0, cw - style.safe_gap_fb * 2.0)
-    # Match image_compare label_rects: padding + glyph_overscan so pixel-snapping
-    # and fit_text's integer width never falsely elide text that fits the cell.
-    text_w_pref = (
-        float(fm.horizontalAdvance(text))
-        + style.padding_x_fb * 2.0
-        + style.glyph_overscan_fb
-    )
+    text_w_pref = float(fm.horizontalAdvance(text)) + style.padding_x_fb * 2.0
     label_w = max(1.0, min(max_w, text_w_pref))
     label_h = float(fm.height()) + style.padding_y_fb * 2.0
 
-    # Anchor to the bottom edge of the displayed image, not the slot rect —
-    # the image is letterboxed/pillarboxed (aspect-fit centered) within its
-    # slot, so the slot's bottom edge can sit well below the actual pixels.
-    bottom = cy + ch if image_bottom_fb is None else image_bottom_fb
     left = cx + style.safe_gap_fb
-    top = bottom - style.safe_gap_fb - label_h
+    top = cy + ch - style.safe_gap_fb - label_h
     return snap_rect_to_pixels(QRectF(left, top, label_w, label_h))
 
 
@@ -109,19 +95,12 @@ def paint_layer_label(
     cell_rect_fb: tuple[float, float, float, float],
     text: str,
     style: LayerLabelStyle,
-    image_bottom_fb: float | None = None,
 ) -> None:
-    """Draw ``text`` at the bottom-left of the displayed image within ``cell_rect_fb`` (fb-px).
-
-    ``image_bottom_fb``, when given, is the fb-px y-coordinate of the bottom
-    edge of the actual displayed (letterboxed) image; defaults to the bottom
-    of ``cell_rect_fb`` itself.
-    """
+    """Draw ``text`` at the bottom-left of ``cell_rect_fb`` (fb-px)."""
     rect = _label_rect_for_cell(
         cell_rect_fb=cell_rect_fb,
         text=text,
         style=style,
-        image_bottom_fb=image_bottom_fb,
     )
     if rect is None:
         return
@@ -131,8 +110,7 @@ def paint_layer_label(
     overlay_style = style.to_filename_overlay_style()
     draw_round_rect(painter, rect, style.bg_color, overlay_style)
 
-    text_inset = float(style.text_inset_fb)
-    inner_w = rect.width() - text_inset * 2.0
+    inner_w = rect.width() - style.padding_x_fb * 2.0
     fitted = fit_text(text, fm, inner_w)
 
     painter.save()
@@ -148,13 +126,13 @@ def paint_layer_label(
             style.font_weight,
             int(rect.width()),
             int(rect.height()),
-            text_inset,
+            float(style.padding_x_fb),
         )
     else:
         painter.setFont(font)
         painter.setPen(style.text_color)
         text_rect = QRectF(
-            text_inset,
+            style.padding_x_fb,
             0.0,
             inner_w,
             rect.height(),
@@ -172,14 +150,12 @@ def layer_label_rect(
     cell_rect_fb: tuple[float, float, float, float],
     text: str,
     style: LayerLabelStyle,
-    image_bottom_fb: float | None = None,
 ) -> QRectF | None:
     """Return the label rect inside ``cell_rect_fb`` in framebuffer pixels."""
     return _label_rect_for_cell(
         cell_rect_fb=cell_rect_fb,
         text=text,
         style=style,
-        image_bottom_fb=image_bottom_fb,
     )
 
 
@@ -204,8 +180,7 @@ def rasterize_layer_label(
 
         font = _font(style)
         fm = QFontMetrics(font)
-        text_inset = float(style.text_inset_fb)
-        inner_w = local_rect.width() - text_inset * 2.0
+        inner_w = local_rect.width() - style.padding_x_fb * 2.0
         fitted = fit_text(text, fm, inner_w)
         if style.font_weight > 0:
             draw_text_bold_supersampled(
@@ -216,13 +191,13 @@ def rasterize_layer_label(
                 style.font_weight,
                 width,
                 height,
-                text_inset,
+                float(style.padding_x_fb),
             )
         else:
             painter.setFont(font)
             painter.setPen(style.text_color)
             text_rect = QRectF(
-                text_inset,
+                style.padding_x_fb,
                 0.0,
                 inner_w,
                 local_rect.height(),

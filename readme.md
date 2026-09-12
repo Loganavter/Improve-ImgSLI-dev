@@ -31,18 +31,23 @@
 ## 📸 Preview
 
 <div align="center">
-   <img src="https://raw.githubusercontent.com/Loganavter/media_archive/2.0.0/Improve_ImgSLI/screenshots/screenshot_1.jpg" width="75%">
+   <img src="https://raw.githubusercontent.com/Loganavter/media_archive/1.9.0/Improve_ImgSLI/screenshots/screenshot_1.jpg" width="75%">
 </div>
+
+<details>
+  <summary>Full resolution save</summary>
+  <img src="https://raw.githubusercontent.com/Loganavter/media_archive/1.4/Improve_ImgSLI/fullres/github_fullres.png" alt="Full resolution example" width="33%">
+</details>
 
 ---
 
 ## 🧭 Quick links
 
 - Get Improve-ImgSLI: <a href="https://github.com/Loganavter/Improve-ImgSLI/releases/latest">Windows installer</a> • <a href="https://flathub.org/apps/details/io.github.Loganavter.Improve-ImgSLI">Flathub</a> • <a href="https://aur.archlinux.org/packages/improve-imgsli">AUR</a>
-- Install & run from source: <a href="docs/INSTALL.md">docs/INSTALL.md</a> • launcher reference: <a href="docs/LAUNCHER.md">docs/LAUNCHER.md</a>
-- Learn the app: in-app <strong>Find Action</strong> (<code>Ctrl+Shift+P</code>) and Help • browse topics: <a href="src/resources/help/en/platform/getting_started.md">EN Getting Started</a> • <a href="src/resources/help/en/">EN host topics</a> • <a href="src/resources/help/ru/">RU</a>
+- Install & run from source: <a href="docs/INSTALL.md">docs/INSTALL.md</a>
+- Learn the app (Help): <a href="src/resources/help/en/001_introduction.md">EN Start Here</a> • <a href="src/resources/help/en/">EN All topics</a> • <a href="src/resources/help/ru/">RU Docs</a>
 - Contribute: <a href="CONTRIBUTING.md">CONTRIBUTING.md</a>
-- More: <a href="docs/DEVELOPMENT_HISTORY.md">Development History</a> • <a href="VISION.md">Project Vision</a>
+- More: <a href="HISTORY.md">Development History</a> • <a href="VISION.md">Project Vision</a>
 
 ---
 
@@ -58,8 +63,6 @@
 - 🔀 Multi Compare tab: lay out and synchronize any number of images in one scene, drag slots to rearrange the layout, resize dividers freely, and jump into a fullscreen focus mode for any cell.
 - 🗂️ File workflow tuned for large batches: drag and drop, reorder across left/right lists, clipboard paste, ratings, filename editing, and quick side switching with the mouse wheel.
 - 🎨 Deep UI customization: adjustable divider visibility/color/thickness, magnifier styling, text overlay styling, custom icon-based controls, light/dark themes, and custom UI fonts, all built on the project's own custom-drawn UI toolkit.
-- 🔎 Find Action + illustrated Help: search and run any command with `Ctrl+Shift+P` (Learn more opens the matching topic); hierarchical in-app Help with hubs, topic cards, and tab-owned pages for Image Compare / Multi Compare.
-- 💾 Project files (`.imgsli`): save your entire workspace state, including loaded images, splitters, magnifiers, and video sessions, into a single `.imgsli` container for easy sharing and resuming (see [technical format docs](docs/dev/CONTAINER_FORMAT.md)).
 - ⚙️ Polished desktop UX: persistent layout and settings, multilingual UI (EN/RU/zh/pt_BR), tray integration, save notifications, auto-cropping options, and a robust launcher for source-based runs.
 
 ---
@@ -78,27 +81,26 @@ cd Improve-ImgSLI
 chmod +x launcher.sh
 ./launcher.sh run
 ```
-See full instructions in <a href="docs/INSTALL.md">docs/INSTALL.md</a> and launcher command details in <a href="docs/LAUNCHER.md">docs/LAUNCHER.md</a>.
+See full instructions in <a href="docs/INSTALL.md">docs/INSTALL.md</a>.
 
 Current limitation:
-- Images above `65536 px` on either side are rejected on load. That bound protects against pathological decode sizes (codecs still decompress a full frame once; spill into `TiledPixelStore` is strip-written). Live rendering itself is tiled. Still-image export above `16384 px` on a side is allowed but warns that the path is untested.
+- Images above `16384 px` on either side are not supported yet. This is a temporary software limit and may be improved in the future.
 
 ---
 
 ## 🧪 Basic Usage
 
 1. Start Improve-ImgSLI — it opens on the session picker; choose **Image Compare** for a classic two-image comparison, or **Multi Compare** to line up several images at once. Each choice opens as its own tab.
-2. Press `Ctrl+Shift+P` anytime to **Find Action** — search settings, tools, and session actions by name; use Learn more on a row to open the matching Help topic.
-3. In Image Compare, load images via “Add Img(s)” or drag-and-drop. Use `Space + Left/Right Mouse Button` for quick single-image preview.
-4. Move the split line with the mouse; toggle Horizontal Split if needed.
-5. Enable the magnifier, pick interpolation, and adjust zoom/position via sliders or keys.
-6. Use `Space + Shift + Left/Right Mouse Button` to force a side in combined magnifier preview when needed.
-7. Customize dividers and text, then export the composite image.
-8. In Multi Compare, drop or add images into the scene, drag slots to rearrange the layout, resize dividers, and double-click a cell for a fullscreen focus view.
+2. In Image Compare, load images via “Add Img(s)” or drag-and-drop. Use `Space + Left/Right Mouse Button` for quick single-image preview.
+3. Move the split line with the mouse; toggle Horizontal Split if needed.
+4. Enable the magnifier, pick interpolation, and adjust zoom/position via sliders or keys.
+5. Use `Space + Shift + Left/Right Mouse Button` to force a side in combined magnifier preview when needed.
+6. Customize dividers and text, then export the composite image.
+7. In Multi Compare, drop or add images into the scene, drag slots to rearrange the layout, resize dividers, and double-click a cell for a fullscreen focus view.
 
-For detailed guides, hotkeys, and settings, use in-app Help (Help menu or Find Action → Help) or browse the markdown sources:
-- EN: <a href="src/resources/help/en/platform/getting_started.md">Getting Started</a> • <a href="src/resources/help/en/">Host topics</a> • <a href="src/tabs/image_compare/resources/help/en/">Image Compare</a> • <a href="src/tabs/multi_compare/resources/help/en/">Multi Compare</a>
-- RU: <a href="src/resources/help/ru/platform/getting_started.md">Начало работы</a> • <a href="src/resources/help/ru/">Host topics</a>
+For detailed guides, hotkeys, and settings, use the in-app Help (question mark icon) or open:
+- EN: <a href="src/resources/help/en/001_introduction.md">Start Here</a> • <a href="src/resources/help/en/">All topics</a>
+- RU: <a href="src/resources/help/ru/001_introduction.md">Введение</a> • <a href="src/resources/help/ru/">Все разделы</a>
 
 ---
 
@@ -133,9 +135,7 @@ This project is supported and improved by the efforts of dedicated maintainers. 
 
 ## 📄 License
 
-GPL-3.0-or-later. See <a href="LICENSE">LICENSE</a>.
-
-Runtime dependencies (including PySide6/Qt under LGPL-3.0-or-later) are listed in <a href="THIRD_PARTY_LICENSES.md">THIRD_PARTY_LICENSES.md</a>.
+GPL-3.0 License. See <a href="LICENSE">LICENSE</a> for details.
 
 ---
 

@@ -50,7 +50,7 @@ class NotificationService:
         timeout_ms: int = 4000,
     ) -> bool:
         try:
-            import dbus  # type: ignore[import-not-found]  # optional runtime dep
+            import dbus
 
             bus = dbus.SessionBus()
             notify_iface = dbus.Interface(

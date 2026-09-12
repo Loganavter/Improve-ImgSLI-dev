@@ -1,8 +1,7 @@
-from collections import OrderedDict
 from dataclasses import dataclass, field
 
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPixmap
 
 from ui.canvas_infra.viewport.state import ensure_zoom_viewport_state
@@ -49,12 +48,9 @@ class CanvasRuntimeState:
     _content_scissor_depth: int = 0
     _canvas_scene_graph: object | None = None
     _letterbox_params: list = field(default_factory=lambda: [None, None])
-    # Expanding-canvas frame in widget UV + pad fill (video uncrop / export).
-    # Disabled when zw==(0,0) or fill.a==0 — see base.frag canvasLetterbox.
-    _canvas_frame_letterbox: tuple[float, float, float, float] | None = None
-    _letterbox_fill_rgba: tuple[float, float, float, float] | None = None
     _store: object | None = None
     _render_scene: object | None = None
+    _render_scene_dirty: bool = False
     _split_position_sync: object | None = None
     _apply_channel_mode_in_shader: bool = True
     _read_only: bool = False
@@ -65,31 +61,33 @@ class CanvasRuntimeState:
     _drag_overlay_texts: tuple[str, str] = ("", "")
     _drag_overlay_cache_key: object | None = None
     _drag_overlay_cached_image: object | None = None
+    _paste_overlay_visible: bool = False
+    _paste_overlay_horizontal: bool = False
+    _paste_overlay_texts: dict = field(
+        default_factory=lambda: {"up": "", "down": "", "left": "", "right": ""}
+    )
+    _paste_overlay_hovered_button: object | None = None
+    _paste_overlay_button_size: float = 120.0
+    _paste_overlay_spacing: float = 20.0
+    _paste_overlay_center_size: float = 60.0
+    _paste_overlay_rects: dict = field(
+        default_factory=lambda: {
+            "up": QRectF(),
+            "down": QRectF(),
+            "left": QRectF(),
+            "right": QRectF(),
+            "cancel": QRectF(),
+        }
+    )
     _pending_texture_uploads: list = field(default_factory=list)
-    # OrderedDict (not plain dict) so cache reads can call move_to_end() to
-    # track real recency -- see evict_texture_upload_cache_over_budget in
-    # texture_parts/upload_queue.py and docs/dev/rendering/tile-rendering-system.md
-    # Phase 2.
-    _texture_upload_cache: OrderedDict = field(default_factory=OrderedDict)
-    _host_texture_upload_cache: object | None = None
-    # docs/dev/rendering/tile-rendering-system.md Phase 3: bounded LRU of
-    # already-decoded QImages keyed by image_uid(), see
-    # texture_parts/upload_queue.py's queue_texture_upload().
-    _qimage_by_uid_cache: OrderedDict = field(default_factory=OrderedDict)
+    _texture_upload_cache: dict = field(default_factory=dict)
     _resize_overlay_sync_active: bool = False
     _zoom_viewport_state: object | None = None
-    # See render_context.py's _schedule_glass_settle_frame: one extra
-    # repaint after the last real content update, so
-    # shared.rendering.glass_panel's render_backdrops() can catch up to the
-    # colorTexture() that update just produced (it always reads the
-    # *previous* frame's colorTexture() by design -- see that module's
-    # docstring). Guards against stacking up multiple settle frames during
-    # a burst of updates.
-    _glass_settle_pending: bool = False
     _dynamic_feature_overrides: dict = field(default_factory=dict)
     _feature_overlay_gpu: _FeatureOverlayGpuState = field(
         default_factory=_FeatureOverlayGpuState
     )
+    _feature_overlay_quad_ndc: tuple[float, float, float, float] | None = None
     _capture_center: object | None = None
     _capture_radius: float = 0.0
     _capture_circles: list = field(default_factory=list)
@@ -101,12 +99,6 @@ class CanvasRuntimeState:
     _laser_color: object = field(default_factory=QColor)
     _guides_thickness: int = 0
     _capture_color: object = field(default_factory=QColor)
-    _export_canvas_viewport: tuple | None = None
-    # Union letterbox hold after put_unified: keep prev union letterbox for
-    # UNION_LETTERBOX_HOLD_MS (350ms) or until tile more_pending False.
-    # See base_images.update_common_letterbox_geometry.
-    _union_letterbox_hold_until: float = 0.0
-    _tile_more_pending: bool = False
 
 
 def init_widget_state(widget):

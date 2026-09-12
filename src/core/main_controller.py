@@ -39,6 +39,9 @@ class MainController(QObject):
         self._session_controller = None
         self._settings_controller = None
         self._export_controller = None
+        self._analysis_controller = None
+        self._metrics_service = None
+        self._viewport_controller = None
         self._layout_plugin = None
         self._recorder = None
         self._video_exporter = None
@@ -108,6 +111,25 @@ class MainController(QObject):
             getattr(export_plugin, "clipboard_service", None) if export_plugin else None
         )
 
+        analysis_plugin = self._get_plugin("analysis")
+        self._analysis_controller = (
+            analysis_plugin.get_controller()
+            if analysis_plugin is not None and hasattr(analysis_plugin, "get_controller")
+            else None
+        )
+        self._metrics_service = (
+            getattr(analysis_plugin, "metrics_service", None)
+            if analysis_plugin is not None
+            else None
+        )
+
+        viewport_plugin = self._get_plugin("viewport")
+        self._viewport_controller = (
+            viewport_plugin.get_controller()
+            if viewport_plugin is not None and hasattr(viewport_plugin, "get_controller")
+            else None
+        )
+
         self._layout_plugin = self._get_plugin("layout")
 
     @property
@@ -135,36 +157,38 @@ class MainController(QObject):
         return self._clipboard_service
 
     @property
+    def analysis(self):
+        return self._analysis_controller
+
+    @property
+    def metrics_service(self):
+        return self._metrics_service
+
+    @property
+    def viewport_plugin(self):
+        return self._viewport_controller
+
+    @property
     def layout(self):
         return self._layout_plugin
 
     def attach_window_shell(self, window_shell):
         self.window_shell = window_shell
         self.refresh_runtime_bindings()
-        for plugin_name in ("comparison", "export", "settings", "onboarding"):
-            self._attach_plugin_window_shell(plugin_name, window_shell)
+        for plugin_name in ("comparison", "export", "settings"):
+            plugin = self._get_plugin(plugin_name)
+            if plugin is None:
+                continue
+            configurator = getattr(plugin, "configure_controller", None)
+            if callable(configurator):
+                presenter = (
+                    window_shell.get_feature(plugin_name)
+                    if hasattr(window_shell, "get_feature")
+                    else window_shell
+                )
+                configurator(self, presenter)
+                self.refresh_runtime_bindings()
+            binder = getattr(plugin, "bind_window_shell", None)
+            if callable(binder):
+                binder(window_shell)
         self.refresh_runtime_bindings()
-
-    def attach_deferred_plugins(self, window_shell) -> None:
-        """Wire window shell for plugins loaded after bootstrap."""
-        self.refresh_runtime_bindings()
-        for plugin_name in ("export", "help", "image_properties"):
-            self._attach_plugin_window_shell(plugin_name, window_shell)
-        self.refresh_runtime_bindings()
-
-    def _attach_plugin_window_shell(self, plugin_name: str, window_shell) -> None:
-        plugin = self._get_plugin(plugin_name)
-        if plugin is None:
-            return
-        configurator = getattr(plugin, "configure_controller", None)
-        if callable(configurator):
-            presenter = (
-                window_shell.get_feature(plugin_name)
-                if hasattr(window_shell, "get_feature")
-                else window_shell
-            )
-            configurator(self, presenter)
-            self.refresh_runtime_bindings()
-        binder = getattr(plugin, "bind_window_shell", None)
-        if callable(binder):
-            binder(window_shell)

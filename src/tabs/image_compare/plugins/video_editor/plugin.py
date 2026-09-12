@@ -24,7 +24,7 @@ from tabs.image_compare.plugins.video_editor.services.recording_flow import Reco
 logger = logging.getLogger("ImproveImgSLI")
 
 
-@plugin(name="video_editor", version="1.0", startup_tier="deferred", startup_order=0)
+@plugin(name="video_editor", version="1.0")
 class VideoEditorPlugin(Plugin, ISessionPlugin):
     def __init__(self):
         super().__init__()
@@ -40,19 +40,16 @@ class VideoEditorPlugin(Plugin, ISessionPlugin):
                 SettingsChangeLanguageEvent, self._on_language_changed
             )
 
+    def get_qss_paths(self) -> tuple[str, ...]:
+        return (self.plugin_resource_path("resources", "editor.qss"),)
+
     def open_editor(
         self, snapshots: list[Any], export_controller: Any, main_window_app: Any
     ) -> None:
-        from shared.debug_flags import env_flag as _env_flag
-        _dbg = _env_flag("IMGSLI_VIDEO_EDITOR_DEBUG") or _env_flag("IMGSLI_IC_VIDEO_DEBUG")
-        if _dbg:
-            logger.warning("[video-editor-debug] VideoEditorPlugin.open_editor snapshots=%s controller=%s existing_dialog=%s", bool(snapshots), bool(export_controller), self._editor_dialog is not None)
         if not snapshots or not export_controller:
             logger.warning(
                 "VideoEditorPlugin.open_editor: snapshots or export_controller is None"
             )
-            if _dbg:
-                logger.warning("[video-editor-debug] open_editor abort snapshots=%s controller=%s", bool(snapshots), bool(export_controller))
             return
 
         try:
@@ -60,12 +57,6 @@ class VideoEditorPlugin(Plugin, ISessionPlugin):
                 try:
                     if self._editor_dialog.isMinimized():
                         self._editor_dialog.showNormal()
-                    # Re-contribute: showEvent does not fire when already visible.
-                    contribute = getattr(
-                        self._editor_dialog, "_contribute_find_actions", None
-                    )
-                    if callable(contribute):
-                        contribute()
                     self._editor_dialog.show()
                     self._editor_dialog.raise_()
                     self._editor_dialog.activateWindow()
@@ -83,10 +74,6 @@ class VideoEditorPlugin(Plugin, ISessionPlugin):
             dialog.destroyed.connect(self._forget_editor)
             dialog.readyToShow.connect(self._show_editor_dialog)
             dialog.show()
-            # Belt-and-suspenders: ensure catalog is live even if showEvent was odd.
-            contribute = getattr(dialog, "_contribute_find_actions", None)
-            if callable(contribute):
-                contribute()
         except Exception as e:
             logger.exception(
                 f"VideoEditorPlugin.open_editor: Error creating/showing dialog: {e}"
@@ -130,7 +117,7 @@ class VideoEditorPlugin(Plugin, ISessionPlugin):
     @staticmethod
     def _can_activate_deferred_dialog(dialog) -> bool:
         app = QApplication.instance()
-        if not isinstance(app, QApplication):
+        if app is None:
             return False
         if app.applicationState() != Qt.ApplicationState.ApplicationActive:
             return False
@@ -138,20 +125,14 @@ class VideoEditorPlugin(Plugin, ISessionPlugin):
         return active_window is None or active_window is dialog
 
     def _forget_editor(self, *_args) -> None:
-        dialog = self._editor_dialog
         self._editor_dialog = None
-        if dialog is not None:
-            withdraw = getattr(dialog, "_withdraw_find_actions", None)
-            if callable(withdraw):
-                try:
-                    withdraw()
-                except Exception:
-                    logger.debug(
-                        "[find-action] withdraw on forget failed", exc_info=True
-                    )
 
     def _on_language_changed(self, event: SettingsChangeLanguageEvent) -> None:
         if self._editor_dialog is not None:
             self._editor_dialog.update_language(event.lang_code)
+
+    def get_ui_components(self) -> dict[str, Any]:
+        return {}
+
     def get_session_blueprints(self) -> tuple[SessionBlueprint, ...]:
         return ()

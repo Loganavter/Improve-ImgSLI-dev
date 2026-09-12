@@ -2,7 +2,7 @@
 uses translation keys only (no hardcoded strings), and the chosen scale
 persists and reloads.
 
-Dogma source: docs/dev/RESOURCES_I18N.md (i18n discipline for user-facing labels).
+Dogma source: docs/dev/HELP_WIDGET.md §i18n/help discipline.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 from PySide6.QtGui import QColor
 
-from tabs.image_compare.plugins.video_editor.dialog.persistence import VideoEditorDialogPersistence
+from tabs.image_compare.plugins.video_editor.dialog_persistence import VideoEditorDialogPersistence
 
 REPO = Path(__file__).resolve().parents[5]
 VIDEO_I18N_ROOT = REPO / "src" / "tabs" / "image_compare" / "plugins" / "video_editor" / "resources" / "i18n"
@@ -27,7 +27,7 @@ PREVIEW_QUALITY_KEYS = {
 }
 
 def test_video_preview_quality_i18n_keys_exist_for_all_languages():
-    """i18n discipline: user-facing video editor labels must live in i18n resources."""
+    """HELP_WIDGET.md: user-facing video editor labels must live in i18n resources."""
     video_files = sorted(VIDEO_I18N_ROOT.glob("*/video.json"))
     assert video_files
 
@@ -40,17 +40,10 @@ def test_video_preview_quality_i18n_keys_exist_for_all_languages():
             assert isinstance(video[key], str) and video[key].strip()
 
 def test_preview_quality_settings_use_translation_keys_only():
-    """i18n discipline: UI construction must not hardcode translated preview labels."""
-    source = (
-        REPO
-        / "src"
-        / "tabs"
-        / "image_compare"
-        / "plugins"
-        / "video_editor"
-        / "dialog"
-        / "sections.py"
-    ).read_text(encoding="utf-8")
+    """HELP_WIDGET.md: UI construction must not hardcode translated preview labels."""
+    source = (REPO / "src" / "tabs" / "image_compare" / "plugins" / "video_editor" / "dialog_sections.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
     forbidden = {
         "Preview Quality:",

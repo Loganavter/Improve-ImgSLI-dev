@@ -4,11 +4,13 @@ from typing import Any
 
 from plugins.settings.events import SettingsChangeLanguageEvent
 from core.plugin_system import Plugin, plugin
-from core.plugin_system.interfaces import IControllablePlugin
+from core.plugin_system.interfaces import IControllablePlugin, IUIPlugin
 from plugins.help.dialog import HelpDialog
 
-@plugin(name="help", version="1.0", startup_tier="deferred")
-class HelpPlugin(Plugin, IControllablePlugin):
+@plugin(name="help", version="1.0")
+class HelpPlugin(Plugin, IUIPlugin, IControllablePlugin):
+    capabilities = ("help_dialog",)
+
     def __init__(self):
         super().__init__()
         self._dialog: HelpDialog | None = None
@@ -23,6 +25,9 @@ class HelpPlugin(Plugin, IControllablePlugin):
                 SettingsChangeLanguageEvent, self._on_language_changed
             )
 
+    def get_qss_paths(self) -> tuple[str, ...]:
+        return (self.plugin_resource_path("resources", "help.qss"),)
+
     def get_controller(self) -> "HelpPlugin":
         return self
 
@@ -31,43 +36,28 @@ class HelpPlugin(Plugin, IControllablePlugin):
         if callable(target):
             return target(*args, **kwargs)
         raise AttributeError(f"Help plugin has no command '{command}'")
-    def show_dialog(
-        self,
-        *,
-        parent: Any = None,
-        language: str = "en",
-        page: str | None = None,
-        anchor: str | None = None,
-        video_url: str | None = None,
-        learn_more_url: str | None = None,
-    ) -> None:
-        # Never Qt-parent Help to the main window. A transient-for link makes
-        # the WM raise the whole main-window group when Help activates, which
-        # buries independent top-levels like Video Editor / Export.
-        # ``parent`` is kept as a geometry hint only (centering).
-        del parent
+
+    def provides_capability(self, capability: str) -> bool:
+        return capability == "help_dialog"
+
+    def show_dialog(self, *, parent: Any = None, language: str = "en") -> None:
         if self._dialog is None:
             self._dialog = HelpDialog(
                 current_language=language,
                 app_name="Improve-ImgSLI",
-                parent=None,
+                parent=parent,
             )
             self._dialog.destroyed.connect(self._on_dialog_destroyed)
 
         if self._dialog.current_language != language:
             self._dialog.update_language(language)
 
-        # Wayland activation for this independent modeless top-level is
-        # handled by ThemedDialog (suppress the stale show-time request +
-        # retry until the compositor grants focus) — see the module docstring
-        # in shared_toolkit/ui/themed_dialog.py.
+        if parent is not None and self._dialog.parent() is None:
+            self._dialog.setParent(parent)
+
         self._dialog.show()
         self._dialog.raise_()
         self._dialog.activateWindow()
-        if page:
-            self._dialog.navigate_to(
-                page, anchor, video_url=video_url, learn_more_url=learn_more_url
-            )
 
     def _on_dialog_destroyed(self) -> None:
         self._dialog = None

@@ -1,11 +1,5 @@
-"""CanvasFeatureProperty channel shapes match the property kind.
-
-The serialization roundtrip half of this file moved to
-``tests/plugins/test_settings_full_pass.py`` (the generic sweep over every
-persisted property, including the boundary values that used to live here) —
-this file keeps the channel-shape dogmas only:
-``channels`` describe the keyframe track width per kind (bool/scalar/enum ->
-1, color -> 4) and channel ids must be unique.
+"""CanvasFeatureProperty settings serializers roundtrip, and channel shapes
+match the property kind (the keyframe track width per kind).
 
 Dogma source: docs/dev/CONTRACTS.md §CanvasFeatureProperty.
 """
@@ -20,6 +14,23 @@ _registry.register_package(image_compare_features)
 
 def get_canvas_feature_properties():
     return _registry.get_feature_properties()
+
+def test_property_setting_serializers_roundtrip_scalar_values():
+    """CONTRACTS.md: CanvasFeatureProperty settings serialization must roundtrip."""
+    exercised = []
+
+    for prop in get_canvas_feature_properties():
+        if prop.serialize_setting is None or prop.deserialize_setting is None:
+            continue
+
+        for value in (0, 1, 12, 99):
+            channels = {"value": value}
+            raw = prop.serialize_setting(channels)
+            restored = prop.deserialize_setting(raw)
+            assert restored == channels, f"{prop.id} failed roundtrip for {value}"
+        exercised.append(prop.id)
+
+    assert exercised
 
 def test_property_channel_shapes_match_property_kind():
     """CONTRACTS.md: CanvasFeatureProperty channels describe keyframe track shape."""

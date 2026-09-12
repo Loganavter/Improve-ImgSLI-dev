@@ -5,20 +5,12 @@ import logging
 from PIL import Image
 
 from shared.analysis.channel_analyzer import extract_channel
-from shared.analysis.diff_source import (
-    create_edge_map_from_sources,
-    create_grayscale_diff_from_sources,
-    create_highlight_diff_from_sources,
-)
 from shared.analysis.differ import (
     create_grayscale_diff,
     create_highlight_diff,
     create_ssim_map,
 )
 from shared.analysis.edge_detector import create_edge_map
-from shared.analysis.ssim_source import create_ssim_map_from_sources
-from shared.image_processing.pixel_ops.downscale import downscale_pair_to_limit
-from shared.image_processing.tiled_pixel_store import TiledPixelStore
 from tabs.image_compare.services.analysis.analysis_pair import (
     prepare_pair_for_global_analysis,
 )
@@ -28,42 +20,6 @@ logger = logging.getLogger("ImproveImgSLI")
 INTERACTIVE_SSIM_MAX_DIMENSION = 2048
 INTERACTIVE_SSIM_MAX_PIXELS = 4_000_000
 
-def _is_stale(store, lease) -> bool:
-    """Inline is_open/generation check replacing generation token."""
-    if lease is None:
-        return False
-    # legacy lease object (has .valid)
-    try:
-        if hasattr(lease, "valid"):
-            return not bool(lease.valid)
-    except Exception:
-        pass
-    # tuple (store, generation) capture
-    if isinstance(lease, tuple) and len(lease) == 2:
-        _, gen = lease
-        if isinstance(store, TiledPixelStore):
-            try:
-                if gen is not None and getattr(store, "generation", None) != gen:
-                    return True
-                if not getattr(store, "is_open", True):
-                    return True
-            except Exception:
-                pass
-        return False
-    # direct generation int
-    if isinstance(lease, int):
-        if isinstance(store, TiledPixelStore):
-            try:
-                if getattr(store, "generation", None) != lease:
-                    return True
-                if not getattr(store, "is_open", True):
-                    return True
-            except Exception:
-                pass
-        return False
-    return False
-
-
 def build_cached_diff_image(
     image1,
     image2,
@@ -71,142 +27,9 @@ def build_cached_diff_image(
     channel_mode: str = "RGB",
     optimize_ssim: bool = False,
     progress_callback=None,
-    *,
-    lease1: object | None = None,
-    lease2: object | None = None,
-    box1=None,
-    box2=None,
-):
-    if isinstance(image1, TiledPixelStore) or isinstance(image2, TiledPixelStore):
-        return build_cached_diff_image_from_sources(
-            image1,
-            image2,
-            diff_mode,
-            channel_mode=channel_mode,
-            optimize_ssim=optimize_ssim,
-            progress_callback=progress_callback,
-            lease1=lease1,
-            lease2=lease2,
-            box1=box1,
-            box2=box2,
-        )
-    return _build_cached_diff_pil(
-        image1,
-        image2,
-        diff_mode,
-        channel_mode=channel_mode,
-        optimize_ssim=optimize_ssim,
-        progress_callback=progress_callback,
-        box1=box1,
-        box2=box2,
-    )
-
-
-def build_cached_diff_image_from_sources(
-    image1,
-    image2,
-    diff_mode: str,
-    channel_mode: str = "RGB",
-    optimize_ssim: bool = False,
-    progress_callback=None,
-    *,
-    lease1: object | None = None,
-    lease2: object | None = None,
-    box1=None,
-    box2=None,
-):
-    if _is_stale(image1, lease1):
-        return None
-    if _is_stale(image2, lease2):
-        return None
-    if image1 is None or (image2 is None and diff_mode != "edges"):
-        return None
-
-    # W3c: diff over the crop windows (black borders excluded), sourced from
-    # full-frame stores. Both boxes None → untouched, identical to today.
-    # Crops AFTER the staleness checks above: leases reference the original
-    # stores, and crop windows are fresh PIL views needing no lease.
-    if box1 is not None or box2 is not None:
-        from tabs.image_compare.services.analysis.analysis_pair import (
-            crop_pair_to_boxes,
-        )
-
-        image1, image2 = crop_pair_to_boxes(image1, image2, box1, box2)
-        if image1 is None or (image2 is None and diff_mode != "edges"):
-            return None
-
-    if diff_mode == "ssim":
-        ssim_image1 = image1
-        ssim_image2 = image2
-        ssim_lease1 = lease1
-        ssim_lease2 = lease2
-        if optimize_ssim and image2 is not None:
-            limit = INTERACTIVE_SSIM_MAX_DIMENSION
-            w, h = image1.size
-            if max(w, h) > limit or (w * h) > INTERACTIVE_SSIM_MAX_PIXELS:
-                ssim_image1, ssim_image2 = downscale_pair_to_limit(
-                    image1, image2, limit, allow_materialize=True
-                )
-                ssim_lease1 = None
-                ssim_lease2 = None
-        return create_ssim_map_from_sources(
-            ssim_image1,
-            ssim_image2,
-            progress_callback=progress_callback,
-            lease1=ssim_lease1,
-            lease2=ssim_lease2,
-        )
-
-    builders = {
-        "edges": lambda: create_edge_map_from_sources(
-            image1,
-            channel_mode=channel_mode,
-            progress_callback=progress_callback,
-            lease1=lease1,
-        ),
-        "highlight": lambda: create_highlight_diff_from_sources(
-            image1,
-            image2,
-            channel_mode=channel_mode,
-            progress_callback=progress_callback,
-            lease1=lease1,
-            lease2=lease2,
-        ),
-        "grayscale": lambda: create_grayscale_diff_from_sources(
-            image1,
-            image2,
-            channel_mode=channel_mode,
-            progress_callback=progress_callback,
-            lease1=lease1,
-            lease2=lease2,
-        ),
-    }
-    return builders.get(diff_mode, lambda: None)()
-
-
-def _build_cached_diff_pil(
-    image1,
-    image2,
-    diff_mode: str,
-    channel_mode: str = "RGB",
-    optimize_ssim: bool = False,
-    progress_callback=None,
-    *,
-    box1=None,
-    box2=None,
 ):
     if image1 is None or (image2 is None and diff_mode != "edges"):
         return None
-
-    # W3c: same crop-window semantics as the tile-native branch above.
-    if box1 is not None or box2 is not None:
-        from tabs.image_compare.services.analysis.analysis_pair import (
-            crop_pair_to_boxes,
-        )
-
-        image1, image2 = crop_pair_to_boxes(image1, image2, box1, box2)
-        if image1 is None or (image2 is None and diff_mode != "edges"):
-            return None
 
     processed1 = image1
     processed2 = image2

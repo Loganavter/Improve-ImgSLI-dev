@@ -12,8 +12,10 @@ from .dialog import ImagePropertiesDialog
 from .service import build_image_properties
 
 
-@plugin(name="image_properties", version="1.0", startup_tier="deferred")
+@plugin(name="image_properties", version="1.0")
 class ImagePropertiesPlugin(Plugin, IControllablePlugin):
+    capabilities = ("image_properties",)
+
     def initialize(self, context: Any) -> None:
         super().initialize(context)
 
@@ -25,6 +27,10 @@ class ImagePropertiesPlugin(Plugin, IControllablePlugin):
         if callable(target):
             return target(*args, **kwargs)
         raise AttributeError(f"Image properties plugin has no command '{command}'")
+
+    def provides_capability(self, capability: str) -> bool:
+        return capability == "image_properties"
+
     def open_dialog(
         self,
         *,
@@ -35,7 +41,6 @@ class ImagePropertiesPlugin(Plugin, IControllablePlugin):
         app_rows: Iterable[tuple[str, str, Any]] = (),
         language: str | None = None,
         tr_func=None,
-        probe_image: bool = True,
     ) -> None:
         open_image_properties_dialog(
             parent=parent,
@@ -45,7 +50,6 @@ class ImagePropertiesPlugin(Plugin, IControllablePlugin):
             app_rows=app_rows,
             language=language,
             tr_func=tr_func,
-            probe_image=probe_image,
         )
 
 
@@ -58,14 +62,12 @@ def open_image_properties_dialog(
     app_rows: Iterable[tuple[str, str, Any]] = (),
     language: str | None = None,
     tr_func=None,
-    probe_image: bool = True,
 ) -> None:
     properties = build_image_properties(
         path=path,
         display_name=display_name,
         image=image,
         app_rows=app_rows,
-        probe_image=probe_image,
     )
     dialog = ImagePropertiesDialog(
         properties,

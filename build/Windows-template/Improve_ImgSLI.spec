@@ -21,15 +21,6 @@ QT_CONF_PATH = SPEC_DIR / "qt.conf"
 APP_NAME = "Improve_ImgSLI"
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-# Windowed by default. Set BUILD_CONSOLE=1 (or IMGSLI_WINDOWS_CONSOLE=1) for a
-# console subsystem build so startup crashes print a traceback.
-BUILD_CONSOLE = _env_flag("BUILD_CONSOLE") or _env_flag("IMGSLI_WINDOWS_CONSOLE")
-
-
 def collect_tree(source_dir, dest_dir, *, include_suffixes=None):
     source_path = Path(source_dir)
     if not source_path.exists():
@@ -92,14 +83,8 @@ def find_pyside6_root():
 PYSIDE6_ROOT = find_pyside6_root()
 QT6_ROOT = PYSIDE6_ROOT / "Qt6" if (PYSIDE6_ROOT / "Qt6").exists() else PYSIDE6_ROOT
 
-LICENSE_TEMPLATE_DIR = SPEC_DIR / "licenses"
-
 APP_DATAS = [
-    (str(REPO_ROOT / "LICENSE"), "."),
-    (str(REPO_ROOT / "THIRD_PARTY_LICENSES.md"), "."),
     (str(REPO_ROOT / "src" / "resources"), "resources"),
-    (str(SPEC_DIR / "icons" / "imgsli-file.ico"), "icons"),
-    (str(SPEC_DIR / "icons" / "icon.ico"), "icons"),
     (str(REPO_ROOT / "src" / "shared_toolkit" / "resources"), "shared_toolkit/resources"),
     (str(REPO_ROOT / "src" / "shared_toolkit" / "ui" / "resources"), "shared_toolkit/ui/resources"),
     (str(QT_CONF_PATH), "."),
@@ -107,15 +92,6 @@ APP_DATAS = [
 APP_DATAS.extend(collect_resource_dirs(REPO_ROOT / "src" / "plugins", "plugins"))
 APP_DATAS.extend(collect_resource_dirs(REPO_ROOT / "src" / "tabs", "tabs"))
 APP_DATAS.extend(collect_resource_dirs(REPO_ROOT / "src" / "ui" / "canvas_features", "ui/canvas_features"))
-# QRhi loads sibling *.qsb next to Python via Path(__file__).parent/.../shaders —
-# resources/ collection does not include those directories.
-APP_DATAS.extend(
-    collect_tree(REPO_ROOT / "src" / "tabs", "tabs", include_suffixes={".qsb"})
-)
-APP_DATAS.extend(
-    collect_tree(REPO_ROOT / "src" / "ui", "ui", include_suffixes={".qsb"})
-)
-APP_DATAS.extend(collect_tree(LICENSE_TEMPLATE_DIR, "licenses"))
 
 PYSIDE6_DATAS = []
 PYSIDE6_DATAS.extend(collect_tree(QT6_ROOT / "plugins", "PySide6/plugins"))
@@ -284,7 +260,7 @@ APP_HIDDENIMPORTS = [
     "sli_ui_toolkit.ui.widgets.atomic.tooltips",
     "sli_ui_toolkit.ui.widgets.composite.base_flyout",
     "sli_ui_toolkit.ui.widgets.composite.color_swatch",
-    "ui.widgets.drag_ghost_widget",
+    "sli_ui_toolkit.ui.widgets.composite.drag_ghost_widget",
     "sli_ui_toolkit.ui.widgets.composite.icon_action_flyout",
     "sli_ui_toolkit.ui.widgets.composite.simple_options_flyout",
     "sli_ui_toolkit.ui.widgets.composite.toast",
@@ -309,7 +285,7 @@ APP_HIDDENIMPORTS = [
     "ui.managers.transient_ui_manager",
     "ui.managers.tray_manager",
     "ui.managers.ui_manager",
-    "plugins.onboarding",
+    "ui.onboarding",
     "ui.presenters.image_canvas.background",
     "ui.presenters.image_canvas.magnifier",
     "ui.presenters.image_canvas.results",
@@ -379,11 +355,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
-    console=BUILD_CONSOLE,
-    # Keep the bootloader dialog useful for windowed builds (e.g. when a
-    # third-party import still assumes stderr exists).
-    disable_windowed_traceback=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=True,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
@@ -395,6 +369,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,
+    upx=True,
+    upx_exclude=[],
     name=APP_NAME,
 )

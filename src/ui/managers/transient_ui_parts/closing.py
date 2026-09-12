@@ -1,37 +1,8 @@
 from __future__ import annotations
 
-import shiboken6 as sip
-from PySide6.QtWidgets import QApplication, QDialog
+import time
 
-from ui.context_menu.manager import get_context_menu_manager
-
-
-def _widget_under(widget, ancestor) -> bool:
-    current = widget
-    while current is not None:
-        if current is ancestor:
-            return True
-        parent = getattr(current, "parentWidget", None)
-        current = parent() if callable(parent) else None
-    return False
-
-
-def _modal_dialog_blocks_transient_hide(host, widget=None) -> bool:
-    """Keep flyouts open while a modal prompt (rename / properties / …) owns focus."""
-    if getattr(host, "_is_modal_active", False):
-        return True
-    app = QApplication.instance()
-    if isinstance(app, QApplication) and app.activeModalWidget() is not None:
-        return True
-    if widget is not None:
-        try:
-            window = widget.window()
-        except RuntimeError:
-            return False
-        if isinstance(window, QDialog) and window.isModal():
-            return True
-    return False
-
+from PySide6.QtCore import QPoint, QPointF, QRect
 
 class PopupClosingController:
     def __init__(self, manager):
@@ -43,78 +14,40 @@ class PopupClosingController:
 
         registry = TabRegistry()
         registry.discover()
-        return registry.create_startup_service("popup_close_extension", self.manager)
+        return registry.create_service("popup_close_extension", self.manager)
 
-    def close_all_flyouts_if_needed(self, global_pos):
+    def close_all_flyouts_if_needed(self, global_pos: QPointF):
         host = self.manager.host
-        if host._is_modal_active:
+        if host._is_modal_active or self._is_inside_interpolation_anchor(global_pos):
             return
-        get_context_menu_manager().hide_active_menu_if_outside(global_pos)
+        self._close_font_flyout_if_needed(global_pos)
+        if self._is_interpolation_grace_period_active():
+            return
+        unified_active = False
         if self._tab_extension is not None:
-            self._tab_extension.close_at_pointer(global_pos)
-        # Font settings / interp / options are FlyoutManager-owned; the tab
-        # extension only knows UnifiedFlyout. Keep them on the same outside-click
-        # path as the dual list.
-        #
-        # Deliberately not FlyoutManager.close_if_outside(): that calls
-        # close_all(), which (unlike the manager's own app-wide event filter)
-        # does not exempt pinned=True HUDs (ZoomIndicator, InfoHUD — see
-        # FLYOUT_SYSTEM.md "Pinned flyouts", which promises outside clicks
-        # never close them). This call exists because the QRhi canvas can
-        # swallow the mouse press before it reaches the manager's own
-        # eventFilter, so it must apply the same pinned exemption by hand
-        # (_dismiss_passive, the exact routine the manager's eventFilter uses
-        # for outside clicks) instead of delegating to the blunter close_all.
-        try:
-            from PySide6.QtCore import QPoint
-            from sli_ui_toolkit.managers import FlyoutManager
-
-            point = (
-                global_pos.toPoint()
-                if hasattr(global_pos, "toPoint")
-                else QPoint(int(global_pos.x()), int(global_pos.y()))
-            )
-            manager = FlyoutManager.get_instance()
-            if not manager._contains_global(point):
-                manager._dismiss_passive()
-        except Exception:
-            pass
-
-    def hide_transient_same_window_ui(self, *, reason: str = "unspecified"):
-        import logging, traceback
-
-        logger = logging.getLogger("ImproveImgSLI")
-        # DIAGNOSTIC: log reason + caller for duplicate hide spams (file.settings → dialog)
-        _caller = "".join(traceback.format_stack()[-4:-2])
-        logger.debug(
-            "[transient-close] hide_transient_same_window_ui reason=%s scheduled=%s caller=%s old_active=%s",
-            reason,
-            getattr(self, "_hide_transient_scheduled", False),
-            _caller.strip(),
-            getattr(self.manager.host, "_active_session_type", None),
-        )
-        # Coalesce bursts from deactivate + focus_changed in one event-loop turn.
-        if getattr(self, "_hide_transient_scheduled", False):
-            logger.debug("[transient-close] hide suppressed — already scheduled reason=%s", reason)
+            unified_active = bool(self._tab_extension.close_at_pointer(global_pos))
+        if not unified_active:
+            self._close_interpolation_flyout_if_needed(global_pos)
             return
-        self._hide_transient_scheduled = True
+        if host._interp_popup_open and host._interp_flyout:
+            if (time.monotonic() - host._interp_last_open_ts) >= 0.12:
+                combo = getattr(host.ui, "combo_interpolation", None)
+                if combo is not None:
+                    combo_local_pos = host.parent_widget.mapFromGlobal(global_pos.toPoint())
+                    combo_rect = combo.rect()
+                    combo_rect.moveTo(combo.mapTo(host.parent_widget, combo_rect.topLeft()))
+                    if combo_rect.contains(combo_local_pos):
+                        return
+                flyout_contains = (
+                    host._interp_flyout.contains_global(global_pos.toPoint())
+                    if hasattr(host._interp_flyout, "contains_global")
+                    else QRect(host._interp_flyout.mapToGlobal(QPoint(0, 0)), host._interp_flyout.size()).contains(global_pos.toPoint())
+                )
+                if not flyout_contains:
+                    self.manager.interpolation.close()
 
-        def _run() -> None:
-            self._hide_transient_scheduled = False
-            logger.debug("[transient-close] hide_run reason=%s", reason)
-            self._hide_transient_same_window_ui_now()
-
-        from PySide6.QtCore import QTimer
-
-        QTimer.singleShot(0, _run)
-
-    def _hide_transient_same_window_ui_now(self):
+    def hide_transient_same_window_ui(self):
         host = self.manager.host
-        # Deferred hide can run inside AppTextInputDialog.exec()'s nested loop —
-        # do not tear down the list flyout while that modal is up.
-        if _modal_dialog_blocks_transient_hide(host):
-            return
-        get_context_menu_manager().hide_active_menu()
         if self._tab_extension is not None:
             try:
                 self._tab_extension.hide_same_window()
@@ -143,84 +76,84 @@ class PopupClosingController:
                 service.cancel_drag()
         except Exception:
             pass
-        try:
-            from events.image_carry import ImageCarryService
-
-            carry = ImageCarryService.get_instance()
-            if carry.is_active():
-                carry.cancel()
-        except Exception:
-            pass
-
-    def _focus_aware_owners(self):
-        # Use cached services only — accessing self.manager.interpolation /
-        # font_settings here would force a TabRegistry probe on every
-        # focusChanged (which fires at high frequency due to the flyout
-        # focus guard). Passive focus checks must not create services.
-        return (
-            self._tab_extension,
-            self.manager._services.get("interpolation"),
-            self.manager._services.get("font_settings"),
-        )
 
     def on_app_focus_changed(self, old_widget, new_widget):
-        import logging
-
-        logger = logging.getLogger("ImproveImgSLI")
         host = self.manager.host
+        if new_widget is None and host.parent_widget.isActiveWindow():
+            return
+        if self._tab_extension is not None and self._tab_extension.has_focus_inside(new_widget):
+            return
+        if self._is_widget_alive_and_visible(host.font_settings_flyout):
+            if new_widget is not None:
+                parent = new_widget
+                while parent is not None:
+                    if parent is host.font_settings_flyout:
+                        return
+                    parent = parent.parent()
+            if hasattr(host.font_settings_flyout, "has_active_dialog") and host.font_settings_flyout.has_active_dialog():
+                return
+        self.hide_transient_same_window_ui()
+
+    def _is_widget_alive_and_visible(self, widget) -> bool:
+        if widget is None:
+            return False
         try:
-            window_active = host.parent_widget.isActiveWindow() if hasattr(host, "parent_widget") else None
+            return bool(widget.isVisible())
         except RuntimeError:
-            window_active = None
-        logger.debug(
-            "[transient-close] on_app_focus_changed old=%s new=%s window_active=%s",
-            type(old_widget).__name__ if old_widget else None,
-            type(new_widget).__name__ if new_widget else None,
-            window_active,
+            return False
+
+    def _map_global_to_parent(self, global_pos: QPointF):
+        return self.manager.host.parent_widget.mapFromGlobal(global_pos.toPoint())
+
+    def _widget_rect_in_parent(self, widget) -> QRect:
+        rect = widget.rect()
+        rect.moveTo(widget.mapTo(self.manager.host.parent_widget, rect.topLeft()))
+        return rect
+
+    def _is_inside_interpolation_anchor(self, global_pos: QPointF) -> bool:
+        combo = getattr(self.manager.host.ui, "combo_interpolation", None)
+        return combo is not None and self._widget_rect_in_parent(combo).contains(
+            self._map_global_to_parent(global_pos)
         )
-        if _modal_dialog_blocks_transient_hide(host, new_widget):
-            logger.debug("[transient-close] focus change blocked by modal")
+
+    def _close_font_flyout_if_needed(self, global_pos: QPointF):
+        host = self.manager.host
+        if not (
+            host._font_popup_open
+            and (time.monotonic() - host._font_popup_last_open_ts) > 0.12
+            and host.font_settings_flyout is not None
+        ):
             return
-        try:
-            window_active = host.parent_widget.isActiveWindow()
-        except RuntimeError:
-            window_active = None
+        flyout_global_rect = QRect(
+            host.font_settings_flyout.mapToGlobal(QPoint(0, 0)),
+            host.font_settings_flyout.size(),
+        )
+        anchor = host._font_anchor_widget or getattr(host.ui, "btn_text_settings", None)
+        button_rect = QRect()
+        if anchor:
+            button_rect = anchor.geometry()
+            button_rect.moveTo(anchor.mapToGlobal(QPoint(0, 0)))
+        if not flyout_global_rect.contains(global_pos.toPoint()) and not button_rect.contains(global_pos.toPoint()):
+            self.manager.font_settings.hide()
 
-        # Window fully deactivated → sweep. Otherwise ignore null-focus flicker.
-        if new_widget is None:
-            if window_active:
-                return
-            self.hide_transient_same_window_ui(reason="focus_null_inactive_window")
+    def _is_interpolation_grace_period_active(self) -> bool:
+        host = self.manager.host
+        return bool(
+            hasattr(host, "_interp_last_open_ts")
+            and host._interp_last_open_ts > 0
+            and (time.monotonic() - host._interp_last_open_ts) < 0.15
+        )
+
+    def _close_interpolation_flyout_if_needed(self, global_pos: QPointF):
+        host = self.manager.host
+        if not (host._interp_popup_open and host._interp_flyout is not None):
             return
-
-        menu_manager = get_context_menu_manager()
-        if menu_manager.active_menu_has_focus_inside(new_widget):
+        if self._is_inside_interpolation_anchor(global_pos):
             return
-
-        for owner in self._focus_aware_owners():
-            if owner is not None and owner.has_focus_inside(new_widget):
-                return
-
-        try:
-            from sli_ui_toolkit.managers import FlyoutManager
-
-            active = FlyoutManager.get_instance().get_active_flyout()
-            if active is not None and _widget_under(new_widget, active):
-                return
-        except Exception:
-            pass
-
-        # Only sweep when focus *left* a still-relevant popup owner.
-        # Routine canvas ↔ button focus must not touch transient UI (canvas jerk).
-        for owner in self._focus_aware_owners():
-            if owner is None:
-                continue
-            try:
-                left_owner = owner.has_focus_inside(old_widget)
-            except Exception:
-                left_owner = False
-            if left_owner:
-                self.hide_transient_same_window_ui(
-                    reason=f"focus_left_{type(owner).__name__}"
-                )
-                return
+        flyout_contains = (
+            host._interp_flyout.contains_global(global_pos.toPoint())
+            if hasattr(host._interp_flyout, "contains_global")
+            else QRect(host._interp_flyout.mapToGlobal(QPoint(0, 0)), host._interp_flyout.size()).contains(global_pos.toPoint())
+        )
+        if not flyout_contains:
+            self.manager.interpolation.close()

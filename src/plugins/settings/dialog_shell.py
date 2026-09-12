@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QScrollArea, QSizePolicy
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QScrollArea, QSizePolicy
 
-from plugins.settings.layout_geometry import apply_settings_dialog_geometry
-from shared_toolkit.ui.layout_sizing import defer_dialog_geometry
 from sli_ui_toolkit.widgets import (
-    DEFER_CLICK_AWAIT_RIPPLE,
-    CustomLineEdit,
     ScrollableDialogPage,
     SidebarDialogShell,
 )
 from ui.icon_manager import AppIcon
-from ui.layout_spacing import control_edge_padding, sidebar_header_host
 from ui.theming import polish_themed_dialog
 from ui.widgets.form_controls import DialogActionBar
 
@@ -20,23 +15,7 @@ def setup_dialog_shell(dialog):
     dialog.main_layout.setContentsMargins(0, 0, 0, 0)
     dialog.main_layout.setSpacing(0)
 
-    dialog.search_field = CustomLineEdit()
-    dialog.search_field.setPlaceholderText(
-        dialog.tr("settings.search_placeholder", dialog.current_language)
-    )
-    dialog.search_field.setClearButtonEnabled(True)
-    dialog.search_field.setObjectName("SettingsSearchField")
-
-    dialog.shell = SidebarDialogShell(
-        sidebar_header=sidebar_header_host(dialog.search_field),
-        resizable_sidebar=True,
-        content_margins=(
-            control_edge_padding(),
-            control_edge_padding(),
-            control_edge_padding(),
-            control_edge_padding(),
-        ),
-    )
+    dialog.shell = SidebarDialogShell()
     dialog.main_layout.addWidget(dialog.shell)
 
     dialog.sidebar = dialog.shell.sidebar
@@ -54,10 +33,7 @@ def setup_dialog_shell(dialog):
     )
     dialog.ok_button = dialog.action_bar.primary_button
     dialog.cancel_button = dialog.action_bar.secondary_button
-    # Theme / language / font apply is GUI-thread-bound — finish the OK
-    # ripple before the freeze (see BUTTON_API.md).
-    dialog.ok_button.set_defer_click(DEFER_CLICK_AWAIT_RIPPLE)
-    dialog.ok_button.clicked.connect(dialog.confirm_settings)
+    dialog.ok_button.clicked.connect(dialog.accept)
     dialog.cancel_button.clicked.connect(dialog.reject)
     dialog.content_layout.addWidget(dialog.action_bar)
 
@@ -79,24 +55,14 @@ def setup_sidebar_items(dialog):
             ),
         ]
     dialog.sidebar.set_items(dialog._sidebar_items_data)
+    for row in getattr(dialog.sidebar, "_rows", ()):
+        row.button.setToolTip("")
 
 def create_scrollable_page():
     page = ScrollableDialogPage()
     page.content_widget.setSizePolicy(
         QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding
     )
-    # QScrollArea defaults to StrongFocus, so clicking empty space between
-    # controls parks real Qt focus on the bare scroll container itself
-    # instead of any actual row/control. A NavigationSection registered on
-    # the page (see pages/keyboard.py) only recognizes its own row widgets
-    # via owns() — it never claims the scroll area, so arrow keys pressed
-    # right after such a click go nowhere (NavigationManager finds no owner
-    # and yields to native QAbstractScrollArea scrolling instead of routing
-    # into the section). NavigationManager's own click-realign path already
-    # exists to land focus on the nearest real control after a click on
-    # non-focusable padding — but only fires when the scroll container
-    # itself can't out-compete it for focus first.
-    page.scroll_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     return page, page.content_layout
 
 def page_scroll_area(page):
@@ -109,7 +75,48 @@ def apply_styles(dialog):
     dialog._update_sidebar_icons()
 
 def defer_geometry(dialog):
-    defer_dialog_geometry(dialog, dialog._calculate_and_apply_geometry)
+    QTimer.singleShot(0, dialog._calculate_and_apply_geometry)
 
 def calculate_and_apply_geometry(dialog):
-    apply_settings_dialog_geometry(dialog)
+    dialog.ensurePolished()
+    sidebar_width = dialog.sidebar.width()
+    content_margins = dialog.content_layout.contentsMargins()
+    total_width_margins = content_margins.left() + content_margins.right() + 40
+
+    max_group_width = 0
+    max_content_height = 0
+    for i in range(dialog.pages_stack.count()):
+        page_wrapper = dialog.pages_stack.widget(i)
+        scroll_area = page_wrapper.findChild(QScrollArea)
+        if scroll_area:
+            content_widget = scroll_area.widget()
+            content_widget.ensurePolished()
+            content_widget.adjustSize()
+
+            groups = content_widget.findChildren(dialog._custom_group_widget_cls)
+            if groups:
+                for group in groups:
+                    max_group_width = max(max_group_width, group.sizeHint().width())
+            else:
+                max_group_width = max(max_group_width, content_widget.sizeHint().width())
+            max_content_height = max(max_content_height, content_widget.sizeHint().height())
+
+    required_width = sidebar_width + max_group_width + total_width_margins
+    final_width = max(800, min(required_width, 1200))
+    bottom_controls_height = 80
+    sidebar_req_height = dialog.sidebar.count() * 45 + 40
+    required_height = max(sidebar_req_height, max_content_height + bottom_controls_height)
+    screen_h = QApplication.primaryScreen().availableGeometry().height()
+    final_height = min(required_height, screen_h - 100) + 5
+
+    dialog.setMinimumSize(300, 200)
+    if dialog.isVisible():
+        dialog.updateGeometry()
+        return
+
+    dialog.resize(final_width, final_height)
+    parent = dialog.parent() if hasattr(dialog, "parent") else None
+    if parent:
+        geo = dialog.geometry()
+        geo.moveCenter(parent.geometry().center())
+        dialog.move(geo.topLeft())

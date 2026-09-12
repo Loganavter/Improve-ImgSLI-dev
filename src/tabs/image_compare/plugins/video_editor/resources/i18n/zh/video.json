@@ -13,8 +13,6 @@
     "crf_constant_quality": "CRF（恒定质量）",
     "done": "完成！",
     "export_log": "导出日志",
-    "export_tabs": "导出标签",
-    "export_actions": "导出",
     "edge_comparison": "边缘比较",
     "encoding_speed_preset": "编码速度（预设）",
     "fast": "快",
@@ -58,7 +56,6 @@
     "ssim_map": "SSIM地图",
     "standard": "标准",
     "superfast": "超快",
-    "toolbar": "工具栏",
     "ultrafast": "极快",
     "veryfast": "很快",
     "veryslow": "极慢",
@@ -67,14 +64,6 @@
     "ffmpeg_output_args_hint": "输入FFmpeg输出参数。\n输入是原始视频管道。",
     "crf_value_hint": "CRF值（0-51，越低越好）",
     "cq_value_hint": "CQ 值（0-51，越低越好）",
-    "bitrate_hint": "比特率（例如：5000k, 5M）",
-    "export_finished": "导出完成 {ts}",
-    "export_failed": "导出失败 {ts}",
-    "export_started": "导出开始 {ts}",
-    "video_exported": "视频已导出",
-    "saved_to": "已保存至: {path}"
-  },
-  "tooltip": {
-    "use_favorite": "使用收藏"
+    "bitrate_hint": "比特率（例如：5000k, 5M）"
   }
 }

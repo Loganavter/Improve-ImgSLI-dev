@@ -2,14 +2,6 @@ name: Build Windows
 
 on:
   workflow_dispatch:
-    inputs:
-      console:
-        description: "Console subsystem (debug startup crashes)"
-        type: choice
-        options:
-          - "false"
-          - "true"
-        default: "false"
   push:
     tags:
       - "v*"
@@ -31,7 +23,6 @@ jobs:
         shell: pwsh
         run: |
           python build/ci/validate_release_metadata.py
-          python build/ci/validate_license_files.py
 
   tests:
     name: Run tests
@@ -67,8 +58,6 @@ jobs:
 
       - name: Run Pytest
         shell: pwsh
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: |
           python -m pytest tests --maxfail=1 -q
 
@@ -107,24 +96,13 @@ jobs:
         shell: pwsh
         env:
           BUILD_INNO_SETUP: "0"
-          BUILD_CONSOLE: ${{ github.event.inputs.console == 'true' && '1' || '0' }}
         run: |
           python build/Windows-template/build_windows.py
-
-      - name: Verify Windows License Bundle
-        shell: pwsh
-        run: |
-          python build/ci/validate_license_files.py --windows-bundle dist/Improve_ImgSLI
-
-      - name: Verify Windows QRhi Shaders
-        shell: pwsh
-        run: |
-          python build/ci/validate_windows_shaders.py --windows-bundle dist/Improve_ImgSLI
 
       - name: Upload Windows Bundle
         uses: actions/upload-artifact@v4
         with:
-          name: Improve_ImgSLI_windows_bundle${{ github.event.inputs.console == 'true' && '_console' || '' }}
+          name: Improve_ImgSLI_windows_bundle
           path: dist/Improve_ImgSLI/**
           if-no-files-found: error
 
@@ -139,18 +117,13 @@ jobs:
       - name: Download Bundle
         uses: actions/download-artifact@v4
         with:
-          name: Improve_ImgSLI_windows_bundle${{ github.event.inputs.console == 'true' && '_console' || '' }}
+          name: Improve_ImgSLI_windows_bundle
           path: dist/Improve_ImgSLI
 
       - name: Build Inno Setup Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.5
         with:
           path: build/Windows-template/inno_setup_6.iss
-
-      - name: Verify Installer License Pages
-        shell: pwsh
-        run: |
-          python build/ci/validate_license_files.py
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4

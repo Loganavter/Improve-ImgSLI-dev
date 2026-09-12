@@ -19,26 +19,8 @@ from ui.canvas_infra.scene.feature_state_api import execute_feature_command
 @pytest.fixture(autouse=True)
 def _register_image_compare_canvas_features():
     from tabs.image_compare.tab import ImageCompareTab
-    from tabs.registry import get_shared_tab_registry
 
     ImageCompareTab().register_canvas_features()
-
-    # `execute_canvas_feature_alias` (used by the magnifier keyframing
-    # adapter under test) goes through
-    # `TabRegistry.create_service("canvas_feature_command_alias", ...)`,
-    # which resolves strictly against the shared registry's active session
-    # type (see docs/dev/tabs/isolation.md). `store.create_workspace_session`
-    # only updates the `Store`'s own workspace bookkeeping — it never
-    # touches the registry (that only happens via real UI event routing) —
-    # so force the shared singleton's active tab directly for the duration
-    # of each test.
-    registry = get_shared_tab_registry()
-    previous_active = registry._active_session_type
-    registry._active_session_type = "image_compare"
-    try:
-        yield
-    finally:
-        registry._active_session_type = previous_active
 
 
 def _snapshot(store: Store) -> FrameSnapshot:
@@ -81,20 +63,12 @@ def test_magnifier_per_instance_keyframes_apply_when_globally_enabled():
     snapshot = _snapshot(store)
     adapter = DynamicMagnifierAdapter()
     tool = adapter.describe_tools(snapshot)[0]
-    track_ids = {track.id for track in tool.tracks}
-    assert "magnifier.default.position" in track_ids
-    assert "magnifier.default.offset" in track_ids
 
     adapter.apply_tool_values(
         snapshot,
         tool,
-        {
-            "magnifier.default.size": {"value": 0.8},
-            "magnifier.default.offset": {"x": 0.12, "y": -0.05},
-        },
+        {"magnifier.default.size": {"value": 0.8}},
     )
 
     model = store.viewport.view_state.canvas_widget_state["magnifier"].models["default"]
     assert model.size_relative == 0.8
-    assert abs(model.offset_relative.x - 0.12) < 1e-6
-    assert abs(model.offset_relative.y + 0.05) < 1e-6

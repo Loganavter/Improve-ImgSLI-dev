@@ -1,7 +1,6 @@
-# Audit-Meta: pattern=state-machine reason="single toolbar connections wiring — action->presenter bindings"
 import logging
 
-from tabs.host_helpers import MessageKind
+from PySide6.QtWidgets import QMessageBox
 
 from tabs.image_compare.events import (
     AnalysisSetChannelViewModeEvent,
@@ -31,9 +30,9 @@ def _show_unavailable_toolbar_capability(presenter, control_id: str) -> None:
     if ui_manager is None or getattr(ui_manager, "messages", None) is None:
         return
     ui_manager.messages.show_non_modal_message(
-        kind=MessageKind.WARNING,
-        title="Feature unavailable",
-        text=f"The '{control_id}' capability is not available in this build.",
+        QMessageBox.Icon.Warning,
+        "Feature unavailable",
+        f"The '{control_id}' capability is not available in this build.",
     )
 
 def _invoke_toolbar_binding(control_id: str, hook_name: str, presenter, *args):
@@ -65,6 +64,11 @@ def _resolve_interpolation_handler(controller):
         return sessions.on_interpolation_changed
     return None
 
+def _invoke_toolbar_binding_if_scrolling(control, control_id: str, hook_name: str, presenter, *args):
+    if not bool(getattr(control, "_is_scrolling", False)):
+        return
+    _invoke_toolbar_binding(control_id, hook_name, presenter, *args)
+
 def connect_signals(presenter):
     _connect_session_actions(presenter)
     _connect_name_editing(presenter)
@@ -72,20 +76,14 @@ def connect_signals(presenter):
     _connect_orientation_controls(presenter)
     _connect_mode_specific_controls(presenter)
     _connect_ui_manager_controls(presenter)
-    _connect_topic_palette_entry_points(presenter)
     _connect_session_comboboxes(presenter)
-    _connect_image_load_buttons(presenter)
-    _connect_text_settings_button(presenter)
-    _connect_save_buttons(presenter)
-    _connect_font_flyout(presenter)
-    _connect_magnifier_color_controls(presenter)
 
 def _connect_session_actions(presenter):
     controller = presenter.main_controller
     if controller is None or controller.sessions is None:
         return
 
-    ui = presenter.widget
+    ui = presenter.ui
     ui.btn_swap.shortClicked.connect(controller.sessions.swap_current_images)
     ui.btn_swap.longPressed.connect(controller.sessions.swap_entire_lists)
     ui.btn_clear_list1.shortClicked.connect(
@@ -103,7 +101,7 @@ def _connect_session_actions(presenter):
 
 def _connect_name_editing(presenter):
     controller = presenter.main_controller
-    ui = presenter.widget
+    ui = presenter.ui
     if controller is not None and controller.sessions is not None:
         ui.edit_name1.editingFinished.connect(
             lambda: controller.sessions.on_edit_name_changed(1, ui.edit_name1.text())
@@ -123,7 +121,7 @@ def _connect_name_editing(presenter):
 
 def _connect_viewport_controls(presenter):
     controller = presenter.main_controller
-    ui = presenter.widget
+    ui = presenter.ui
     event_bus = presenter.event_bus
     interpolation_handler = _resolve_interpolation_handler(controller)
 
@@ -250,11 +248,12 @@ def _connect_viewport_controls(presenter):
 
             def on_speed_changed(value: int):
                 from core.state_management.actions import SetMovementSpeedAction
-
                 speed = value / 100.0
                 dispatcher = store.get_dispatcher() if hasattr(store, "get_dispatcher") else None
                 if dispatcher is not None:
                     dispatcher.dispatch(SetMovementSpeedAction(speed), scope="viewport")
+                else:
+                    store.viewport.view_state.movement_speed_per_sec = speed
                 settings_manager = getattr(controller, "settings_manager", None) if controller is not None else None
                 if settings_manager is not None:
                     settings_manager._save_setting("movement_speed_per_sec", speed)
@@ -264,7 +263,7 @@ def _connect_viewport_controls(presenter):
             ui.combo_interpolation.currentIndexChanged.connect(interpolation_handler)
 
 def _connect_orientation_controls(presenter):
-    ui = presenter.widget
+    ui = presenter.ui
     ui.btn_orientation.rightClicked.connect(
         lambda: on_orientation_right_clicked(presenter)
     )
@@ -303,7 +302,7 @@ def _connect_orientation_controls(presenter):
 
 def _connect_mode_specific_controls(presenter):
     controller = presenter.main_controller
-    ui = presenter.widget
+    ui = presenter.ui
 
     if not controller:
         return
@@ -391,7 +390,7 @@ def _connect_mode_specific_controls(presenter):
 
 
 def _connect_ui_manager_controls(presenter):
-    ui = presenter.widget
+    ui = presenter.ui
     ui_manager = presenter.ui_manager
 
     if (
@@ -411,40 +410,17 @@ def _connect_ui_manager_controls(presenter):
     if ui_manager:
         ui.combo_image1.clicked.connect(lambda: ui_manager.show_flyout(1))
         ui.combo_image2.clicked.connect(lambda: ui_manager.show_flyout(2))
+        ui.help_button.clicked.connect(ui_manager.dialogs.show_help_dialog)
+        ui.btn_settings.clicked.connect(ui_manager.dialogs.show_settings_dialog)
     else:
         logger.warning("ToolbarPresenter: ui_manager not set, flyout connections skipped")
-
-
-def _open_topic_palette(presenter, topic: str) -> None:
-    from ui.actions.palette import show_command_palette
-
-    parent = getattr(presenter, "main_window_app", None)
-    if parent is None:
-        widget = getattr(presenter, "widget", None)
-        parent = widget.window() if widget is not None else None
-    show_command_palette(topic=topic, parent=parent)
-
-
-def _connect_topic_palette_entry_points(presenter):
-    """Middle-click toolbar chrome → Find Action filtered by topic."""
-    ui = presenter.widget
-
-    def _bind(button, topic: str) -> None:
-        if button is None or not hasattr(button, "middleClicked"):
-            return
-        button.middleClicked.connect(lambda t=topic: _open_topic_palette(presenter, t))
-
-    _bind(getattr(ui, "btn_freeze", None), "magnifier")
-    _bind(getattr(ui, "btn_save", None), "export")
-    _bind(getattr(ui, "btn_quick_save", None), "export")
-    _bind(getattr(ui, "btn_record", None), "video")
-    _bind(getattr(ui, "btn_divider_visible", None), "divider")
-    _bind(getattr(ui, "btn_file_names", None), "labels")
-
+        logger.warning(
+            "ToolbarPresenter: ui_manager not set, help/settings connections skipped"
+        )
 
 def _connect_session_comboboxes(presenter):
     controller = presenter.main_controller
-    ui = presenter.widget
+    ui = presenter.ui
     session_handler = _resolve_session_handler(controller)
     interpolation_handler = _resolve_interpolation_handler(controller)
     if controller is None or session_handler is None:
@@ -463,203 +439,18 @@ def _connect_session_comboboxes(presenter):
     if event_bus is None:
         return
 
-    ui.btn_diff_mode_picker.selected.connect(
+    ui.btn_diff_mode.triggered.connect(
         lambda data: event_bus.emit(AnalysisSetDiffModeEvent(data))
     )
-    ui.btn_channel_mode_picker.selected.connect(
+    ui.btn_channel_mode.triggered.connect(
         lambda data: event_bus.emit(AnalysisSetChannelViewModeEvent(data))
     )
-    def _ensure_deferred():
-        from shared.debug_flags import env_flag as _env_flag
-        _dbg = _env_flag("IMGSLI_VIDEO_EDITOR_DEBUG") or _env_flag("IMGSLI_IC_VIDEO_DEBUG")
-        try:
-            ctx = getattr(presenter.main_controller, "context", None)
-            if ctx is not None and hasattr(ctx, "ensure_deferred_plugins_loaded"):
-                loaded = ctx.ensure_deferred_plugins_loaded()
-                if _dbg:
-                    logger.warning("[video-editor-debug] ensure_deferred_plugins_loaded -> %s", loaded)
-                try:
-                    mc = presenter.main_controller
-                    window_shell = getattr(mc, "window_shell", None) or getattr(presenter, "main_window_app", None)
-                    if window_shell is None:
-                        w = getattr(presenter, "widget", None)
-                        try:
-                            import shiboken6
-                            if w is not None and not shiboken6.Shiboken.isValid(w):
-                                w = None
-                        except Exception:
-                            pass
-                        window_shell = w.window() if w is not None and hasattr(w, "window") else None
-                    if window_shell is not None and hasattr(mc, "attach_deferred_plugins"):
-                        mc.attach_deferred_plugins(window_shell)
-                except Exception as exc2:
-                    logger.warning("[video-editor-debug] attach_deferred failed: %s", exc2) if _dbg else logger.debug("[video-editor-debug] attach_deferred failed: %s", exc2)
-        except Exception as exc:
-            if _dbg:
-                logger.warning("[video-editor-debug] ensure_deferred failed: %s", exc)
-
-    def _emit_with_ensure(event_factory, name: str):
-        from shared.debug_flags import env_flag as _env_flag
-        from PySide6.QtCore import QTimer
-        _dbg = _env_flag("IMGSLI_VIDEO_EDITOR_DEBUG") or _env_flag("IMGSLI_IC_VIDEO_DEBUG")
-        subs = len(getattr(event_bus, "_subscribers", {}).get(event_factory, [])) if event_bus else 0
-        if _dbg:
-            logger.warning("[video-editor-debug] CLICK %s subscribers=%s", name, subs)
-        if subs == 0:
-            def _do():
-                _ensure_deferred()
-                if _dbg:
-                    new_subs = len(getattr(event_bus, "_subscribers", {}).get(event_factory, [])) if event_bus else 0
-                    logger.warning("[video-editor-debug] AFTER ensure %s subscribers=%s", name, new_subs)
-                event_bus.emit(event_factory())
-            QTimer.singleShot(0, _do)
-            return
-        event_bus.emit(event_factory())
-
-    ui.btn_record.toggled.connect(lambda checked: _emit_with_ensure(ExportToggleRecordingEvent, "ExportToggleRecordingEvent"))
-    ui.btn_pause.toggled.connect(lambda checked: _emit_with_ensure(ExportTogglePauseRecordingEvent, "ExportTogglePauseRecordingEvent"))
-    def _emit_open_editor():
-        from shared.debug_flags import env_flag as _env_flag
-        from PySide6.QtCore import QTimer
-        try:
-            from core.tracing.tracer import Tracer
-            if Tracer.enabled():
-                Tracer.instance().record("video.editor.toolbar_click", "btn_video_editor clicked", {})
-        except Exception:
-            pass
-        _has_subs = len(getattr(event_bus, "_subscribers", {}).get(ExportOpenVideoEditorEvent, [])) if event_bus else 0
-        _dbg = _env_flag("IMGSLI_VIDEO_EDITOR_DEBUG") or _env_flag("IMGSLI_IC_VIDEO_DEBUG")
-        if _dbg:
-            logger.warning("[video-editor-debug] CLICK btn_video_editor -> ExportOpenVideoEditorEvent bus=%s subscribers=%s has_recorder=%s", event_bus, _has_subs, getattr(getattr(presenter, "main_controller", None), "_recorder", None) is not None)
-        else:
-            logger.debug("[video-editor-debug] CLICK btn_video_editor subscribers=%s", _has_subs)
-
-        def _do_emit():
-            if _dbg:
-                logger.warning("[video-editor-debug] EMIT ExportOpenVideoEditorEvent (deferred)")
-            event_bus.emit(ExportOpenVideoEditorEvent())
-
-        # Deferred host plugins (export/video_editor) may not be loaded yet when
-        # bootstrap tab is active — ensure they are before emitting, otherwise
-        # the event would be lost (0 subscribers) and button appears to do nothing.
-        # Do ensure+attach async to avoid re-entrancy segfault (plugin init
-        # creates QObjects while Qt is processing the click).
-        if _has_subs == 0:
-            def _ensure_and_emit():
-                _ensure_deferred()
-                if _dbg:
-                    new_subs = len(getattr(event_bus, "_subscribers", {}).get(ExportOpenVideoEditorEvent, [])) if event_bus else 0
-                    subs_map = list(getattr(event_bus, "_subscribers", {}).keys()) if event_bus and hasattr(event_bus, "_subscribers") else []
-                    logger.warning("[video-editor-debug] AFTER ensure+attach subscribers=%s all_events=%s", new_subs, [c.__name__ for c in subs_map])
-                    if new_subs == 0:
-                        logger.warning("[video-editor-debug] REJECT: still 0 subscribers after deferred load — export plugin not subscribed, check ExportPlugin.configure_controller")
-                _do_emit()
-            QTimer.singleShot(0, _ensure_and_emit)
-            return
-        _do_emit()
-
-    ui.btn_video_editor.clicked.connect(_emit_open_editor)
-
-def _connect_image_load_buttons(presenter):
-    from tabs.image_compare.presenters.toolbar.actions import open_image_dialog
-    presenter.widget.btn_image1.clicked.connect(lambda: open_image_dialog(presenter, 1))
-    presenter.widget.btn_image2.clicked.connect(lambda: open_image_dialog(presenter, 2))
-
-def _connect_text_settings_button(presenter):
-    presenter.widget.btn_text_settings.clicked.connect(
-        lambda: presenter.ui_manager.transient.toggle_font_settings_flyout(
-            anchor_widget=presenter.widget.btn_text_settings
-        )
+    ui.btn_record.toggled.connect(
+        lambda checked: event_bus.emit(ExportToggleRecordingEvent())
     )
-
-def _connect_save_buttons(presenter):
-    from tabs.image_compare.presenters.toolbar.state import _get_window_presenter
-
-    def _export_presenter():
-        window_presenter = _get_window_presenter(presenter)
-        if window_presenter is not None and hasattr(window_presenter, "get_feature"):
-            return window_presenter.get_feature("export")
-        return None
-
-    def _on_quick_save():
-        export_presenter = _export_presenter()
-        if export_presenter is None:
-            return
-        export_presenter.quick_save()
-
-    def _on_save():
-        export_presenter = _export_presenter()
-        if export_presenter is not None:
-            export_presenter.save_result()
-
-    presenter.widget.btn_quick_save.clicked.connect(_on_quick_save)
-    presenter.widget.btn_save.clicked.connect(_on_save)
-
-def _connect_font_flyout(presenter):
-    from domain.qt_adapters import qcolor_to_color
-    from plugins.settings.events import SettingsApplyFontSettingsEvent
-    transient = getattr(presenter.ui_manager, "transient", None) if presenter.ui_manager else None
-    flyout = getattr(transient, "font_settings_flyout", None)
-    if flyout is None:
-        return
-    flyout.closed.connect(lambda: _on_font_flyout_closed(presenter))
-
-    def _emit_font_settings(size, weight, color, bg_color, draw_bg, placement, alpha):
-        args = (
-            size, weight,
-            qcolor_to_color(color), qcolor_to_color(bg_color),
-            draw_bg, placement, alpha,
-        )
-        if presenter.event_bus:
-            presenter.event_bus.emit(SettingsApplyFontSettingsEvent(*args))
-        elif presenter.main_controller is not None:
-            presenter.main_controller.apply_font_settings(*args)
-
-    flyout.settings_changed.connect(_emit_font_settings)
-
-def _on_font_flyout_closed(presenter):
-    presenter.ui_manager.transient.mark_font_popup_closed()
-    presenter.widget.btn_text_settings.setFlyoutOpen(False)
-
-def _connect_magnifier_color_controls(presenter):
-    from tabs.image_compare.presenters.toolbar.actions import (
-        on_color_option_clicked,
-        on_magnifier_element_hover_ended,
-        on_magnifier_element_hovered,
-        on_magnifier_guides_thickness_changed,
-        on_magnifier_guides_toggled,
+    ui.btn_pause.toggled.connect(
+        lambda checked: event_bus.emit(ExportTogglePauseRecordingEvent())
     )
-    from tabs.image_compare.presenters.toolbar.state import _get_settings_presenter_from_window
-    widget = presenter.widget
-
-    def _wire(button):
-        if button is None:
-            return
-        if hasattr(button, "set_store"):
-            button.set_store(presenter.store)
-
-        def _apply_smart_colors():
-            settings_presenter = _get_settings_presenter_from_window(presenter)
-            if settings_presenter is not None:
-                settings_presenter.apply_smart_magnifier_colors()
-
-        button.smartColorSetRequested.connect(_apply_smart_colors)
-        button.colorOptionClicked.connect(
-            lambda option: on_color_option_clicked(presenter, option)
-        )
-        button.elementHovered.connect(
-            lambda element_name: on_magnifier_element_hovered(presenter, element_name)
-        )
-        button.elementHoverEnded.connect(
-            lambda: on_magnifier_element_hover_ended(presenter)
-        )
-
-    _wire(getattr(widget, "btn_magnifier_color_settings", None))
-    _wire(getattr(widget, "btn_magnifier_color_settings_beginner", None))
-
-    widget.btn_magnifier_guides.toggled.connect(
-        lambda checked: on_magnifier_guides_toggled(presenter, not checked)
-    )
-    widget.btn_magnifier_guides.valueChanged.connect(
-        lambda value: on_magnifier_guides_thickness_changed(presenter, value)
+    ui.btn_video_editor.clicked.connect(
+        lambda: event_bus.emit(ExportOpenVideoEditorEvent())
     )

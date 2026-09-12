@@ -19,7 +19,6 @@ from sli_ui_toolkit.ui.widgets.atomic.tooltips import (
     PathTooltip,
     install_application_tooltips,
 )
-from tests.helpers.drain_until_stable import drain_until_stable
 
 
 @pytest.fixture
@@ -38,12 +37,7 @@ def test_tab_bar_tooltip_routes_through_path_tooltip(qapp):
     bar.setTabToolTip(1, "Second tab hint")
     bar.resize(200, 32)
     bar.show()
-    drain_until_stable(
-        qapp,
-        lambda: (bar.isVisible(), bar.tabRect(1).width()),
-        timeout_ms=1000,
-        stable_frames=2,
-    )
+    QApplication.processEvents()
 
     PathTooltip.get_instance().hide_tooltip()
     PathTooltip.get_instance()._pending_text = ""

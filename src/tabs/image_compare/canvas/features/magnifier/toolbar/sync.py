@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from domain.qt_adapters import ensure_visible_qcolor
+from domain.qt_adapters import color_to_qcolor
 
 from tabs.image_compare.canvas.features.magnifier.toolbar.shared import set_checked_quietly, set_slider_value_quietly
 
 
 def sync_magnifier_toolbar_state(presenter) -> None:
     from tabs.image_compare.canvas.features.magnifier.state.feature_state import get_magnifier_widget_state
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
-    ui = getattr(presenter, "widget", None)
+    ui = getattr(presenter, "ui", None)
     viewport = presenter.store.viewport
     state = get_magnifier_widget_state(viewport.view_state)
     model = MagnifierStoreService(presenter.store).get_active_or_first_magnifier()
@@ -34,20 +34,15 @@ def sync_magnifier_toolbar_state(presenter) -> None:
         getattr(ui, "btn_magnifier_divider_width", None),
         divider_thickness,
     )
-    btn_divider_width = getattr(ui, "btn_magnifier_divider_width", None)
-    if btn_divider_width is not None:
-        btn_divider_width.setUnderlineColor(ensure_visible_qcolor(divider_color))
-    orientation_btn = getattr(ui, "btn_magnifier_orientation", None)
-    if orientation_btn is not None:
-        orientation_btn.setUnderlineColor(ensure_visible_qcolor(divider_color))
+    if hasattr(ui, "btn_magnifier_orientation"):
+        ui.btn_magnifier_orientation.setUnderlineColor(color_to_qcolor(divider_color))
 
 
 def sync_magnifier_enabled_state(presenter) -> None:
     from tabs.image_compare.canvas.features.magnifier.state.mode import MagnifierModeService
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import active_or_default_divider_color
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, active_or_default_divider_color
 
-    ui = getattr(presenter, "widget", None)
+    ui = getattr(presenter, "ui", None)
     scene_state = MagnifierStoreService(presenter.store)
     mode_service = MagnifierModeService(presenter.store)
     active_magnifier = scene_state.get_active_or_first_magnifier()
@@ -60,53 +55,18 @@ def sync_magnifier_enabled_state(presenter) -> None:
     btn_instances = getattr(ui, "btn_magnifier_instances", None)
     if btn_instances is not None:
         count = len(scene_state.iter_magnifiers())
-        try:
-            btn_before = btn_instances.magnifier_count() if hasattr(btn_instances, "magnifier_count") else -1
-        except Exception:
-            btn_before = -1
         btn_instances.set_magnifier_count(count if count > 0 else 1)
         if hasattr(btn_instances, "set_can_remove"):
             btn_instances.set_can_remove(count > 1)
-        try:
-            btn_after = btn_instances.magnifier_count() if hasattr(btn_instances, "magnifier_count") else -1
-            can_remove = getattr(btn_instances, "_can_remove", None)
-        except Exception:
-            btn_after, can_remove = -1, None
-        try:
-            from tabs.image_compare.debug import ic_magnifier_debug
 
-            ic_magnifier_debug(
-                "sync enabled: store_count=%s can_remove=%s btn_before=%s btn_after=%s",
-                count,
-                count > 1,
-                btn_before,
-                btn_after,
-            )
-        except Exception:
-            pass
-        try:
-            from core.tracing.tracer import Tracer
-
-            if Tracer.enabled():
-                Tracer.instance().record(
-                    "magnifier.toolbar.sync",
-                    f"sync instances count={count}",
-                    {
-                        "store_count": count,
-                        "can_remove": count > 1,
-                        "button_before": btn_before,
-                        "button_after": btn_after,
-                        "button_can_remove": can_remove,
-                    },
-                )
-        except Exception:
-            pass
+    panel_visible = mode_service.should_show_panel()
+    if hasattr(ui, "toggle_magnifier_panel_visibility"):
+        ui.toggle_magnifier_panel_visibility(panel_visible)
 
     if hasattr(ui, "btn_magnifier_orientation"):
         viewport = presenter.store.viewport
-        ui.btn_magnifier_orientation.setUnderlineColor(  # type: ignore[union-attr]  # dynamic widget
-
-            ensure_visible_qcolor(
+        ui.btn_magnifier_orientation.setUnderlineColor(
+            color_to_qcolor(
                 active_magnifier.divider_color
                 if active_magnifier is not None
                 else active_or_default_divider_color(viewport.view_state)
@@ -123,9 +83,9 @@ def sync_magnifier_enabled_state(presenter) -> None:
 
 
 def sync_magnifier_freeze_state(presenter) -> None:
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
-    ui = getattr(presenter, "widget", None)
+    ui = getattr(presenter, "ui", None)
     scene_state = MagnifierStoreService(presenter.store)
     active = scene_state.get_active_or_first_magnifier()
     set_checked_quietly(
@@ -135,16 +95,14 @@ def sync_magnifier_freeze_state(presenter) -> None:
 
 
 def sync_magnifier_orientation_state(presenter) -> None:
-    from tabs.image_compare.canvas.features.magnifier.state.service import (
-        MagnifierStoreService,
-    )
     from tabs.image_compare.canvas.features.magnifier.state.store import (
+        MagnifierStoreService,
         active_or_default_divider_color,
         active_or_default_divider_thickness,
         active_or_default_divider_visible,
     )
 
-    ui = getattr(presenter, "widget", None)
+    ui = getattr(presenter, "ui", None)
     model = MagnifierStoreService(presenter.store).get_active_or_first_magnifier()
     magnifier_is_horizontal = bool(model.is_horizontal) if model is not None else False
     view_state = presenter.store.viewport.view_state
@@ -161,7 +119,7 @@ def sync_magnifier_orientation_state(presenter) -> None:
             set_checked_quietly(btn_orientation, magnifier_is_horizontal)
             set_slider_value_quietly(btn_orientation, magnifier_thickness)
         btn_orientation.setUnderlineColor(
-            ensure_visible_qcolor(active_or_default_divider_color(view_state))
+            color_to_qcolor(active_or_default_divider_color(view_state))
         )
     set_checked_quietly(
         getattr(ui, "btn_magnifier_orientation_simple", None),
@@ -170,10 +128,9 @@ def sync_magnifier_orientation_state(presenter) -> None:
 
 
 def sync_magnifier_size_state(presenter) -> None:
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import default_magnifier_size
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, default_magnifier_size
 
-    ui = getattr(presenter, "widget", None)
+    ui = getattr(presenter, "ui", None)
     scene_state = MagnifierStoreService(presenter.store)
     active_magnifier = scene_state.get_active_or_first_magnifier()
     magnifier_size = (

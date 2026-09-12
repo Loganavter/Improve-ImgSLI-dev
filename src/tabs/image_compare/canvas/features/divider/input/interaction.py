@@ -15,10 +15,13 @@ from tabs.image_compare.canvas.registry import registry
 def apply_split_drag(handler, cursor_pos: QPointF) -> None:
     """Update split position from a cursor drag (split-mode branch)."""
     viewport = handler.store.viewport
+    label = handler.geometry._get_image_label()
+    zoom_level = float(getattr(label, "zoom_level", 1.0) or 1.0) if label else 1.0
+    ignore_pan_for_split = zoom_level <= 1.0
     raw_rel_x, raw_rel_y = handler.geometry.screen_to_image_rel(
         cursor_pos,
         clamp=True,
-        ignore_pan=False,
+        ignore_pan=ignore_pan_for_split,
     )
     if raw_rel_x is None:
         return

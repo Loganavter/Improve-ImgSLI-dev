@@ -64,10 +64,8 @@ def settings_initialize(store, get_setting) -> None:
         DEFAULT_MAGNIFIER_OFFSET_RELATIVE,
         DEFAULT_MAGNIFIER_SPACING_RELATIVE,
     )
-    from tabs.image_compare.canvas.features.magnifier.state.service import (
-        MagnifierStoreService,
-    )
     from tabs.image_compare.canvas.features.magnifier.state.store import (
+        MagnifierStoreService,
         default_capture_size,
         default_magnifier_size,
         set_default_capture_size,
@@ -95,10 +93,8 @@ def settings_initialize(store, get_setting) -> None:
 
 def settings_persist(store, save_setting) -> None:
     from tabs.image_compare.canvas.features.magnifier.constants import DEFAULT_MAGNIFIER_SPACING_RELATIVE
-    from tabs.image_compare.canvas.features.magnifier.state.service import (
-        MagnifierStoreService,
-    )
     from tabs.image_compare.canvas.features.magnifier.state.store import (
+        MagnifierStoreService,
         default_capture_size,
         default_magnifier_size,
     )

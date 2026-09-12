@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from sli_ui_toolkit.i18n import (
-    get_current_language,
     tr,
     translatable_callback,
     translatable_placeholder,
@@ -9,19 +8,8 @@ from sli_ui_toolkit.i18n import (
     translatable_tooltip,
 )
 
-from tabs.image_compare.debug import ic_label_debug
-
-# Image Compare lives in a QStackedWidget page — skip language fan-out while
-# the session picker (or another tab) is current; flush on next Show.
-_DEFER = True
-
 
 def install_image_compare_translations(ui) -> None:
-    ic_label_debug(
-        "install_image_compare_translations current=%s visible=%s",
-        get_current_language(),
-        ui.isVisible(),
-    )
     _bind_labels(ui)
     _bind_placeholders(ui)
     _bind_button_texts(ui)
@@ -32,33 +20,19 @@ def install_image_compare_translations(ui) -> None:
 
 
 def _bind_labels(ui) -> None:
-    translatable_text(
-        ui.label_edit_name1, "image_compare.label.name_1", suffix=":", defer_when_hidden=_DEFER
-    )
-    translatable_text(
-        ui.label_edit_name2, "image_compare.label.name_2", suffix=":", defer_when_hidden=_DEFER
-    )
+    translatable_text(ui.label_edit_name1, "label.name_1", suffix=":")
+    translatable_text(ui.label_edit_name2, "label.name_2", suffix=":")
 
 
 def _bind_placeholders(ui) -> None:
-    translatable_placeholder(
-        ui.edit_name1, "image_compare.ui.edit_current_image_1_name", defer_when_hidden=_DEFER
-    )
-    translatable_placeholder(
-        ui.edit_name2, "image_compare.ui.edit_current_image_2_name", defer_when_hidden=_DEFER
-    )
+    translatable_placeholder(ui.edit_name1, "ui.edit_current_image_1_name")
+    translatable_placeholder(ui.edit_name2, "ui.edit_current_image_2_name")
 
 
 def _bind_button_texts(ui) -> None:
-    translatable_text(
-        ui.btn_image1, "image_compare.button.add_images_1", defer_when_hidden=_DEFER
-    )
-    translatable_text(
-        ui.btn_image2, "image_compare.button.add_images_2", defer_when_hidden=_DEFER
-    )
-    translatable_text(
-        ui.btn_save, "image_compare.button.save_result", defer_when_hidden=_DEFER
-    )
+    translatable_text(ui.btn_image1, "button.add_images_1")
+    translatable_text(ui.btn_image2, "button.add_images_2")
+    translatable_text(ui.btn_save, "button.save_result")
 
 
 def _bind_tooltips(ui) -> None:
@@ -68,12 +42,12 @@ def _bind_tooltips(ui) -> None:
         (ui.btn_text_settings, "tooltip.open_file_name_text_settings"),
         (ui.btn_quick_save, "tooltip.quick_save_image"),
         (ui.btn_save, "tooltip.save_result"),
-        (ui.btn_orientation, "image_compare.action.divider_combined_desc"),
+        (ui.btn_orientation, "tooltip.split_orientation"),
         (ui.btn_orientation_simple, "tooltip.split_orientation"),
         (ui.btn_magnifier, "tooltip.toggle_magnifier"),
         (ui.btn_magnifier_instances, "tooltip.add_or_remove_magnifier"),
         (ui.btn_freeze, "tooltip.freeze_magnifier_position"),
-        (ui.btn_magnifier_orientation, "image_compare.action.magnifier_divider_combined_desc"),
+        (ui.btn_magnifier_orientation, "tooltip.magnifier_orientation"),
         (ui.btn_magnifier_orientation_simple, "tooltip.magnifier_orientation"),
         (ui.btn_file_names, "tooltip.include_file_names"),
         (ui.btn_diff_mode, "tooltip.change_diff_mode"),
@@ -94,13 +68,14 @@ def _bind_tooltips(ui) -> None:
         (ui.btn_record, "tooltip.record_video"),
         (ui.btn_pause, "tooltip.pause_recording"),
         (ui.btn_video_editor, "tooltip.open_video_editor"),
+        (ui.btn_new_session, "tooltip.create_workspace_session"),
         (ui.btn_settings, "tooltip.open_application_settings"),
         (ui.help_button, "tooltip.show_help"),
         (ui.combo_interpolation, "tooltip.magnifier_interpolation"),
         (ui.btn_zoom_reset, "tooltip.reset_zoom"),
     ]
     for widget, key in simple:
-        translatable_tooltip(widget, key, defer_when_hidden=_DEFER)
+        translatable_tooltip(widget, key)
 
     translatable_callback(
         ui.btn_swap,
@@ -108,7 +83,6 @@ def _bind_tooltips(ui) -> None:
             f"{tr('tooltip.click_swap_current_images', lang)}\n"
             f"{tr('tooltip.hold_swap_entire_lists', lang)}"
         ),
-        defer_when_hidden=_DEFER,
     )
 
     def _clear_tooltip(lang: str) -> str:
@@ -120,93 +94,35 @@ def _bind_tooltips(ui) -> None:
     translatable_callback(
         ui.btn_clear_list1,
         lambda lang: ui.btn_clear_list1.setToolTip(_clear_tooltip(lang)),
-        defer_when_hidden=_DEFER,
     )
     translatable_callback(
         ui.btn_clear_list2,
         lambda lang: ui.btn_clear_list2.setToolTip(_clear_tooltip(lang)),
-        defer_when_hidden=_DEFER,
     )
 
 
 def _bind_group_titles(ui) -> None:
     groups = (
-        ("line_group_container", "image_compare.label.line"),
-        ("magnifier_group_container", "image_compare.label.magnifier"),
+        ("line_group_container", "label.line"),
+        ("magnifier_group_container", "label.magnifier"),
         ("view_group_container", "label.view"),
-        ("record_group_container", "image_compare.button.record"),
+        ("record_group_container", "button.record"),
     )
     for attr_name, key in groups:
-        container = getattr(ui, attr_name)
-        # Group titles must not defer: toolbar is pinned visible; pending Show
-        # flush on CustomGroupWidget is unreliable when page is hidden in
-        # QStackedWidget (child Show not always delivered). Immediate update
-        # guarantees correct language on tab switch without extra flush logic.
-        # Keep other image_compare bindings deferred (_DEFER=True).
-        def _make_callback(c, k, attr):
-            def _cb(lang: str) -> None:
-                translated = tr(k, lang)
-                is_fallback = translated == k
-                ic_label_debug(
-                    "_bind_group_titles attr=%s key=%s lang=%s -> %r fallback=%s visible=%s current=%s",
-                    attr,
-                    k,
-                    lang,
-                    translated,
-                    is_fallback,
-                    c.isVisible(),
-                    get_current_language(),
-                )
-                c.set_label_text(translated)
-
-            return _cb
-
-        translatable_callback(
-            container,
-            _make_callback(container, key, attr_name),
-            defer_when_hidden=False,
-        )
+        container = getattr(ui, attr_name, None)
+        if container is not None:
+            translatable_callback(
+                container,
+                lambda lang, c=container, k=key: c.set_label_text(tr(k, lang)),
+            )
 
 
 def _bind_slider_labels(ui) -> None:
+    translatable_text(ui.label_magnifier_size, "label.magnifier_size", suffix=":")
+    translatable_text(ui.label_capture_size, "label.capture_size", suffix=":")
+    translatable_text(ui.label_movement_speed, "magnifier.move_speed", suffix=":")
     translatable_text(
-        ui.label_magnifier_size,
-        "image_compare.label.magnifier_size",
-        suffix=":",
-        defer_when_hidden=_DEFER,
-    )
-    translatable_text(
-        ui.label_capture_size,
-        "image_compare.label.capture_size",
-        suffix=":",
-        defer_when_hidden=_DEFER,
-    )
-    translatable_text(
-        ui.label_movement_speed,
-        "magnifier.move_speed",
-        suffix=":",
-        defer_when_hidden=_DEFER,
-    )
-    translatable_text(
-        ui.label_interpolation,
-        "magnifier.magnifier_interpolation",
-        suffix=":",
-        defer_when_hidden=_DEFER,
-    )
-    translatable_tooltip(
-        ui.icon_magnifier_size,
-        "image_compare.label.magnifier_size",
-        defer_when_hidden=_DEFER,
-    )
-    translatable_tooltip(
-        ui.icon_capture_size,
-        "image_compare.label.capture_size",
-        defer_when_hidden=_DEFER,
-    )
-    translatable_tooltip(
-        ui.icon_movement_speed,
-        "magnifier.move_speed",
-        defer_when_hidden=_DEFER,
+        ui.label_interpolation, "magnifier.magnifier_interpolation", suffix=":"
     )
 
 
@@ -215,7 +131,6 @@ def _bind_color_button_updates(ui) -> None:
         "btn_magnifier_color_settings",
         "btn_magnifier_color_settings_beginner",
     ):
-        widget = getattr(ui, attr)
-        translatable_callback(
-            widget, widget.update_language, defer_when_hidden=_DEFER
-        )
+        widget = getattr(ui, attr, None)
+        if widget is not None and hasattr(widget, "update_language"):
+            translatable_callback(widget, widget.update_language)

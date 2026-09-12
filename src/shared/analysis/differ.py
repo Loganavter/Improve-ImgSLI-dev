@@ -1,4 +1,3 @@
-# Audit-Meta: pattern=tiled-pipeline reason="stateless tiled diff kernels highlight/grayscale/ssim sharing workers"
 import logging
 import os
 import time
@@ -7,8 +6,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image
-from shared.analysis.output import finalize_diff_output
-from shared.image_processing.regions import build_uniform_tile_grid
+from shared.regions import build_uniform_tile_grid
 
 logger = logging.getLogger("ImproveImgSLI")
 
@@ -493,7 +491,7 @@ def create_highlight_diff(
             threshold=threshold,
             progress_callback=progress_callback,
         )
-        return finalize_diff_output(result, channels=3)
+        return Image.fromarray(result, mode="RGB").convert("RGBA")
     except Exception as e:
         logger.error(f"Error creating highlight diff: {e}", exc_info=True)
         return None
@@ -525,7 +523,7 @@ def create_grayscale_diff(
             arr2,
             progress_callback=progress_callback,
         )
-        return finalize_diff_output(diff_gray, channels=1)
+        return Image.fromarray(diff_gray, mode="L").convert("RGBA")
     except Exception as e:
         logger.error(f"Error creating grayscale diff: {e}", exc_info=True)
         return None
@@ -577,7 +575,7 @@ def create_ssim_map(
             total_elapsed_ms,
         )
 
-        return finalize_diff_output(heatmap_gray, channels=1)
+        return Image.fromarray(heatmap_gray, mode="L").convert("RGBA")
 
     except Exception as e:
         logger.error(f"Error creating SSIM map: {e}", exc_info=True)

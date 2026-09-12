@@ -53,12 +53,9 @@ def build_image_properties(
     display_name: str = "",
     image: Any = None,
     app_rows: Iterable[tuple[str, str, Any]] = (),
-    probe_image: bool = True,
 ) -> ImageProperties:
     source_path = Path(path) if path else None
-    # Project packages (``.imgsli``) are not raster images — probing them with
-    # Pillow only produces a misleading "cannot identify image file" row.
-    source_info = _read_source_info(source_path) if probe_image else {}
+    source_info = _read_source_info(source_path)
     dimensions = _image_dimensions(image) or source_info.get("dimensions")
     mode = _image_mode(image) or source_info.get("mode")
     channels = _image_channels(image, mode)
@@ -107,13 +104,8 @@ def build_image_properties(
     return ImageProperties(title=title or "Image", sections=tuple(sections))
 
 
-_NON_IMAGE_SUFFIXES = frozenset({".imgsli"})
-
-
 def _read_source_info(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists() or not path.is_file():
-        return {}
-    if path.suffix.lower() in _NON_IMAGE_SUFFIXES:
         return {}
     info: dict[str, Any] = {}
     try:
@@ -138,6 +130,7 @@ def _read_source_info(path: Path | None) -> dict[str, Any]:
     except Exception as exc:
         info["read_error"] = str(exc)
     return info
+
 
 def _file_rows(
     path: Path | None,

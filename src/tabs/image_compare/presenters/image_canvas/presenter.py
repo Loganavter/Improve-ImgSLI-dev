@@ -13,11 +13,11 @@ logger = logging.getLogger("ImproveImgSLI")
 
 class ImageCanvasPresenter(QObject):
 
-    def __init__(self, store: Store, main_controller, widget, main_window_app, parent=None):
+    def __init__(self, store: Store, main_controller, ui, main_window_app, parent=None):
         super().__init__(parent)
         self.store = store
         self.main_controller = main_controller
-        self.widget = widget
+        self.ui = ui
         self.main_window_app = main_window_app
         components = build_image_canvas_components(self)
         self.lifecycle = components.lifecycle
@@ -43,8 +43,8 @@ class ImageCanvasPresenter(QObject):
     def schedule_update(self):
         return self.background.schedule_update()
 
-    def invalidate_render_state(self, clear_overlay_state: bool = False):
-        return self.lifecycle.invalidate_render_state(clear_overlay_state)
+    def invalidate_render_state(self, clear_magnifier: bool = False):
+        return self.lifecycle.invalidate_render_state(clear_magnifier)
 
     def update_comparison_if_needed(self) -> bool:
         return self.background.update_comparison_if_needed()
@@ -57,11 +57,3 @@ class ImageCanvasPresenter(QObject):
 
     def update_capture_area_display(self):
         return self.overlay.update_capture_area_display()
-
-    def get_canvas(self):
-        """Return the canvas widget for minimum-size measurement.
-
-        Called by the host (``layout_geometry``) instead of reaching into
-        ``tabs.image_compare.canvas.helpers.get_canvas``.
-        """
-        return getattr(self.widget, "image_label", None)

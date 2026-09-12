@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from shared_toolkit.ui.layout_sizing import defer_dialog_geometry
-from ui.layout_geometry import apply_main_window_minimum
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication, QRhiWidget, QWidget
+
+from shared_toolkit.ui.managers.font_manager import FontManager
+from ui.theming import resolve_theme_color
 
 logger = logging.getLogger("ImproveImgSLI")
 
@@ -12,17 +15,66 @@ class MainWindowAppearance:
     def __init__(self, window):
         self.window = window
 
+    @staticmethod
+    def _apply_widget_background(widget: QWidget | None, bg) -> None:
+        if widget is None:
+            return
+        pal = widget.palette()
+        pal.setColor(widget.backgroundRole(), bg)
+        pal.setColor(widget.foregroundRole(), bg)
+        pal.setColor(QPalette.ColorRole.Window, bg)
+        pal.setColor(QPalette.ColorRole.Base, bg)
+        widget.setPalette(pal)
+        widget.setAutoFillBackground(True)
+        if isinstance(widget, QRhiWidget):
+            widget._theme_background_color = QColor(bg)
+        widget.update()
+
     def update_image_label_background(self) -> None:
         window = self.window
+        bg = resolve_theme_color(window.theme_manager, "label.image.background")
+        self._apply_widget_background(getattr(window, "_startup_placeholder", None), bg)
+        self._apply_widget_background(getattr(window, "_startup_cover", None), bg)
         if window.ui is None:
             return
         registry = getattr(window.ui, "_tab_registry", None)
         if registry is not None:
             registry.apply_appearance(window)
 
+    def update_chrome_background(self) -> None:
+        """Paint workspace shell and tab pages with the app Window color.
+
+        QWidget children that don't paint a background (toolbars/footers/
+        selection rows) inherit visually from their themed page parent, so
+        the dark theme reaches every region that isn't the image canvas.
+        """
+        window = self.window
+        if window.ui is None:
+            return
+        bg = QColor(resolve_theme_color(window.theme_manager, "Window"))
+        if not bg.isValid():
+            return
+        targets = [
+            getattr(window.ui, "workspace_stack", None),
+        ]
+        stack = getattr(window.ui, "workspace_stack", None)
+        if stack is not None:
+            for i in range(stack.count()):
+                targets.append(stack.widget(i))
+        for widget in targets:
+            self._apply_widget_background(widget, bg)
+
     def on_theme_changed(self) -> None:
-        # Visible-tab canvas/chrome only — hidden pages flush on session switch.
-        # Do not re-apply fonts or polish the whole window here: fonts are
-        # theme-independent, and ThemeManager already polished during QSS apply.
+        window = self.window
         self.update_image_label_background()
-        defer_dialog_geometry(self.window, lambda: apply_main_window_minimum(self.window))
+        self.update_chrome_background()
+        try:
+            FontManager.get_instance().apply_from_state(window.store)
+            current_font = QApplication.font()
+            window.setFont(current_font)
+        except Exception as exc:
+            logger.error("Error enforcing font style: %s", exc)
+
+        window.style().unpolish(window)
+        window.style().polish(window)
+        window.update()

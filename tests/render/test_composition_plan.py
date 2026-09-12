@@ -169,12 +169,7 @@ def test_native_size_takes_worst_case_across_leaves():
     assert compute_native_canvas_size(root) == (900, 100)
 
 
-def test_native_size_uncapped_by_default():
-    root = LayerNode(layer_id=1, image=_img(40000, 20000))
-    assert compute_native_canvas_size(root) == (40000, 20000)
-
-
-def test_native_size_caps_to_max_edge_when_requested():
+def test_native_size_caps_to_max_edge():
     root = LayerNode(layer_id=1, image=_img(40000, 20000))
     w, h = compute_native_canvas_size(root, max_edge=16384)
     assert max(w, h) == 16384

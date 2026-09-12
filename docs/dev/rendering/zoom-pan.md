@@ -53,32 +53,20 @@ not.
 
 ### Why This Matters
 
+Before the gesture-binding refactor, `mouse.py` had a central if-tree:
+"if overlay enabled and visible → start capture drag, else start split drag."
+That looks innocent but:
+
+- Adding a new overlay feature required editing `mouse.py`.
+- Hiding all magnifier instances broke divider movement, because
+  `is_enabled=True` routed clicks into capture-drag even with nothing visible
+  to drag.
+- `mouse.py` knew the shape of magnifier's `overlay.active_state` payload
+  (`visible_left`/`visible_right`), so any change to that payload silently
+  broke routing.
+
 With gesture bindings, `mouse.py` knows nothing about which features exist —
-it just asks the resolver. Adding or hiding an overlay does not require
-editing the central mouse router, and routing does not peek into another
-feature's `overlay.active_state` payload shape.
-
-## Context-menu suppression zones
-
-Host canvas context menus (slot / image RMB menus) must likewise not hard-code
-feature geometry. A feature that owns a region — for example the combined
-magnifier overlay, which uses RMB for internal-split drag — declares a zone:
-
-```python
-from ui.canvas_infra.scene.widget_contract import CanvasFeatureContextMenuZone
-
-CanvasFeatureContextMenuZone(
-    zone_id="my_feature.overlay",
-    suppresses=fn(ctx) -> bool,   # ctx: ContextMenuHitContext
-    priority=10,                  # lower checked first; any True suppresses
-    owner="my_feature",
-)
-```
-
-Wire via `WIDGET_FEATURE.build_context_menu_zones`. The canvas
-`contextMenuEvent` calls `is_context_menu_suppressed(...)` from
-`ui.canvas_infra.scene.context_menu_zones` before opening a menu. Outside the
-zone, the normal slot menu still opens.
+it just asks the resolver.
 
 ## Viewport Change Contract
 
@@ -123,44 +111,30 @@ With viewport changes:
 - State changes are visible instantly
 - No need for user interaction to see feedback
 
-## Pan at any zoom
+## Pan-at-zoom invariant
 
-Middle-button pan is allowed at every zoom level, including fit (`zoom == 1.0`).
-At fit zoom this can reveal letterbox/empty margins — that is intentional.
-
-Shader, split **display**, and overlay formulas must use the **same** raw pan
-values. Do not special-case `zoom <= 1.0` by forcing pan to `(0, 0)` in the
-display path while the base shader still applies pan — that desyncs the image
-from overlays. Pan drag/wheel math lives in `compute_zoom_wheel_transform` /
+At `zoom <= 1.0`, pan must always be `(0, 0)`. When the image fully fits the
+widget, panning has no meaning; a non-zero pan at `zoom <= 1.0` desyncs the
+shader (which always uses raw pan) from overlay formulas (which treat pan as
+zero at this zoom) — the image moves, overlays don't, overlays visually "fly
+away." Enforced at the source in `compute_zoom_wheel_transform` /
 `compute_zoom_pan_drag_transform` (`src/ui/canvas_infra/viewport/zoom.py`).
+Any new pass or feature that computes its own pan-like transform (for either
+coordinate model in [coordinate-systems.md](coordinate-systems.md)) must
+clamp pan the same way at the source — never read pan at `zoom <= 1.0` and
+try to interpolate or "smooth" across the boundary; treat it as guaranteed
+zero instead.
 
-## Split: content-anchored at fit, camera-anchored when zoomed in
+## Split-position dual-mode behavior
 
-``split_position`` / ``split_position_visual`` are **base-image** fractions
-(`0.0..1.0` along the comparison content — see
-[coordinate-systems.md](coordinate-systems.md)).
-
-Dual-mode via ``compute_zoom_split_position_for_view_transform``:
-
-| Zoom | Store spit on pan/zoom | Line / seam feel |
-|---|---|---|
-| ``zoom <= 1`` | unchanged (``None``) | rides with the image |
-| ``zoom > 1`` | rewritten (clamped to ``[0, 1]``) so **screen** spit stays fixed | sticks to the viewport ("follows the camera") |
-
-Drawing maps content → screen via ``compute_zoom_display_split_position``:
-
-```text
-display = (base - 0.5 + pan) * zoom + 0.5
-```
-
-Do **not** clamp display to ``[0, 1]`` when zoomed out — that pins the line to
-the viewport edge while the image keeps moving.
-
-The base-image shader compares spit in **letterboxed image UV** (magnifier
-``internalSplit`` parity). The white divider uses the view-transformed
-letterbox + fragment clip. Full write-up:
-`src/tabs/image_compare/docs/investigations/divider-zoom-pan-detach.md` in
-`improve-imgsli-internal-docs` (private, not in this repo).
+The split line has two distinct anchoring modes tied to the same invariant:
+at `zoom > 1.0` it's camera-anchored (store `split_position` recomputes as
+zoom/pan change to keep the visual position fixed on screen —
+`compute_zoom_split_position_for_view_transform`); at `zoom <= 1.0` it's
+image-anchored (store value unchanged, pan is zero by the invariant above —
+`compute_zoom_display_split_position`). Any new base-image-anchored pass
+with similar "where on the image am I" semantics should follow the same
+split at `zoom == 1.0`, not invent a third behavior.
 
 ## Semantic geometry vs paint extents
 
@@ -197,68 +171,15 @@ build scene objects, hit-test, or calculate guide endpoints are a red flag.
 There are two separate-but-related concepts:
 
 - **Widget zoom/pan** (`zoom_level`, `pan_offset_x`, `pan_offset_y`) —
-  viewport state owned by `CanvasWidget` (`ui/canvas_infra/viewport/state.py`
-  `ZoomViewportState`, mirrored as `widget.zoom_level/pan_offset_*`).
-  They live in **pre-letterbox UV** (widget-fraction space *before* the
-  letterbox is applied: `uv = (widget_px / widget_size)`), not in image UV
-  and not in widget-px. The sampled image point is `pan` *through* the
-  letterbox: `capture_letterbox_focus` computes
-  `raw = 0.5 - pan`, `focus = (raw - ox)/sx` where `(ox,oy,sx,sy)` is
-  `state._letterbox_params[0]` (see `ui/canvas_infra/viewport/focus.py:19`);
-  the base shader then does `screen = (uv - 0.5 + pan) * zoom + 0.5` and
-  the same `pan` drives `compute_zoom_display_split_position` and
-  `map_content_rect_through_view`. `Store`-level split / overlay positions
-  are the other layer — semantic positions of overlays in canvas-px
-  (`split_position`, magnifier centers, etc.), stored in the Store and
-  persisted across sessions.
+  viewport state owned by `CanvasWidget`. The shader reads these to apply
+  zoom-around-cursor.
+- **Store-level split / overlay positions** — semantic positions of overlays
+  in canvas-px (`split_position`, magnifier centers, etc.). Stored in the
+  Store, persisted across sessions.
 
 These two layers are coordinated by **viewport features** in
 `src/ui/canvas_infra/viewport/`. Don't bypass them by reaching into widget
 state from your feature.
-
-### Preserving the image sample point when the letterbox changes
-
-`pan_offset_x/y` alone is not stable across a letterbox change. When a render
-plan is re-applied, the canvas is resized, or the comparison rect is
-re-derived, a one-pixel shift in `(ox,sx)` moves the camera in image space by
-`1/(sx*zoom)` — devastating at high zoom. The fix is viewport focus
-(`docs/dev/ARCHITECTURE.md` § Viewport focus):
-
-```python
-focus = capture_letterbox_focus(canvas)   # image sample under viewport center
-# ... letterbox / plan / resize updates _letterbox_params ...
-restore_letterbox_focus(canvas, focus)    # recompute pan for the new (ox,sx)
-```
-
-`_apply_plan_full` / `_apply_plan_scene_only`
-(`tabs/image_compare/canvas/presentation/plan_applicator.py:458,476,515`)
-and `render_context.py:365` bracket every `update_common_letterbox_geometry`
-and `_apply_plan_letterbox_from_clip` with this capture/restore dance when
-`plan.preserve_zoom` is set; `preserve_zoom=False` intentionally discards it
-via `reset_view()`. Always use the focus helpers — never preserve raw
-`pan_offset_*` across a letterbox update.
-
-### How the eager envelope affects zoom/pan at unify
-
-Before the eager max, the comparison rect was a union of two separately-fitted
-rects and was frozen by `UNION_LETTERBOX_HOLD_MS` (350 ms) / `more_pending`
-while the second tier arrived — the canvas jumped `0.596→0.545` (`1138→1080`,
-`-8.5%`) when the hold expired and the unified size landed. Zoom/pan built on
-top of that rect jumped with it.
-
-Now `update_common_letterbox_geometry` / `_update_comparison_geometry`
-compute `pw,ph = max(w1,w2), max(h1,h2)` from whatever sizes are already
-present (preview or full-res) and derive one
-`resolve_canvas_content_geometry(cw,ch,pw,ph)` rect for both sides. The
-letterbox converges to the final `max` rect on the first `gap draw_plan`
-that has two previews, before the unify worker even starts — `store.transact`
-publishes it once, and the unified `2797×2797` pixels that arrive later reuse
-the same rect. No `HOLD` for geometry, no `more_pending` stall. The
-capture/restore above then keeps the **image sample under the viewport center**
-fixed if the rect does still move (resize, single-side fallback → two-side
-`max`), so the picture does not appear to jump even if `pan_offset_*`
-numerically changes. `HOLD` + `atomic` stay only for pixel fallback-LOD
-coverage (`rhi_renderer/renderer.py:463`), never for `letterbox` placement.
 
 ## Debugging zoom/pan issues
 
@@ -276,7 +197,7 @@ and where to look:
 
 | Symptom | Likely cause | Where to look |
 |---|---|---|
-| Overlay drifts during pan at fit zoom | Some path still zeros pan when `zoom <= 1.0` | `git grep 'zoom.*<=.*1' src/ui/canvas_infra src/tabs/image_compare/canvas/` |
+| Overlay drifts during zoom-out | Some code wrote pan at `zoom <= 1.0` | `git grep 'pan_offset' src/tabs/image_compare/canvas/` |
 | Overlay flickers / jumps during interaction | Reducer reset a runtime-cache field | Check `_build_new_viewport_state` for missing field carryover; move field to `ViewportRuntimeCache` |
 | Mouse hit lands on wrong feature | Hit-test uses widget-px but feature stores widget-px instead of canvas-px | Search for direct `widget.width()` / `widget.height()` in your feature's geometry math |
 | Position correct at `zoom = 1` but wrong otherwise | Feature draws using raw store value instead of going through the viewport display formula | Use `compute_display_split_position` / equivalent contract instead of reading store directly in render |

@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = REPO_ROOT / "build" / "Windows-template" / "Improve_ImgSLI.spec"
 INNO_PATH = REPO_ROOT / "build" / "Windows-template" / "inno_setup_6.iss"
 REQUIREMENTS_PATH = REPO_ROOT / "requirements-gui.txt"
-SETUP_EXE = REPO_ROOT / "build" / "Windows-template" / "Output" / "Improve_ImgSLI_Setup_v11.0.0.exe"
+SETUP_EXE = REPO_ROOT / "build" / "Windows-template" / "Output" / "Improve_ImgSLI_Setup_v9.0.0.exe"
 
 FFMPEG_ZIP_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 FFMPEG_EXE_SUBPATH = "ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe"
@@ -60,17 +60,10 @@ def ensure_python_dependencies() -> int:
     return 0
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 def build_pyinstaller() -> int:
-    console = _env_flag("BUILD_CONSOLE") or _env_flag("IMGSLI_WINDOWS_CONSOLE")
     print(f"Running PyInstaller with {SPEC_PATH}")
-    print(f"Console subsystem: {'enabled' if console else 'disabled (windowed)'}")
     args = [sys.executable, "-m", "PyInstaller", str(SPEC_PATH)]
     print(f"> {' '.join(str(arg) for arg in args)}")
-    # Inherit BUILD_CONSOLE / IMGSLI_WINDOWS_CONSOLE for the .spec evaluation.
     completed = subprocess.run(args, cwd=REPO_ROOT)
     return int(completed.returncode)
 
@@ -143,27 +136,6 @@ def main() -> int:
 
     if build_pyinstaller() != 0:
         print("PyInstaller build failed.")
-        return 1
-
-    license_script = REPO_ROOT / "build" / "Windows-template" / "write_license_bundle.py"
-    if run_command([sys.executable, str(license_script), str(REPO_ROOT)]) != 0:
-        print("Failed to write Windows license bundle.")
-        return 1
-
-    shader_script = REPO_ROOT / "build" / "ci" / "validate_windows_shaders.py"
-    bundle_dir = REPO_ROOT / "dist" / "Improve_ImgSLI"
-    if (
-        run_command(
-            [
-                sys.executable,
-                str(shader_script),
-                "--windows-bundle",
-                str(bundle_dir),
-            ]
-        )
-        != 0
-    ):
-        print("Windows bundle is missing QRhi *.qsb shaders.")
         return 1
 
     if fetch_ffmpeg() != 0:

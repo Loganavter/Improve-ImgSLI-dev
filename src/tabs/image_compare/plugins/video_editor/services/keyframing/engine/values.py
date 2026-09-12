@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import fields, is_dataclass
-from collections.abc import Hashable
 from functools import lru_cache
-from typing import Any, cast
+from typing import Any
 
 from core.store_viewport import ViewportState
 from domain.types import Color, Point
@@ -27,15 +26,7 @@ _CONTINUOUS_CURVE_TRACK_IDS = {
 def _prefers_continuous_curve(track_id: str | None) -> bool:
     if not track_id:
         return False
-    if track_id in _CONTINUOUS_CURVE_TRACK_IDS:
-        return True
-    # Dynamic per-instance tracks from DynamicMagnifierAdapter
-    # (magnifier.<id>.position / .offset) — same continuous-line behavior as divider.
-    if track_id.startswith("magnifier.") and (
-        track_id.endswith(".position") or track_id.endswith(".offset")
-    ):
-        return True
-    return False
+    return track_id in _CONTINUOUS_CURVE_TRACK_IDS
 
 def add_value_to_track(track: TimelineTrack, timestamp: float, value: Any, *, fps: int = 60) -> bool:
     payload = value if isinstance(value, dict) else split_value_to_channels(value)
@@ -64,7 +55,6 @@ def append_vec2_track_keyframe(
     *,
     fps: int = 60,
 ) -> bool:
-    prefer_continuous = _prefers_continuous_curve(track.id)
     x_channel = track.channels.get("x")
     y_channel = track.channels.get("y")
     if x_channel is None or y_channel is None:
@@ -78,14 +68,9 @@ def append_vec2_track_keyframe(
                     kind="scalar",
                     interpolate_values=True,
                     source_track_id=track.id,
-                    prefer_continuous_curve=prefer_continuous,
                 )
             added = append_channel_keyframe(channel, timestamp, channel_value, fps=fps) or added
         return added
-
-    if prefer_continuous:
-        x_channel.prefer_continuous_curve = True
-        y_channel.prefer_continuous_curve = True
 
     timestamp = float(timestamp)
     current_point = Point(float(payload["x"]), float(payload["y"]))
@@ -114,46 +99,22 @@ def append_vec2_track_keyframe(
             x_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(payload["x"]), interpolation=interpolation))
             y_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(payload["y"]), interpolation=interpolation))
             return True
-        if prefer_continuous or bool(
-            x_channel.prefer_continuous_curve or y_channel.prefer_continuous_curve
-        ):
-            # Stretch the idle plateau so later motion does not lerp from t=0.
-            x_channel.keyframes[-1] = ChannelKeyframe(
-                timestamp=timestamp, value=float(payload["x"]), interpolation=interpolation
-            )
-            y_channel.keyframes[-1] = ChannelKeyframe(
-                timestamp=timestamp, value=float(payload["y"]), interpolation=interpolation
-            )
-            return True
         return False
 
     time_gap = timestamp - float(x_channel.keyframes[-1].timestamp)
     step_threshold = 3.0 / max(1, fps)
-    prefer_continuous = prefer_continuous or bool(
-        x_channel.prefer_continuous_curve or y_channel.prefer_continuous_curve
-    )
 
     if time_gap > step_threshold:
-        was_stationary = len(x_channel.keyframes) >= 2 and values_close(
-            Point(float(x_channel.keyframes[-2].value), float(y_channel.keyframes[-2].value)),
-            previous_point,
-            kind="vec2",
-        )
-        # Non-continuous always steps across idle gaps. Continuous still needs
-        # a hold knot after a same-value plateau (e.g. pause while idle); mid-drag
-        # gaps and the first changing sample stay a plain append.
-        if not prefer_continuous or was_stationary:
-            x_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(previous_point.x), interpolation=interpolation))
-            y_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(previous_point.y), interpolation=interpolation))
-            x_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(payload["x"]), interpolation=interpolation))
-            y_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(payload["y"]), interpolation=interpolation))
-            return True
+        x_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(previous_point.x), interpolation=interpolation))
+        y_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(previous_point.y), interpolation=interpolation))
+        x_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(payload["x"]), interpolation=interpolation))
+        y_channel.keyframes.append(ChannelKeyframe(timestamp=timestamp, value=float(payload["y"]), interpolation=interpolation))
+        return True
 
     new_x = ChannelKeyframe(timestamp=timestamp, value=float(payload["x"]), interpolation=interpolation)
     new_y = ChannelKeyframe(timestamp=timestamp, value=float(payload["y"]), interpolation=interpolation)
     if (
-        not prefer_continuous
-        and len(x_channel.keyframes) >= 2
+        len(x_channel.keyframes) >= 2
         and len(y_channel.keyframes) >= 2
         and is_redundant_linear_keyframe(
             ChannelKeyframe(timestamp=x_channel.keyframes[-2].timestamp, value=Point(float(x_channel.keyframes[-2].value), float(y_channel.keyframes[-2].value)), interpolation=x_channel.keyframes[-2].interpolation),
@@ -188,12 +149,6 @@ def append_channel_keyframe(channel: TimelineChannel, timestamp: float, value: A
         if len(keyframes) >= 2 and not values_close(keyframes[-2].value, keyframes[-1].value, kind=channel.kind):
             keyframes.append(ChannelKeyframe(timestamp=timestamp, value=clone_value(value), interpolation=interpolation))
             return True
-        if channel.prefer_continuous_curve:
-            # Keep the idle plateau current so motion does not ramp from t=0.
-            keyframes[-1] = ChannelKeyframe(
-                timestamp=timestamp, value=clone_value(value), interpolation=interpolation
-            )
-            return True
         return False
 
     if not channel.interpolate_values:
@@ -218,15 +173,11 @@ def append_channel_keyframe(channel: TimelineChannel, timestamp: float, value: A
 
     time_gap = timestamp - float(keyframes[-1].timestamp)
 
-    if time_gap > step_threshold:
-        was_stationary = len(keyframes) >= 2 and values_close(
-            keyframes[-2].value, keyframes[-1].value, kind=channel.kind
-        )
-        if not channel.prefer_continuous_curve or was_stationary:
-            previous_value = clone_value(keyframes[-1].value)
-            keyframes.append(ChannelKeyframe(timestamp=timestamp, value=previous_value, interpolation=interpolation))
-            keyframes.append(ChannelKeyframe(timestamp=timestamp, value=clone_value(value), interpolation=interpolation))
-            return True
+    if not channel.prefer_continuous_curve and time_gap > step_threshold:
+        previous_value = clone_value(keyframes[-1].value)
+        keyframes.append(ChannelKeyframe(timestamp=timestamp, value=previous_value, interpolation=interpolation))
+        keyframes.append(ChannelKeyframe(timestamp=timestamp, value=clone_value(value), interpolation=interpolation))
+        return True
 
     new_keyframe = ChannelKeyframe(timestamp=timestamp, value=clone_value(value), interpolation=interpolation)
     if (
@@ -378,13 +329,13 @@ def viewport_fingerprint(state: ViewportState) -> Any:
     )
 
 @lru_cache(maxsize=64)
-def dataclass_field_names(cls: Hashable) -> tuple[str, ...]:
-    return tuple(field.name for field in fields(cast(type, cls)))
+def dataclass_field_names(cls: type) -> tuple[str, ...]:
+    return tuple(field.name for field in fields(cls))
 
 def clone_dataclass_value(value: Any) -> Any:
     payload = {
         name: clone_value(getattr(value, name))
-        for name in dataclass_field_names(cast(Hashable, type(value)))
+        for name in dataclass_field_names(type(value))
     }
     return type(value)(**payload)
 
@@ -407,7 +358,7 @@ def frozen_value(value: Any) -> Any:
             type(value).__name__,
             tuple(
                 (name, frozen_value(getattr(value, name)))
-                for name in dataclass_field_names(cast(Hashable, type(value)))
+                for name in dataclass_field_names(type(value))
             ),
         )
     return value
@@ -431,10 +382,10 @@ def interpolate_value(start: Any, end: Any, factor: float) -> Any:
         )
     if isinstance(start, bool) or isinstance(end, bool):
         return clone_value(start)
-    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
-        if isinstance(start, int) and isinstance(end, int):
-            return lerp_int(start, end, factor)
-        return lerp_float(float(start), float(end), factor)
+    if isinstance(start, int) and isinstance(end, int):
+        return lerp_int(start, end, factor)
+    if isinstance(start, float) and isinstance(end, float):
+        return lerp_float(start, end, factor)
     if isinstance(start, tuple) and isinstance(end, tuple) and len(start) == len(end):
         return tuple(interpolate_value(a, b, factor) for a, b in zip(start, end))
     if isinstance(start, list) and isinstance(end, list) and len(start) == len(end):
@@ -447,17 +398,13 @@ def interpolate_value(start: Any, end: Any, factor: float) -> Any:
                 getattr(end, field.name),
                 factor,
             )
-        return type(start)(**values)  # type: ignore[misc]  # start narrowed to a dataclass instance
+        return type(start)(**values)
     return clone_value(start)
 
 def interpolate_viewport_state(start: ViewportState, end: ViewportState, factor: float) -> ViewportState:
     interpolated = start.clone()
-    # Transient clone — not a live Store. Use `setattr` so the dogma
-    # `interpolated.render_config =` / `interpolated.view_state =` is not flagged
-    # as a direct Store mutation (chain `interpolated.render_config` contains
-    # `render_config` in INTERMEDIATE).
-    setattr(interpolated, "render_config", interpolate_value(start.render_config, end.render_config, factor))
-    setattr(interpolated, "view_state", interpolate_value(start.view_state, end.view_state, factor))
+    interpolated.render_config = interpolate_value(start.render_config, end.render_config, factor)
+    interpolated.view_state = interpolate_value(start.view_state, end.view_state, factor)
 
     return interpolated
 

@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-# File-Size-Exempt: flat per-field viewport setters sharing one guard/emit
-# shape — splitting by field (size/offset/color/...) creates grab-bag
-# modules threading the same store/viewport/render_config triple.
-
 from typing import Any
 
 from domain.types import Point
@@ -18,7 +14,7 @@ def viewport_toggle_enabled(store, enabled: bool):
 
 
 def viewport_ensure_active(store):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -26,7 +22,7 @@ def viewport_ensure_active(store):
 
 
 def viewport_set_active_size(store, size: float):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -37,7 +33,7 @@ def viewport_set_active_size(store, size: float):
 
 
 def viewport_set_active_capture_size(store, size: float):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -48,7 +44,7 @@ def viewport_set_active_capture_size(store, size: float):
 
 
 def viewport_set_active_offset(store, offset):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -59,7 +55,7 @@ def viewport_set_active_offset(store, offset):
 
 
 def viewport_set_active_spacing(store, spacing: float):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -70,8 +66,7 @@ def viewport_set_active_spacing(store, spacing: float):
 
 
 def viewport_set_active_border_color(store, color):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import update_magnifier_model
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, update_magnifier_model
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -91,8 +86,7 @@ def viewport_set_active_border_color(store, color):
 
 
 def viewport_set_active_divider_color(store, color):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import update_magnifier_model
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, update_magnifier_model
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -111,47 +105,8 @@ def viewport_set_active_divider_color(store, color):
     return result
 
 
-def viewport_set_active_guides_color(store, color):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import update_magnifier_model
-
-    if store is None or getattr(store, "viewport", None) is None:
-        return None
-    scene_state = MagnifierStoreService(store)
-    model = scene_state.get_active_or_first_magnifier()
-    if model is None:
-        return None
-    result = update_magnifier_model(
-        store.viewport.view_state,
-        store.viewport.render_config,
-        model.id,
-        guides_color=color,
-    )
-    if hasattr(store, "emit_viewport_change"):
-        store.emit_viewport_change()
-    return result
-
-
 def viewport_set_active_laser_enabled(store, enabled: bool):
-    if not bool(enabled):
-        try:
-            import logging
-            import traceback
-
-            from shared.debug_flags import env_flag as _env_flag
-
-            _lg = logging.getLogger("ImproveImgSLI")
-            if _env_flag("IMGSLI_LASER_DEBUG"):
-                prefix = "[laser-debug]"
-                stack = "".join(traceback.format_stack(limit=15)[:-1])
-                if _env_flag("IMGSLI_LASER_DEBUG"):
-                    _lg.warning("%s LASER DISABLE [viewport_set_active_laser_enabled(enabled=False)]\n%s", prefix, stack)
-                else:
-                    _lg.debug("%s LASER DISABLE [viewport_set_active_laser_enabled(enabled=False)]\n%s", prefix, stack)
-        except Exception:
-            pass
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import update_magnifier_model
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, update_magnifier_model
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -177,7 +132,7 @@ def viewport_set_active_visibility_parts(
     center: bool | None = None,
     right: bool | None = None,
 ):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -192,7 +147,7 @@ def viewport_set_active_visibility_parts(
 
 
 def viewport_set_active_orientation(store, is_horizontal: bool):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -205,8 +160,7 @@ def viewport_set_active_orientation(store, is_horizontal: bool):
 
 
 def viewport_move_active_position(store, position):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import active_magnifier_id
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, active_magnifier_id
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -220,7 +174,7 @@ def viewport_move_active_position(store, position):
 
 
 def viewport_set_internal_split(store, location):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -246,33 +200,10 @@ def viewport_add_instance(store, position=None):
     from domain.types import Point
 
     from tabs.image_compare.canvas.features.magnifier.state.mode import MagnifierModeService
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-
-    def _dbg(msg, *args):
-        try:
-            from tabs.image_compare.debug import ic_magnifier_debug
-
-            ic_magnifier_debug(msg, *args)
-        except Exception:
-            pass
-
-    def _trace(summary, payload):
-        try:
-            from core.tracing.tracer import Tracer
-
-            if Tracer.enabled():
-                Tracer.instance().record("magnifier.instances.added", summary, payload)
-        except Exception:
-            pass
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
-        _dbg("add_instance: no store/viewport")
         return None
-    try:
-        before = len(list(MagnifierStoreService(store).iter_magnifiers()))
-    except Exception:
-        before = -1
-    _dbg("add_instance: enter count_before=%s", before)
     MagnifierModeService(store).prepare_for_add()
 
     if position is None:
@@ -288,12 +219,6 @@ def viewport_add_instance(store, position=None):
             )
 
     model = MagnifierStoreService(store).add_magnifier(position=position)
-    try:
-        after = len(list(MagnifierStoreService(store).iter_magnifiers()))
-    except Exception:
-        after = -1
-    _dbg("add_instance: exit count_before=%s count_after=%s emit=viewport", before, after)
-    _trace("instances added", {"count_before": before, "count_after": after})
     if hasattr(store, "emit_viewport_change"):
         store.emit_viewport_change()
     return model
@@ -301,57 +226,24 @@ def viewport_add_instance(store, position=None):
 
 def viewport_remove_active_instance(store) -> bool:
     from tabs.image_compare.canvas.features.magnifier.state.mode import MagnifierModeService
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-    from tabs.image_compare.canvas.features.magnifier.state.store import active_magnifier_id
-
-    def _dbg(msg, *args):
-        try:
-            from tabs.image_compare.debug import ic_magnifier_debug
-
-            ic_magnifier_debug(msg, *args)
-        except Exception:
-            pass
-
-    def _trace(summary, payload):
-        try:
-            from core.tracing.tracer import Tracer
-
-            if Tracer.enabled():
-                Tracer.instance().record("magnifier.instances.removed", summary, payload)
-        except Exception:
-            pass
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, active_magnifier_id
 
     if store is None or getattr(store, "viewport", None) is None:
-        _dbg("remove_instance: no store/viewport -> False")
         return False
     scene_state = MagnifierStoreService(store)
-    try:
-        before = len(list(scene_state.iter_magnifiers()))
-    except Exception:
-        before = -1
     if len(scene_state.iter_magnifiers()) <= 1:
-        _dbg("remove_instance: reject count_before=%s (need >1)", before)
-        _trace("remove rejected", {"count_before": before, "reason": "single"})
         return False
     active = active_magnifier_id(store.viewport.view_state)
     if not active:
-        _dbg("remove_instance: reject count_before=%s reason=no_active", before)
-        _trace("remove rejected", {"count_before": before, "reason": "no_active"})
         return False
     scene_state.remove_object(active)
     MagnifierModeService(store).normalize_after_remove()
-    try:
-        after = len(list(scene_state.iter_magnifiers()))
-    except Exception:
-        after = -1
-    _dbg("remove_instance: exit count_before=%s count_after=%s emit=none", before, after)
-    _trace("instances removed", {"count_before": before, "count_after": after})
 
     return True
 
 
 def viewport_set_active_instance(store, magnifier_id: str):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -366,7 +258,7 @@ def viewport_set_instance_visibility(
     magnifier_id: str,
     visible: bool,
 ):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -386,7 +278,7 @@ def viewport_set_all_freeze(
     frozen_positions: dict[str, Any] | None = None,
     new_offsets: dict[str, Any] | None = None,
 ):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -408,9 +300,7 @@ def viewport_set_active_freeze(
 
     from domain.types import Point
 
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-
-    from tabs.image_compare.canvas.features.magnifier.state.store import update_magnifier_model
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService, update_magnifier_model
 
     if store is None or getattr(store, "viewport", None) is None:
         return None
@@ -458,7 +348,7 @@ def viewport_set_active_combined(
     store,
     combined: bool,
 ):
-    from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
+    from tabs.image_compare.canvas.features.magnifier.state.store import MagnifierStoreService
 
     if store is None or getattr(store, "viewport", None) is None:
         return None

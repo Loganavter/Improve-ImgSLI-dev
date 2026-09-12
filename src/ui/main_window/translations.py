@@ -21,4 +21,4 @@ def _install_tab_translations(ui) -> None:
 
     registry = TabRegistry()
     registry.discover()
-    registry.notify_all("install_translations", ui)
+    registry.create_service("install_translations", ui)

@@ -2,33 +2,11 @@ import logging
 
 import shiboken6 as sip
 from PySide6.QtCore import QObject, QPointF, QTimer
-from ui.widgets.drag_ghost_widget import DragGhostWidget, make_count_slot_pixmap
 from shared_toolkit.ui.overlay_layer import get_overlay_layer
 
+DragGhostWidget = None
+
 logger = logging.getLogger("ImproveImgSLI")
-
-
-def _cancel_ripple(widget) -> None:
-    """Cancel any in-flight ripple on a source row.
-
-    Row widgets are toolkit ``Button`` subclasses: the press that started
-    the drag also started the ripple wave, which is usually still mid-
-    animation when the drag threshold is reached. Without cancelling it the
-    ``grab()`` below would bake a half-finished ripple blob into the ghost.
-    """
-    ripples = []
-    main_ripple = getattr(widget, "_ripple", None)
-    if main_ripple is not None:
-        ripples.append(main_ripple)
-    region_ripples = getattr(widget, "_region_ripple", None)
-    if isinstance(region_ripples, dict):
-        ripples.extend(v for v in region_ripples.values() if v is not None)
-    for ripple in ripples:
-        try:
-            if getattr(ripple, "is_active", lambda: False)():
-                ripple.cancel()
-        except Exception:
-            pass
 
 class DragAndDropService(QObject):
     _instance = None
@@ -79,6 +57,8 @@ class DragAndDropService(QObject):
             return self._source_data
 
     def start_drag(self, source_widget, event):
+        global DragGhostWidget
+
         if self._is_dragging:
             return
 
@@ -91,9 +71,7 @@ class DragAndDropService(QObject):
 
         self._source_widget = source_widget
 
-        list_num = getattr(source_widget, "list_num", None)
-        if list_num not in (1, 2):
-            list_num = getattr(source_widget, "image_number", None)
+        list_num = getattr(source_widget, "image_number", None)
         if list_num not in (1, 2):
             owner_flyout = getattr(source_widget, "owner_flyout", None)
             list_num = getattr(owner_flyout, "image_number", None)
@@ -108,18 +86,6 @@ class DragAndDropService(QObject):
             self._source_widget = None
             return
 
-        indices_fn = getattr(source_widget, "drag_indices", None)
-        if callable(indices_fn):
-            try:
-                indices = [int(i) for i in indices_fn() if isinstance(i, int) and i >= 0]
-            except Exception:
-                indices = [index]
-        else:
-            indices = [index]
-        if not indices:
-            indices = [index]
-        indices = sorted(set(indices))
-
         self._is_dragging = True
 
         document = self.store.get_session_state_slot("document")
@@ -133,22 +99,16 @@ class DragAndDropService(QObject):
         self._source_data = {
             "list_num": list_num,
             "index": index,
-            "indices": indices,
             "rating_backup": current_rating,
         }
 
         self._drag_start_pos_global = event.globalPosition()
         self._hotspot = event.position()
 
-        if len(indices) > 1:
-            pixmap = make_count_slot_pixmap(source_widget, len(indices))
-            # Center hotspot on the badge slot.
-            self._hotspot = QPointF(pixmap.width() / 2.0, pixmap.height() / 2.0)
-        else:
-            # The press that initiated the drag left the row's ripple wave
-            # mid-animation; cancel it so the snapshot is clean.
-            _cancel_ripple(source_widget)
-            pixmap = source_widget.grab()
+        pixmap = source_widget.grab()
+
+        if DragGhostWidget is None:
+            from sli_ui_toolkit.widgets import DragGhostWidget
 
         ghost_parent = None
         if self.main_window is not None:
@@ -166,13 +126,7 @@ class DragAndDropService(QObject):
         self._ghost_widget.show()
         self._ghost_widget.raise_()
 
-        if hasattr(self._source_widget, "set_batch_dragging_state"):
-            try:
-                self._source_widget.set_batch_dragging_state(True, indices)
-            except Exception:
-                if hasattr(self._source_widget, "set_dragging_state"):
-                    self._source_widget.set_dragging_state(True)
-        elif hasattr(self._source_widget, "set_dragging_state"):
+        if hasattr(self._source_widget, "set_dragging_state"):
             self._source_widget.set_dragging_state(True)
 
     def update_drag_position(self, event):
@@ -269,12 +223,7 @@ class DragAndDropService(QObject):
 
         if self._source_widget and sip.isValid(self._source_widget):
             try:
-                indices = []
-                if isinstance(self._source_data, dict):
-                    indices = list(self._source_data.get("indices") or [])
-                if hasattr(self._source_widget, "set_batch_dragging_state"):
-                    self._source_widget.set_batch_dragging_state(False, indices)
-                elif hasattr(self._source_widget, "set_dragging_state"):
+                if hasattr(self._source_widget, "set_dragging_state"):
                     self._source_widget.set_dragging_state(False)
             except RuntimeError:
                 pass

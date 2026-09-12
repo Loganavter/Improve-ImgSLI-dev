@@ -13,7 +13,7 @@ This document is the contract reference. For the broader "why" and architectural
 | Path | Role |
 |---|---|
 | `src/core/store.py` | `Store` — root holder of `viewport`, `document`, `settings`, `workspace`, `runtime_cache` |
-| `src/core/store_viewport.py` | Dataclasses: `ViewportState`, `ViewState`, `InteractionState`, `GeometryState`; re-exports image-compare render/session types while Step 9 extraction is open (see below) |
+| `src/core/store_viewport.py` | Dataclasses: `ViewportState`, `ViewState`, `InteractionState`, `GeometryState`; legacy compatibility imports for image render/session data while migration C9 is in progress |
 | `src/tabs/image_compare/state/models.py` | Image-compare render/session/cache models (`RenderConfig`, `ImageSessionState`, `RenderCacheState`, `SessionData`) |
 | `src/core/store_document.py` | `DocumentModel`, `ImageItem` |
 | `src/core/store_settings.py` | `SettingsState`, `WorkerStoreSnapshot` |
@@ -43,37 +43,8 @@ class Store(WorkspaceStoreMixin, StoreOperationsMixin):
     def on_change(cb: Callable[[str], None]) -> None
     def emit_state_change(scope: str = "viewport") -> None
     def emit_viewport_change(subdomain: str | None = None) -> None  # scope = "viewport" or f"viewport.{subdomain}"
-    def batch_changes() -> ContextManager[None]  # defer emissions; flush once at exit
     def get_dispatcher() -> Dispatcher
 ```
-
-`batch_changes()` defers every `emit_state_change` inside the block and flushes
-each scope once (first-emitted order) when the block exits. Reads inside the
-block see the mutated store immediately — only notifications are deferred. Use
-it when several store mutations are one user-visible transition whose
-intermediate states must never reach subscribers (e.g. the session-picker
-replace: `create_workspace_session` + `close_workspace_session` must not paint
-a two-tab strip in between). Backed by `Store.replace_workspace_session` /
-`WorkspaceSessionActions.replace_workspace_session`.
-
-### Batching — Transaction (Phase 5)
-
-`Store.transact(actions, scope="document")` coalesces N actions into one
-`Dispatcher.dispatch(TransactionAction)` → one `RootReducer.reduce` → one
-`emit_state_change(scope)`. For image browsing this collapses 6–10 dispatches
-(`SetFullResImage` + `SetPreviewImage` + `SetImagePath` + `SetImageSessionImage` …)
-to 1 dispatch / 1 `ViewportState` alloc (verified `IMGSLI_TRACE=1` `dispatch.begin/end`
-exactly 1 per `set_current_image`). The reducer chains inner actions without
-intermediate `Store` allocs. `Dispatcher` is reentrant-safe (`_lock` taken only
-for reduce+write-back, subscriber snapshot + `emit_state_change` outside lock,
-`dispatcher.py:186`), so `on_change → dispatch` needs no `QTimer`. Legacy
-`batch_changes` remains for `persistence.py` but nested scopes dedup (already).
-
-For LOD, `PyramidBuildCoordinator` publishes `store.publish("lod_available")`
-per level with `await idle` between levels instead of `invalidate_render` per
-level — the canvas LOD selector consumes new levels without a full
-pick-signature invalidation; only the final flip calls
-`invalidate_render_state`.
 
 ### Dispatcher (`src/core/state_management/dispatcher.py:29`)
 
@@ -81,18 +52,9 @@ pick-signature invalidation; only the final flip calls
 dispatcher.dispatch(action: Action, scope: str = "viewport") -> None
 dispatcher.subscribe(cb: Callable[[Action], None]) -> None    # action listener (post-dispatch)
 dispatcher.get_action_history() -> list[Action]               # last 100 actions
-dispatcher.undo() / dispatcher.redo() -> None                 # per-session reference-snapshot undo/redo
-dispatcher.can_undo() / dispatcher.can_redo() -> bool
 ```
 
-Undo/redo: `dispatch` stores `(type, before, after)` reference-snapshots of the
-active session's `viewport` + every slot-reducer slot for the
-`Dispatcher._UNDOABLE_TYPES` action allowlist (see `session-lifecycle.md`);
-continuous gestures coalesce; redo clears on the next dispatch; both no-op
-while an image is loading. Covers image_compare and multi_compare session
-state alike (both are slot-reducer slots).
-
-`dispatch` is thread-safe (`threading.Lock`). It calls `RootReducer.reduce`, swaps `store.viewport`/`settings` references and **every registered slot-reducer slot** (document, multi_compare.state, …) **on the same Store instance**, re-points the active workspace session to the new sub-states, preserves opaque plugin states (`_viewport_plugin_state`, `_analysis_plugin_state`), then emits `emit_state_change(scope)`.
+`dispatch` is thread-safe (`threading.Lock`). It calls `RootReducer.reduce`, swaps `store.viewport`/`document`/`settings` references **on the same Store instance**, re-points the active workspace session to the new sub-states, preserves opaque plugin states (`_viewport_plugin_state`, `_analysis_plugin_state`), then emits `emit_state_change(scope)`.
 
 ### Action (`src/core/state_management/action_base.py:94`)
 
@@ -174,7 +136,7 @@ self.store.state_changed.disconnect(self._on_store_changed)
 
 ## Invariants — what you MUST hold
 
-1. **Never mutate state in-place.** Reducers must return new dataclasses (`dataclasses.replace(state, field=value)`), not `state.field = value`. Same rule for UI/services: dispatch an action, never write `store.viewport.X = Y` directly.
+1. **Never mutate state in-place.** Reducers must return new dataclasses (`dataclasses.replace(state, field=value)`), not `state.field = value`. Same rule for UI/services: dispatch an action, never write `store.viewport.X = Y` directly. (Common offender — see `src/ui/canvas_presentation/plan_builder.py` for in-progress migration.)
 2. **All state changes go through the Dispatcher.** Direct mutation skips:
    - the lock (race conditions),
    - action history (tracing/devtools),
@@ -185,7 +147,7 @@ self.store.state_changed.disconnect(self._on_store_changed)
    if hasattr(store, "emit_viewport_change"):
        store.emit_viewport_change("interaction")
    ```
-4. **No back-loops.** `Dispatcher.dispatch` is reentrant-safe (Phase 2/5 — reduce + write-back under `_lock`, subscriber snapshot + `emit_state_change` outside lock, `dispatcher.py:186`), so `store.on_change → dispatch` may run synchronously. `QTimer.singleShot(0, dispatch)` is now optional, not required. For multi-action user-visible transitions, prefer `store.transact([...], scope)` over `batch_changes` to get 1 alloc / 1 emit (see §Batching).
+4. **No back-loops.** A subscriber must not dispatch an action whose reducer triggers the same scope synchronously. There is no built-in re-entry guard at the dispatcher level (the lock would deadlock). Use a flag, or defer with `QTimer.singleShot(0, ...)`.
 5. **Workspace sessions own their substate.** When you dispatch, `Dispatcher` re-points the active session's `document`/`viewport` to the new instances. If you bypass dispatch and assign a new instance manually, the session keeps the old reference → switching sessions restores stale state.
 
 ## Extension recipe — adding a new action
@@ -212,11 +174,11 @@ self.store.state_changed.disconnect(self._on_store_changed)
 
 ## Plugin state — the escape hatch
 
-Some paths keep state outside the Action/Reducer path via opaque attributes on `viewport`:
+Plugins (analysis, export) keep state outside the Action/Reducer path via opaque attributes on `viewport`:
 - `viewport._viewport_plugin_state` — viewport-level
-- `viewport._analysis_plugin_state` — analysis services under `tabs/image_compare/services/analysis/` (owned by `comparison`); keep the attribute name — dispatcher sync depends on it
+- `viewport._analysis_plugin_state` — view-state level
 
-`Dispatcher` preserves these across reductions and re-syncs matching fields back into the new viewport via `_sync_plugin_states`. Prefer session `state_slots` for new plugin/tab state. Don't add new opaque attrs without updating the dispatcher. See [PLUGINS.md](PLUGINS.md#inventory).
+`Dispatcher` preserves these across reductions and re-syncs matching fields back into the new viewport via `_sync_plugin_states`. Don't add new opaque attrs without updating the dispatcher.
 
 ## See also
 

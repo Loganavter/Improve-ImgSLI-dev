@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from domain.qt_adapters import ensure_visible_qcolor, qcolor_to_color
+from domain.qt_adapters import color_to_qcolor, qcolor_to_color
 from ui.canvas_infra.scene.widget_contract import CanvasFeatureToolbarBinding
 
 from tabs.image_compare.canvas.features.divider.commands.registry import (
@@ -77,10 +77,10 @@ def show_divider_color_picker(presenter) -> None:
                 )
 
         def post_apply(color):
-            ui = getattr(presenter, "widget", None)
+            ui = getattr(presenter, "ui", None)
             btn = getattr(ui, "btn_orientation", None) if ui is not None else None
             if btn is not None and hasattr(btn, "setUnderlineColor"):
-                btn.setUnderlineColor(ensure_visible_qcolor(color))
+                btn.setUnderlineColor(color)
 
         settings_presenter.show_canvas_feature_color_picker(
             key="divider",
@@ -95,7 +95,7 @@ def on_toolbar_middle_clicked(presenter) -> None:
     current_mode = getattr(presenter.store.settings, "ui_mode", "beginner")
     if current_mode != "expert":
         return
-    button = presenter.widget.btn_orientation
+    button = presenter.ui.btn_orientation
     current_value = button.get_value()
     if current_value == 0:
         saved_value = button.get_saved_value()
@@ -115,22 +115,28 @@ def on_toolbar_middle_clicked(presenter) -> None:
     set_toolbar_thickness(presenter, 0)
 
 
+def _has_loaded_images(store) -> bool:
+    document = getattr(store, "document", None)
+    if document is None:
+        return False
+    return (
+        getattr(document, "image1_path", None) is not None
+        or getattr(document, "image2_path", None) is not None
+    )
+
 
 def sync_toolbar_state(presenter) -> None:
-    ui = presenter.widget
+    ui = presenter.ui
     viewport = presenter.store.viewport
     divider_state = get_divider_widget_state(viewport.view_state)
     divider_thickness = 0 if not divider_state.visible else divider_state.thickness
-    current_mode = getattr(presenter.store.settings, "ui_mode", "beginner")
-    if hasattr(ui.btn_orientation, "set_show_underline"):
-        ui.btn_orientation.set_show_underline(current_mode == "expert")
     ui.btn_orientation.setChecked(
         viewport.view_state.is_horizontal,
         emit_signal=False,
     )
     if ui.btn_orientation.get_value() != divider_thickness:
         ui.btn_orientation.set_value(divider_thickness, emit=False)
-    ui.btn_orientation.setUnderlineColor(ensure_visible_qcolor(divider_state.color))
+    ui.btn_orientation.setUnderlineColor(color_to_qcolor(divider_state.color))
     if hasattr(ui, "btn_orientation_simple"):
         ui.btn_orientation_simple.setChecked(
             viewport.view_state.is_horizontal,
@@ -142,26 +148,11 @@ def sync_toolbar_state(presenter) -> None:
         if ui.btn_divider_width.get_value() != divider_thickness:
             ui.btn_divider_width.set_value(divider_thickness, emit=False)
     if hasattr(ui, "btn_divider_color"):
-        ui.btn_divider_color.setUnderlineColor(ensure_visible_qcolor(divider_state.color))
-    # btn_magnifier_divider_width is the *magnifier's* internal divider, not the
-    # global split line — must show the active magnifier's divider_color
-    # (per-instance, auto-palette aware) like src/tabs/image_compare/canvas/features/magnifier/toolbar/sync.py:26,
-    # not the global DividerWidgetState.color. Otherwise white global underline
-    # mismatches the actual loupe divider (auto palette yellow/blue etc).
+        ui.btn_divider_color.setUnderlineColor(color_to_qcolor(divider_state.color))
     if hasattr(ui, "btn_magnifier_divider_width"):
-        try:
-            from tabs.image_compare.canvas.features.magnifier.state.feature_state import get_magnifier_widget_state
-            from tabs.image_compare.canvas.features.magnifier.state.service import MagnifierStoreService
-            from tabs.image_compare.canvas.features.magnifier.state.store import active_or_default_divider_color
-
-            _m = MagnifierStoreService(presenter.store).get_active_or_first_magnifier()
-            if _m is not None:
-                _c = _m.divider_color
-            else:
-                _c = active_or_default_divider_color(viewport.view_state)
-            ui.btn_magnifier_divider_width.setUnderlineColor(ensure_visible_qcolor(_c))
-        except Exception:
-            ui.btn_magnifier_divider_width.setUnderlineColor(ensure_visible_qcolor(divider_state.color))
+        ui.btn_magnifier_divider_width.setUnderlineColor(
+            color_to_qcolor(divider_state.color)
+        )
 
 
 class ToolbarViewportAdapter:

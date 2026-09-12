@@ -3,12 +3,11 @@ from typing import Any
 from plugins.settings.events import SettingsUIModeChangedEvent
 from core.plugin_system import Plugin, plugin
 
-@plugin(name="layout", version="1.0", startup_tier="bootstrap")
+@plugin(name="layout", version="1.0")
 class LayoutPlugin(Plugin):
     def __init__(self):
         super().__init__()
         self.manager = None
-        self._toast_manager = None
         self.store = None
 
     def initialize(self, context: Any) -> None:
@@ -30,35 +29,20 @@ class LayoutPlugin(Plugin):
 
         registry = TabRegistry()
         registry.discover()
-        self.manager = registry.create_startup_service("layout_manager", ui, parent_window)
-        if self.manager is not None and self.store:
+        self.manager = registry.create_service("layout_manager", ui, parent_window)
+        if self.manager is None:
+            return
+
+        if self.store:
             current_mode = getattr(self.store.settings, "ui_mode", "beginner")
             self.manager.apply_mode(current_mode)
 
-        if self._toast_manager is None and parent_window is not None:
-            from sli_ui_toolkit.widgets import ToastManager
-
-            self._toast_manager = ToastManager(parent_window)
-            try:
-                anchor = registry.create_service("toast_anchor_widget")
-            except Exception:
-                anchor = None
-            if anchor is not None:
-                self._toast_manager.set_anchor(anchor)
-
     @property
     def toast_manager(self):
-        return self._toast_manager
+        if self.manager:
+            return self.manager.toast_manager
+        return None
 
     def on_ui_mode_changed(self, mode_name: str):
         if self.manager:
             self.manager.apply_mode(mode_name)
-        try:
-            from ui.actions.binder import resync_action_shortcuts
-
-            window = getattr(self.manager, "parent_window", None) if self.manager else None
-            if window is None and self.manager is not None:
-                window = getattr(self.manager, "window", None)
-            resync_action_shortcuts(window)
-        except Exception:
-            pass

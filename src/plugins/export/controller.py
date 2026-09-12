@@ -50,18 +50,13 @@ class ExportController(QObject):
     def _tr(self, key: str) -> str:
         return tr(key, self.store.settings.current_language)
 
-    def toggle_recording(self, checked: bool | None = None):
+    def toggle_recording(self, checked: bool = None):
         self.recording_flow.toggle_recording(checked)
 
-    def toggle_pause_recording(self, checked: bool | None = None):
+    def toggle_pause_recording(self, checked: bool = None):
         self.recording_flow.toggle_pause_recording(checked)
 
     def open_video_editor(self, checked: bool = False):
-        from shared.debug_flags import env_flag as _env_flag
-        if _env_flag("IMGSLI_VIDEO_EDITOR_DEBUG") or _env_flag("IMGSLI_IC_VIDEO_DEBUG"):
-            logger.warning("[video-editor-debug] ExportController.open_video_editor checked=%s has_recording=%s", checked, self.recorder.has_recording_data() if self.recorder else None)
-        else:
-            logger.debug("[video-editor-debug] ExportController.open_video_editor checked=%s", checked)
         self.recording_flow.open_video_editor(checked)
 
     def export_video_from_editor(
@@ -72,20 +67,7 @@ class ExportController(QObject):
         )
 
     def paste_image_from_clipboard(self):
-        # Session-scoped: resolve against the active tab, not the bootstrap-
-        # default clipboard instance built at export-plugin configure time.
-        from tabs.registry import get_shared_tab_registry
-
-        service = get_shared_tab_registry().create_service(
-            "clipboard_paste_service",
-            self.store,
-            self.main_controller,
-        )
-        if service is None:
-            service = self.clipboard_service
-        if service is None:
-            return False
-        return service.paste_image_from_clipboard()
+        return self.clipboard_service.paste_image_from_clipboard()
 
     def on_toggle_recording(self, event: ExportToggleRecordingEvent):
         self.toggle_recording()
@@ -94,9 +76,6 @@ class ExportController(QObject):
         self.toggle_pause_recording()
 
     def on_open_video_editor(self, event: ExportOpenVideoEditorEvent):
-        from shared.debug_flags import env_flag as _env_flag
-        if _env_flag("IMGSLI_VIDEO_EDITOR_DEBUG") or _env_flag("IMGSLI_IC_VIDEO_DEBUG"):
-            logger.warning("[video-editor-debug] on_open_video_editor event=%s subscribers will handle", event)
         self.open_video_editor()
 
     def on_paste_image_from_clipboard(self, event: ExportPasteImageFromClipboardEvent):

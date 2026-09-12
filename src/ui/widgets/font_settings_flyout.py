@@ -1,42 +1,13 @@
 from __future__ import annotations
-from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
 from resources.translations import tr
-from sli_ui_toolkit.managers import scaled_px
-from sli_ui_toolkit.widgets import BaseFlyout, Switch
+from sli_ui_toolkit.widgets import BaseFlyout, Slider, Switch
 
-from ui.widgets.color import ColorSwatch
-from ui.widgets.slider_hint import ValueSlider
+from ui.widgets.color_swatch import ColorSwatch
 
 
 class FontSettingsFlyout(BaseFlyout):
@@ -45,16 +16,13 @@ class FontSettingsFlyout(BaseFlyout):
     interaction_started = Signal(str)
     interaction_finished = Signal(str)
 
-    # Identity for host ``GroupShowPolicy``.
-    flyout_group = "font_settings"
-
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.current_language = "en"
         self._active_dialog = False
 
-        self.content_layout.setContentsMargins(scaled_px(10), scaled_px(10), scaled_px(10), scaled_px(10))
-        self.content_layout.setSpacing(scaled_px(8))
+        self.content_layout.setContentsMargins(10, 10, 10, 10)
+        self.content_layout.setSpacing(8)
 
         self.size_slider = self._slider(50, 400, 100)
         self.weight_slider = self._slider(0, 100, 50)
@@ -63,23 +31,25 @@ class FontSettingsFlyout(BaseFlyout):
         self.bg_color_swatch = ColorSwatch(QColor("#000000"), parent=self)
         self.draw_bg_switch = Switch(parent=self)
 
-        self._size_label = self.add_row("", self.size_slider, label_pixel_size=13)
-        self._weight_label = self.add_row("", self.weight_slider, label_pixel_size=13)
-        self._opacity_label = self.add_row("", self.opacity_slider, label_pixel_size=13)
-        self._color_label = self.add_row("", self.color_swatch, label_pixel_size=13)
-        self._bg_label = self.add_row("", self.bg_color_swatch, label_pixel_size=13)
-        self._draw_bg_label = self.add_row("", self.draw_bg_switch, label_pixel_size=13)
+        self._size_label = self.add_row(self._tr("label.font_size"), self.size_slider, label_pixel_size=13)
+        self._weight_label = self.add_row(self._tr("label.bold"), self.weight_slider, label_pixel_size=13)
+        self._opacity_label = self.add_row(self._tr("label.opacity"), self.opacity_slider, label_pixel_size=13)
+        self._color_label = self.add_row(self._tr("label.color"), self.color_swatch, label_pixel_size=13)
+        self._bg_label = self.add_row(self._tr("label.background"), self.bg_color_swatch, label_pixel_size=13)
+        self._draw_bg_label = self.add_row(
+            self._tr("label.background"),
+            self.draw_bg_switch,
+            label_pixel_size=13,
+        )
         self._placement_label, self._pos_group, self._pos_radios = self.add_radio_row(
-            "",
+            self._tr("settings.text_position"),
             [
-                ("", "edges"),
-                ("", "split_line"),
+                (self._tr("settings.position_edges"), "edges"),
+                (self._tr("settings.position_split_line"), "split_line"),
             ],
             default="edges",
         )
         self._placement_label.setPixelSize(13)
-        self._tag_find_action_chrome()
-        self._retranslate()
 
         for slider in (self.size_slider, self.weight_slider, self.opacity_slider):
             slider.valueChanged.connect(self._emit_settings_changed)
@@ -89,41 +59,17 @@ class FontSettingsFlyout(BaseFlyout):
         for radio in self._pos_radios.values():
             radio.toggled.connect(lambda *_: self._emit_settings_changed())
 
-    def _tag_find_action_chrome(self) -> None:
-        from ui.widgets.font_settings_search import tag_font_settings_flyout
-
-        tag_font_settings_flyout(self, include_placement=True)
-
     @staticmethod
-    def _slider(minimum: int, maximum: int, value: int) -> ValueSlider:
-        slider = ValueSlider(
-            Qt.Orientation.Horizontal,
-            # Raw value (font size / weight / opacity), not percent-of-span.
-            hint_formatter=lambda s: str(s.value()),
-        )
+    def _slider(minimum: int, maximum: int, value: int) -> Slider:
+        slider = Slider(Qt.Orientation.Horizontal)
         slider.setRange(minimum, maximum)
         slider.setValue(value)
-        slider.setMinimumWidth(scaled_px(160))
+        slider.setMinimumWidth(160)
         return slider
 
     def _tr(self, key: str) -> str:
         value = tr(key, self.current_language)
         return value if value != key else key.rsplit(".", 1)[-1].replace("_", " ").title()
-
-    def _retranslate(self) -> None:
-        self._size_label.setText(self._tr("label.font_size"))
-        self._weight_label.setText(self._tr("label.bold"))
-        self._opacity_label.setText(self._tr("label.opacity"))
-        self._color_label.setText(self._tr("label.color"))
-        self._bg_label.setText(self._tr("label.background"))
-        self._draw_bg_label.setText(self._tr("label.draw_text_background"))
-        self._placement_label.setText(self._tr("label.text_position"))
-        edges = self._pos_radios.get("edges")
-        if edges is not None:
-            edges.setText(self._tr("label.position_edges"))
-        split = self._pos_radios.get("split_line")
-        if split is not None:
-            split.setText(self._tr("label.position_split_line"))
 
     def set_values(
         self,
@@ -138,7 +84,6 @@ class FontSettingsFlyout(BaseFlyout):
     ) -> None:
         if language:
             self.current_language = language
-            self._retranslate()
         blockers = [
             QSignalBlocker(self.size_slider),
             QSignalBlocker(self.weight_slider),
@@ -166,24 +111,11 @@ class FontSettingsFlyout(BaseFlyout):
             anchor_point="top-left",
             flyout_point="bottom-right",
             offset=10,
-            animation="slide-fade",
-            # "diagonal" (not "auto"): "auto" splits one fixed distance
-            # across the anchor->flyout unit vector, so with a narrow icon
-            # button as the anchor and this much wider panel, the vertical
-            # component of that vector dominates and the horizontal slide
-            # shrinks to a few barely-visible pixels -- looks like it's
-            # sliding straight up out of the button's top-center, not left.
-            # "diagonal" gives each axis the full distance independently.
-            animation_axis="diagonal",
+            animation="slide",
         )
 
     def has_active_dialog(self) -> bool:
         return self._active_dialog
-
-    def restore_focus_on_hide(self) -> bool:
-        # Same as context menus: activateWindow/setFocus on hide re-enters
-        # focusChanged and can jerk the canvas / desync toggle state.
-        return False
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
@@ -205,62 +137,3 @@ class FontSettingsFlyout(BaseFlyout):
             self._placement(),
             self.opacity_slider.value(),
         )
-
-
-FontSettingsFlyout.inspect_spec = InspectSpec(
-    family="FontSettingsFlyout",
-    state=(
-        SpecField("font_size", lambda w: w.size_slider.value()),
-        SpecField("font_weight", lambda w: w.weight_slider.value()),
-        SpecField("opacity", lambda w: w.opacity_slider.value()),
-        SpecField("draw_background", lambda w: w.draw_bg_switch.isChecked()),
-        SpecField("placement", "_placement", private=True),
-        SpecField("foreground", lambda w: w.color_swatch.color()),
-        SpecField("background", lambda w: w.bg_color_swatch.color()),
-    ),
-    docs="docs/dev/APP_WIDGETS.md",
-)
-
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-FontSettingsFlyout.widget_descriptor = WidgetDescriptor(
-    family=FontSettingsFlyout.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(FontSettingsFlyout.inspect_spec, 'config', ()),
-        state=FontSettingsFlyout.inspect_spec.state,
-        token_family=getattr(FontSettingsFlyout.inspect_spec, 'token_family', ()),
-        regions=getattr(FontSettingsFlyout.inspect_spec, 'regions', False),
-        layers=getattr(FontSettingsFlyout.inspect_spec, 'layers', False),
-        docs=getattr(FontSettingsFlyout.inspect_spec, 'docs', ''),
-        preview_seed=getattr(FontSettingsFlyout.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(FontSettingsFlyout.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
-
-
-FontSettingsFlyout.inspect_spec = InspectSpec(
-    family="FontSettingsFlyout",
-    state=(
-        SpecField("font_size", lambda w: w.size_slider.value()),
-        SpecField("font_weight", lambda w: w.weight_slider.value()),
-        SpecField("opacity", lambda w: w.opacity_slider.value()),
-        SpecField("draw_background", lambda w: w.draw_bg_switch.isChecked()),
-        SpecField("placement", "_placement", private=True),
-        SpecField("foreground", lambda w: w.color_swatch.color()),
-        SpecField("background", lambda w: w.bg_color_swatch.color()),
-    ),
-    docs="docs/dev/widgets/font_settings_flyout.md",
-)
-
-FontSettingsFlyout.widget_descriptor = WidgetDescriptor(
-    family=FontSettingsFlyout.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(FontSettingsFlyout.inspect_spec, 'config', ()),
-        state=FontSettingsFlyout.inspect_spec.state,
-        token_family=getattr(FontSettingsFlyout.inspect_spec, 'token_family', ()),
-        regions=getattr(FontSettingsFlyout.inspect_spec, 'regions', False),
-        layers=getattr(FontSettingsFlyout.inspect_spec, 'layers', False),
-        docs=getattr(FontSettingsFlyout.inspect_spec, 'docs', ''),
-        preview_seed=getattr(FontSettingsFlyout.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(FontSettingsFlyout.inspect_spec, 'apply_config_refresh', None),
-    ),
-)

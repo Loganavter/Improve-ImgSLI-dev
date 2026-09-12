@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QRhiWidget
 
-from ui.canvas_infra.rhi.rhi_render import render_clear_frame, resolve_clear_color
+from ui.widgets.canvas.rhi_render import render_clear_frame, resolve_clear_color
 from tabs.image_compare.canvas.rhi_renderer import pack_base_uniforms
 from tabs.image_compare.canvas.texture_parts.upload_queue import queue_texture_upload
 from tabs.image_compare.canvas.widget import CanvasWidget
@@ -89,7 +89,7 @@ def test_base_uniform_block_matches_shader_std140_layout():
         tile_rect2=(0.1, 0.2, 0.3, 0.4),
     )
 
-    assert len(block) == 224
+    assert len(block) == 192
     assert struct.unpack_from("<4f", block, 64) == (0.25, -0.5, 2.0, 2.0)
     assert struct.unpack_from("<f", block, 80) == (0.75,)
     assert struct.unpack_from("<4i", block, 128) == (1, 3, 4, 1)
@@ -122,7 +122,7 @@ def test_base_uniform_block_defaults_to_full_tile_rect():
 
     block = pack_base_uniforms(rhi, base, diff_source_ready=False)
 
-    assert len(block) == 224
+    assert len(block) == 192
     assert struct.unpack_from("<4f", block, 160) == (0.0, 0.0, 1.0, 1.0)
     assert struct.unpack_from("<4f", block, 176) == (0.0, 0.0, 1.0, 1.0)
 

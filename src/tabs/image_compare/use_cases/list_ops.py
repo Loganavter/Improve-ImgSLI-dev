@@ -30,12 +30,6 @@ def reorder_item_in_list(
     )
 
 
-def reorder_items_in_list(controller, *, list_num: int, indices, dest_index: int):
-    controller.playlist_manager.reorder_items_in_list(
-        list_num=list_num, indices=indices, dest_index=dest_index
-    )
-
-
 def move_item_between_lists(
     controller,
     source_list_num: int,
@@ -48,28 +42,8 @@ def move_item_between_lists(
     )
 
 
-def move_items_between_lists(
-    controller,
-    *,
-    source_list_num: int,
-    indices,
-    dest_list_num: int,
-    dest_index: int,
-):
-    controller.playlist_manager.move_items_between_lists(
-        source_list_num=source_list_num,
-        indices=indices,
-        dest_list_num=dest_list_num,
-        dest_index=dest_index,
-    )
-
-
 def on_edit_name_changed(controller, image_number, new_name):
     controller.playlist_manager.on_edit_name_changed(image_number, new_name)
-
-
-def rename_image_at_index(controller, image_number: int, index: int, new_name: str):
-    controller.playlist_manager.rename_image_at_index(image_number, index, new_name)
 
 
 def increment_rating(controller, image_number: int, index: int):
@@ -82,17 +56,3 @@ def decrement_rating(controller, image_number: int, index: int):
 
 def set_rating(controller, image_number: int, index_to_set: int, new_score: int):
     controller.playlist_manager.set_rating(image_number, index_to_set, new_score)
-
-
-def set_crop_override_at_index(
-    controller, image_number: int, index: int, value: bool | None
-):
-    """Per-image autocrop override via dispatch — never in-place.
-
-    Deliberately NOT routed through ``playlist_manager``/metadata (those
-    mutate ``ImageItem`` fields directly, like the rating path); the
-    ``DocumentReducer`` replaces the item instead (STORE.md invariant 1).
-    """
-    from tabs.image_compare.services import document_store_ops
-
-    document_store_ops.set_crop_override(controller.store, image_number, index, value)

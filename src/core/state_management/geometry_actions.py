@@ -41,3 +41,4 @@ class SetFixedLabelDimensionsAction(Action):
 
     def get_payload(self):
         return {"width": self.width, "height": self.height}
+

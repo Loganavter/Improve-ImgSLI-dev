@@ -1,5 +1,7 @@
 """Multi-compare keeps state, canvas-px layout, and framebuffer projection separate."""
 
+import numpy as np
+
 from tabs.multi_compare.models import (
     CompareSlot,
     LeafNode,
@@ -12,27 +14,18 @@ from tabs.multi_compare.services.composition_builder import (
     DEFAULT_SPLIT_GAP_PX,
     build_composition_plan,
 )
-from tabs.multi_compare.tests.pixel_fixtures import slot_image
 from ui.canvas_presentation.composition import resolve_composition
 
 
 def _image(w=100, h=80):
-    return slot_image(w, h)
-
-
-def _sources():
-    return {1: _image(), 2: _image()}
-
-
-def _plan(state, **kw):
-    return build_composition_plan(state, sources=_sources(), **kw)
+    return np.zeros((h, w, 3), dtype=np.uint8)
 
 
 def _state(*, weights=(1.0, 1.0), focused_slot_id=None):
     return MultiCompareState(
         slots=[
-            CompareSlot(id=1, label="one"),
-            CompareSlot(id=2, label="two"),
+            CompareSlot(id=1, label="one", image=_image()),
+            CompareSlot(id=2, label="two", image=_image()),
         ],
         root=SplitNode("h", [LeafNode(1), LeafNode(2)], list(weights)),
         focused_slot_id=focused_slot_id,
@@ -41,7 +34,7 @@ def _state(*, weights=(1.0, 1.0), focused_slot_id=None):
 
 def test_multi_compare_layers_are_resolved_in_canvas_px_before_sr_projection():
     state = _state(weights=(1.0, 3.0))
-    plan = _plan(
+    plan = build_composition_plan(
         state,
         canvas_w=404,
         canvas_h=200,
@@ -71,10 +64,6 @@ def test_multi_compare_layers_are_resolved_in_canvas_px_before_sr_projection():
         (0.0, 0.0, 50.0, 100.0),
         (52.0, 0.0, 150.0, 100.0),
     ]
-    assert [projected.slot_rect_uv for projected in ctx.projected_layers] == [
-        (0.0, 0.0, 100.0 / 404.0, 1.0),
-        (104.0 / 404.0, 0.0, 300.0 / 404.0, 1.0),
-    ]
 
 
 def test_multi_compare_dividers_read_resolved_composition_gaps():
@@ -83,7 +72,7 @@ def test_multi_compare_dividers_read_resolved_composition_gaps():
     so live and offscreen-export rendering (which never populates a widget
     ``state``) see identical divider geometry."""
     composition = resolve_composition(
-        _plan(
+        build_composition_plan(
             _state(weights=(1.0, 3.0)),
             canvas_w=404,
             canvas_h=200,
@@ -104,7 +93,7 @@ def test_multi_compare_dividers_read_resolved_composition_gaps():
     assert rects[0].height() == 100.0
 
     other_composition = resolve_composition(
-        _plan(
+        build_composition_plan(
             _state(weights=(3.0, 1.0)),
             canvas_w=404,
             canvas_h=200,
@@ -124,7 +113,7 @@ def test_multi_compare_dividers_read_resolved_composition_gaps():
 def test_multi_compare_dividers_are_suppressed_in_focused_redux_state():
     focused = _state(focused_slot_id=1)
     composition = resolve_composition(
-        _plan(
+        build_composition_plan(
             focused,
             canvas_w=404,
             canvas_h=200,
@@ -150,7 +139,7 @@ def test_multi_compare_divider_gap_thickness_is_du_relative_to_framebuffer_short
     and export stay visually WYSIWYG. See DividersOverlaySource._project_gap."""
     state = _state()
     composition = resolve_composition(
-        _plan(
+        build_composition_plan(
             state,
             canvas_w=204,
             canvas_h=100,

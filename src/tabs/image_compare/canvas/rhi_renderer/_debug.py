@@ -1,5 +1,25 @@
 from __future__ import annotations
 
-from shared.rendering.render_debug import rhi_render_debug, rhi_render_debug_enabled
+import logging
+import os
 
-__all__ = ["rhi_render_debug", "rhi_render_debug_enabled"]
+logger = logging.getLogger("ImproveImgSLI")
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() not in (
+        "",
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def rhi_render_debug_enabled() -> bool:
+    return _env_flag("IMGSLI_RESIZE_DEBUG")
+
+
+def rhi_render_debug(message: str, *args) -> None:
+    if rhi_render_debug_enabled():
+        logger.debug("[rhi-render-debug] " + message, *args)

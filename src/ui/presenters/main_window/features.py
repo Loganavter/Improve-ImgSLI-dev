@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
+from plugins.export.presenter import ExportPresenter
 from plugins.settings.presenter import SettingsPresenter
-from tabs.registry import LazyTabService
 from ui.managers.ui_manager import UIManager
-
 
 @dataclass(slots=True)
 class MainWindowFeatureSet:
     ui_manager: UIManager
     image_canvas: Any
     toolbar: Any
-    export: Any
+    export: ExportPresenter
     settings: SettingsPresenter
-
 
 def build_main_window_features(
     *,
@@ -24,35 +22,30 @@ def build_main_window_features(
     ui,
     main_window_app,
     image_canvas,
+    plugin_ui_registry=None,
 ) -> MainWindowFeatureSet:
     ui_manager = UIManager(
         store,
         main_controller,
         ui,
         main_window_app,
+        plugin_ui_registry=plugin_ui_registry,
     )
-    # toolbar and export are tab-specific services — created lazily when
-    # the owning tab's page is materialized, not at startup.
-    #
-    # `on_resolved` wires up the toolbar's own signal connections exactly
-    # once, right after it's first built. Nothing else in the codebase ever
-    # calls `ToolbarPresenter.connect_signals()` -- when toolbar_presenter
-    # became lazy, the one-time "construct, then connect" pairing that used
-    # to happen together at eager-construction time silently lost its
-    # second half, leaving every toolbar button's click/toggle wiring dead
-    # (`_connect_text_settings_button`, `_connect_session_actions`, etc. in
-    # `presenters/toolbar/connections.py` never ran).
-    toolbar = LazyTabService(
+    from tabs.registry import TabRegistry
+
+    registry = TabRegistry()
+    registry.discover()
+    toolbar = registry.create_service(
         "toolbar_presenter",
         store,
         main_controller,
         ui,
         main_window_app,
         ui_manager,
-        on_resolved=lambda presenter: presenter.connect_signals(),
     )
-    export = LazyTabService(
-        "export_presenter",
+    if toolbar is None:
+        raise RuntimeError("Tab toolbar presenter service is unavailable")
+    export = ExportPresenter(
         store,
         main_controller,
         ui_manager,

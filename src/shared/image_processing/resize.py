@@ -150,9 +150,8 @@ def resize_images_processor(
                 )
             else:
                 final_processed_image2 = processed_img2_intermediate
-    except Exception as exc:
-        logger.error("resample failed for target %s: %s", target_size_final, exc, exc_info=True)
-        raise RuntimeError(f"Image unify/resample failed for {target_size_final}: {exc}") from exc
+    except Exception:
+        return (processed_img1_intermediate, processed_img2_intermediate)
 
     if final_processed_image1:
         final_processed_image1.load()
@@ -160,6 +159,7 @@ def resize_images_processor(
         final_processed_image2.load()
 
     return (final_processed_image1, final_processed_image2)
+
 def get_auto_crop_box(
     pil_img: Image.Image, threshold: int = 15
 ) -> Optional[Tuple[int, int, int, int]]:

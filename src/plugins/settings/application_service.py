@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QApplication
 
@@ -9,57 +8,23 @@ from plugins.settings.events import (
     SettingsUIModeChangedEvent,
 )
 from core.state_management.actions import (
-    ClearAllCachesAction,
     SetAutoCropBlackBordersAction,
     SetDebugModeEnabledAction,
-    SetKeyboardOverridesAction,
+    SetDisplayResolutionLimitAction,
     SetMaxNameLengthAction,
+    SetShowWorkspaceTabsAction,
     SetSystemNotificationsEnabledAction,
     SetThemeAction,
     SetUIFontFamilyAction,
     SetUIFontModeAction,
-    SetUIScaleFactorAction,
     SetUIModeAction,
     SetVideoRecordingFpsAction,
     SetZoomInterpolationMethodAction,
 )
 from shared_toolkit.ui.managers.font_manager import FontManager
-from ui.theming import reapply_application_theme, refresh_application_styles
+from ui.theming import refresh_application_styles
 
 from .models import SettingsDialogData
-
-
-
-
-
-def _flush_deferred_scale_resyncs(app) -> None:
-    """Run the singleShot(0)-deferred scale resyncs synchronously.
-
-    Called while top-level paints are frozen (see
-    ``SettingsApplicationService._apply_ui_scale_settings``), so the first
-    painted frame after the scale change is already the final layout —
-    nothing needs a later event-loop tick to settle.
-    """
-    if app is None:
-        return
-    for top in app.topLevelWidgets():  # ALLOWED: system-wide scale fan-out — applies UiScale to every top-level window generically, not tab-specific
-        try:
-            bar = getattr(top, "_custom_title_bar", None) or getattr(
-                top, "_csd_title_bar", None
-            )
-            sync = getattr(bar, "_sync_balance_spacer", None)
-            if callable(sync):
-                sync()
-        except Exception:
-            pass
-        try:
-            ui = getattr(top, "ui", None)
-            strip = getattr(ui, "workspace_tabs", None) if ui is not None else None
-            finish = getattr(strip, "_finish_scale_resync", None)
-            if callable(finish):
-                finish()
-        except Exception:
-            pass
 
 class SettingsApplicationService(QObject):
     def __init__(self, store, main_controller, event_bus=None, parent=None):
@@ -72,19 +37,10 @@ class SettingsApplicationService(QObject):
         render_update_needed = self._apply_general_settings(data)
         self._apply_language_settings(data)
         self._apply_ui_font_settings(data)
-        self._apply_ui_scale_settings(data)
         render_update_needed = self._apply_viewport_interactive_settings(
             data, render_update_needed
         )
         self._apply_misc_settings(data)
-
-        # Single funnel: the settings file is only ever written as a full
-        # snapshot of the Store (see SettingsManager.schedule_persist) — the
-        # apply path mutates the Store via dispatches above and schedules the
-        # snapshot here. Incremental per-key writes from widget state are
-        # forbidden (a stale dialog widget silently overwrites good values
-        # with defaults; contract test dogma 4).
-        self._schedule_persist()
 
         if render_update_needed:
             self.store.emit_state_change()
@@ -101,15 +57,27 @@ class SettingsApplicationService(QObject):
             )
             if window_shell is not None:
                 window_shell.main_window_app.apply_application_theme(data.theme)
+            self._save_setting("theme", data.theme)
+
+        if data.resolution_limit != self.store.viewport.render_config.display_resolution_limit:
+            dispatcher.dispatch(
+                SetDisplayResolutionLimitAction(data.resolution_limit),
+                scope="viewport",
+            )
+            self.store.invalidate_geometry_cache()
+            render_update_needed = True
+            self._save_setting("display_resolution_limit", data.resolution_limit)
 
         if data.max_name_length != self.store.viewport.render_config.max_name_length:
             dispatcher.dispatch(
                 SetMaxNameLengthAction(data.max_name_length), scope="viewport"
             )
+            self._save_setting("max_name_length", data.max_name_length)
             render_update_needed = True
 
         if data.debug_enabled != self.store.settings.debug_mode_enabled:
             dispatcher.dispatch(SetDebugModeEnabledAction(data.debug_enabled))
+            self._save_setting("debug_mode_enabled", data.debug_enabled)
 
         if (
             getattr(self.store.settings, "system_notifications_enabled", True)
@@ -118,10 +86,47 @@ class SettingsApplicationService(QObject):
             dispatcher.dispatch(
                 SetSystemNotificationsEnabledAction(data.system_notifications_enabled)
             )
+            self._save_setting(
+                "system_notifications_enabled",
+                data.system_notifications_enabled,
+            )
+            window_shell = (
+                self.main_controller.window_shell if self.main_controller else None
+            )
+            window = getattr(window_shell, "main_window_app", None)
+            notification_service = getattr(window, "notification_service", None)
+            if notification_service is not None:
+                notification_service.set_enabled(data.system_notifications_enabled)
             self.store.emit_state_change("settings")
-        # Always push the live store flag into NotificationService (even when
-        # the checkbox did not change) so a stale _enabled cannot outlive OK.
-        self._sync_notification_service_enabled()
+
+        if data.show_workspace_tabs != getattr(
+            self.store.settings, "show_workspace_tabs", True
+        ):
+            dispatcher.dispatch(SetShowWorkspaceTabsAction(data.show_workspace_tabs))
+            self._save_setting("show_workspace_tabs", data.show_workspace_tabs)
+            window_shell = (
+                self.main_controller.window_shell if self.main_controller else None
+            )
+            window = getattr(window_shell, "main_window_app", None)
+            ui = getattr(window, "ui", None)
+            if ui is not None:
+                ui.workspace_tabs.setVisible(data.show_workspace_tabs)
+                ui.btn_new_session.setVisible(data.show_workspace_tabs)
+                container = getattr(ui, "workspace_tabs_bar", None)
+                if container is not None:
+                    container.setVisible(data.show_workspace_tabs)
+
+        if data.use_custom_decorations != getattr(
+            self.store.settings, "use_custom_decorations", True
+        ):
+            self.store.settings.use_custom_decorations = data.use_custom_decorations
+            self._save_setting("use_custom_decorations", data.use_custom_decorations)
+            window_shell = (
+                self.main_controller.window_shell if self.main_controller else None
+            )
+            window = getattr(window_shell, "main_window_app", None)
+            if window is not None and hasattr(window, "apply_decoration_mode"):
+                window.apply_decoration_mode(data.use_custom_decorations)
 
         return render_update_needed
 
@@ -137,56 +142,6 @@ class SettingsApplicationService(QObject):
             self.main_controller.event_bus.emit(
                 SettingsChangeLanguageEvent(data.language)
             )
-
-    def _apply_ui_scale_settings(self, data: SettingsDialogData) -> None:
-        new_factor = float(getattr(data, "ui_scale_factor", 1.0) or 1.0)
-        current = float(
-            getattr(self.store.settings, "ui_scale_factor", 1.0) or 1.0
-        )
-        if abs(new_factor - current) < 1e-9:
-            return
-
-        dispatcher = self.store.get_dispatcher()
-        dispatcher.dispatch(SetUIScaleFactorAction(new_factor))
-
-        from sli_ui_toolkit.managers import UiFont, UiScale, ThemeManager
-
-        app = QApplication.instance()
-        # Atomic one-pass apply, same as the theme change: freeze top-level
-        # paints across the whole scale fan-out (UiScale.scale_changed
-        # handlers, the QSS re-push, font re-apply) and flush the deferred
-        # layout resyncs synchronously while frozen — otherwise the
-        # singleShot(0)-deferred relayouts (title-bar balance, tab-strip
-        # reflow) paint intermediate stale frames and the UI visibly
-        # "transforms in steps" instead of one pass.
-        with ThemeManager.get_instance().suspend_widget_updates(app):
-            UiScale.get_instance().set_factor(new_factor)
-
-            # Order matters (trap §2.7.1): the QSS push below resets
-            # WA_SetFont-pinned fonts WITHOUT firing ApplicationFontChange, and
-            # FontManager's app.setFont() re-cascade is a no-op event-wise here
-            # (the app font itself never changes with the factor, so Qt does not
-            # emit ApplicationFontChange for an identical font). Therefore the
-            # guaranteed font_changed must come AFTER both, or every Label /
-            # UiFont.apply() pin / HUD label ends up stuck on the reset default
-            # size.
-            if app is not None:
-                try:
-                    reapply_application_theme(app)
-                except Exception:
-                    logging.getLogger("ImproveImgSLI").warning(
-                        "reapply_application_theme failed during UI-scale apply",
-                        exc_info=True,
-                    )
-            try:
-                FontManager.get_instance().apply_from_state(self.store)
-            except Exception:
-                logging.getLogger("ImproveImgSLI").warning(
-                    "font re-apply failed during UI-scale apply",
-                    exc_info=True,
-                )
-            UiFont.get_instance().sync_from_application()
-            _flush_deferred_scale_resyncs(app)
 
     def _apply_ui_font_settings(self, data: SettingsDialogData) -> None:
         font_mode_normalized = (
@@ -211,6 +166,9 @@ class SettingsApplicationService(QObject):
         if app is not None:
             refresh_application_styles(app)
 
+        self._save_setting("ui_font_mode", font_mode_normalized)
+        self._save_setting("ui_font_family", data.ui_font_family or "")
+
         window_shell = self.main_controller.window_shell if self.main_controller else None
         if window_shell is not None:
             try:
@@ -220,10 +178,7 @@ class SettingsApplicationService(QObject):
                         font_manager.get_font_path_for_image_text(self.store)
                     )
             except Exception:
-                logging.getLogger("ImproveImgSLI").warning(
-                    "font_path_absolute sync failed after font change",
-                    exc_info=True,
-                )
+                pass
 
     def _apply_viewport_interactive_settings(
         self, data: SettingsDialogData, render_update_needed: bool
@@ -248,11 +203,7 @@ class SettingsApplicationService(QObject):
             self.store,
             data,
             render_update_needed,
-            # Tab viewport apply used to write its own keys incrementally;
-            # it now only needs to schedule the full snapshot (the store was
-            # already mutated via dispatches) — same single-funnel rule as
-            # the rest of the apply path.
-            lambda _key, _value: self._schedule_persist(),
+            self._save_setting,
             self._emit_update_requested,
             self.event_bus,
         )
@@ -276,6 +227,10 @@ class SettingsApplicationService(QObject):
             scope="viewport",
         )
         self.store.emit_state_change("viewport")
+        self._save_setting(
+            "zoom_interpolation_method",
+            data.zoom_interpolation_method,
+        )
         self._emit_update_requested()
         return True
 
@@ -287,44 +242,11 @@ class SettingsApplicationService(QObject):
             != data.auto_crop_black_borders
         ):
             dispatcher.dispatch(SetAutoCropBlackBordersAction(data.auto_crop_black_borders))
-            # Инвалидируем явные кэши всех CropService (DI, без глобала)
-            try:
-                from shared.image_processing.autocrop import invalidate_all_services
-
-                invalidate_all_services()
-            except Exception:
-                pass
-            # NB: сессионные crop-дефолты (ImageSession/Cache) синхронизирует
-            # сам таб в _on_store_scoped_change — хосту запрещён импорт
-            # внутренностей таба (contract test_ui_tab_sandbox).
-            # Совместимость: старый глобальный кэш (если ещё жив)
-            try:
-                from shared.image_processing.autocrop_service import invalidate_all as _legacy_inv
-
-                _legacy_inv()
-            except Exception:
-                pass
-            # Apply-to-loaded (W5): the toggle must also re-decode images
-            # that are already in the pipeline tiers — cache keys are
-            # box-less, so without eviction stale crop verdicts persist.
-            # Evict via the existing core pipeline action (Store-native
-            # dispatch; the tab's PipelineCacheReducer owns the pixel/
-            # preview tiers), then mirror the zoom-interpolation branch:
-            # viewport emit + update request retriggers the natural reload
-            # path (no hand re-decode).
-            # NOTE: per-path EvictPipelineAction is tab-internal and the
-            # host may not import tabs.* (test_ui_does_not_import_tab_internals),
-            # so the global toggle evicts all pipeline tiers — every loaded
-            # path is affected by a global toggle anyway.
-            try:
-                dispatcher.dispatch(ClearAllCachesAction(), scope="pipeline")
-            except Exception:
-                pass
-            self.store.emit_state_change("viewport")
-            self._emit_update_requested()
+            self._save_setting("auto_crop_black_borders", data.auto_crop_black_borders)
 
         if getattr(self.store.settings, "ui_mode", "beginner") != data.ui_mode:
             dispatcher.dispatch(SetUIModeAction(data.ui_mode))
+            self._save_setting("ui_mode", data.ui_mode)
             self._emit_ui_mode_changed(data.ui_mode)
 
         if (
@@ -332,64 +254,17 @@ class SettingsApplicationService(QObject):
             != data.video_recording_fps
         ):
             dispatcher.dispatch(SetVideoRecordingFpsAction(data.video_recording_fps))
+            self._save_setting("video_recording_fps", data.video_recording_fps)
 
         prev_backend = getattr(self.store.settings, "rhi_backend", "default") or "default"
         new_backend = (data.rhi_backend or "default").strip().lower()
         if new_backend != prev_backend:
             self.store.settings.rhi_backend = new_backend
+            self._save_setting("rhi_backend", new_backend)
             self._notify_render_backend_restart_required(new_backend)
 
-        self._apply_keyboard_overrides(data)
-
-    def _apply_keyboard_overrides(self, data: SettingsDialogData) -> None:
-        import json
-
-        from ui.actions.keymap import exclusive_overrides
-        from plugins.settings.pages.keyboard import _collect_defaults
-
-        defaults = _collect_defaults()
-        defaults_map = {
-            entry.action_id: (entry.default_shortcut, entry.owner_tab)
-            for entry in defaults.all_entries()
-        }
-        new_overrides = exclusive_overrides(
-            defaults_map,
-            dict(getattr(data, "keyboard_overrides", None) or {}),
-        )
-        current = dict(getattr(self.store.settings, "keyboard_overrides", None) or {})
-        if new_overrides == current:
-            return
-        dispatcher = self.store.get_dispatcher()
-        dispatcher.dispatch(SetKeyboardOverridesAction(new_overrides))
-        try:
-            from ui.actions.binder import resync_action_shortcuts
-
-            window_shell = (
-                self.main_controller.window_shell if self.main_controller else None
-            )
-            window = (
-                getattr(window_shell, "main_window_app", None)
-                if window_shell is not None
-                else None
-            )
-            if window is None:
-                window = getattr(self.parent(), "parent_widget", None)
-            resync_action_shortcuts(window, overrides=new_overrides)
-            # Keep CSD menu shortcut labels in sync with remapped chords.
-            menu = getattr(window, "_menu_controller", None) if window else None
-            rebuild = getattr(menu, "_on_language_changed", None) if menu else None
-            if callable(rebuild):
-                rebuild(getattr(self.store.settings, "current_language", "en"))
-        except Exception:
-            import logging
-
-            logging.getLogger("ImproveImgSLI").exception(
-                "Failed to resync action shortcuts after keyboard override apply"
-            )
-
     def _notify_render_backend_restart_required(self, backend: str) -> None:
-        from shared_toolkit.ui.message_dialog import AppMessageDialog
-
+        from PySide6.QtWidgets import QMessageBox
         window_shell = self.main_controller.window_shell if self.main_controller else None
         parent = getattr(window_shell, "main_window_app", None) if window_shell else None
         tr_lang = getattr(self.store.settings, "current_language", "en")
@@ -397,17 +272,10 @@ class SettingsApplicationService(QObject):
             from resources.translations import tr as app_tr
             title = app_tr("settings.render_backend_restart_title", tr_lang)
             text = app_tr("settings.render_backend_restart_message", tr_lang)
-            ok_text = app_tr("common.ok", tr_lang)
         except Exception:
             title = "Restart required"
             text = "The render backend will change after restart."
-            ok_text = "OK"
-        AppMessageDialog.information(
-            parent,
-            title,
-            text.format(backend=backend),
-            ok_text=ok_text,
-        )
+        QMessageBox.information(parent, title, text.format(backend=backend))
 
     def _emit_ui_mode_changed(self, ui_mode: str) -> None:
         if self.event_bus is not None:
@@ -420,43 +288,12 @@ class SettingsApplicationService(QObject):
                 SettingsUIModeChangedEvent(ui_mode)
             )
 
-    def _schedule_persist(self) -> None:
-        """Schedule the debounced full-snapshot save (single funnel).
-
-        The apply path never writes individual keys — the file is only ever
-        written as a coherent snapshot of the Store (see
-        ``SettingsManager.schedule_persist``), so a stale dialog widget
-        cannot silently overwrite good values with its defaults.
-        """
+    def _save_setting(self, key, value) -> None:
         if (
             self.main_controller is not None
             and self.main_controller.settings_manager is not None
         ):
-            self.main_controller.settings_manager.schedule_persist(self.store)
-
-    def _resolve_main_window(self):
-        window_shell = (
-            self.main_controller.window_shell if self.main_controller else None
-        )
-        window = (
-            getattr(window_shell, "main_window_app", None)
-            if window_shell is not None
-            else None
-        )
-        if window is None:
-            parent = self.parent()
-            window = getattr(parent, "parent_widget", None) if parent is not None else None
-        return window
-
-    def _sync_notification_service_enabled(self) -> None:
-        window = self._resolve_main_window()
-        service = getattr(window, "notification_service", None) if window else None
-        if service is None:
-            return
-        enabled = bool(
-            getattr(self.store.settings, "system_notifications_enabled", True)
-        )
-        service.set_enabled(enabled)
+            self.main_controller.settings_manager._save_setting(key, value)
 
     def _emit_update_requested(self) -> None:
         if self.main_controller is not None:

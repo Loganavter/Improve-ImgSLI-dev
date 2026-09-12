@@ -11,9 +11,9 @@ class SettingsDialogData:
     max_name_length: int
     debug_enabled: bool
     system_notifications_enabled: bool
+    resolution_limit: int
     ui_font_mode: str
     ui_font_family: str
-    ui_scale_factor: float
     optimize_magnifier_movement: bool
     magnifier_interpolation_method: str
     optimize_laser_smoothing: bool
@@ -26,8 +26,9 @@ class SettingsDialogData:
     auto_crop_black_borders: bool
     ui_mode: str
     video_recording_fps: int
+    show_workspace_tabs: bool = True
     rhi_backend: str = "default"
-    keyboard_overrides: dict[str, str] = field(default_factory=dict)
+    use_custom_decorations: bool = True
     tab_extras: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def get_section(self, section_id: str) -> dict[str, Any]:

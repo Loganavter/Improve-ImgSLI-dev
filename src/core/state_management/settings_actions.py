@@ -1,11 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from core.state_management.action_base import Action, ActionType
 
 @dataclass
 class SetLanguageAction(Action):
     language: str
-    type: str = field(default=ActionType.SET_LANGUAGE.value, kw_only=True)
+    def __init__(self, language: str):
+        super().__init__(type=ActionType.SET_LANGUAGE); self.language = language
     def get_payload(self): return {"language": self.language}
 
 @dataclass
@@ -44,14 +45,6 @@ class SetUIFontFamilyAction(Action):
     def get_payload(self): return {"family": self.family}
 
 @dataclass
-class SetUIScaleFactorAction(Action):
-    factor: float
-    def __init__(self, factor: float):
-        super().__init__(type=ActionType.SET_UI_SCALE_FACTOR)
-        self.factor = float(factor)
-    def get_payload(self): return {"factor": self.factor}
-
-@dataclass
 class SetDebugModeEnabledAction(Action):
     enabled: bool
     def __init__(self, enabled: bool):
@@ -71,6 +64,13 @@ class SetVideoRecordingFpsAction(Action):
     def __init__(self, fps: int):
         super().__init__(type=ActionType.SET_VIDEO_RECORDING_FPS); self.fps = fps
     def get_payload(self): return {"fps": self.fps}
+
+@dataclass
+class SetShowWorkspaceTabsAction(Action):
+    enabled: bool
+    def __init__(self, enabled: bool):
+        super().__init__(type=ActionType.SET_SHOW_WORKSPACE_TABS); self.enabled = enabled
+    def get_payload(self): return {"enabled": self.enabled}
 
 @dataclass
 class SetWindowWasMaximizedAction(Action):
@@ -96,11 +96,3 @@ class SetExportFavoriteDirAction(Action):
     def __init__(self, path: str):
         super().__init__(type=ActionType.SET_EXPORT_FAVORITE_DIR); self.path = path
     def get_payload(self): return {"path": self.path}
-
-@dataclass
-class SetKeyboardOverridesAction(Action):
-    overrides: dict[str, str]
-    def __init__(self, overrides: dict[str, str]):
-        super().__init__(type=ActionType.SET_KEYBOARD_OVERRIDES)
-        self.overrides = dict(overrides)
-    def get_payload(self): return {"overrides": dict(self.overrides)}

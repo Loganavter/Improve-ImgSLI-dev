@@ -10,11 +10,6 @@ source image, ``(left, top, right, bottom)`` — matching ``mag.frag``'s
 Kept free of Qt/QRhi so it can be unit tested without a GPU: callers pass in
 plain data (grid geometry, a ``tile_key`` function, a ``visible_tiles``
 callback) rather than live renderer objects.
-
-File-Size-Exempt: one cohesive pure-geometry pipeline (tc-range math ->
-tile slicing -> dual-source pairing -> per-record array-layer resolution);
-splitting would scatter tightly-coupled helper functions across files for
-no cohesion gain.
 """
 
 from __future__ import annotations
@@ -50,10 +45,6 @@ def remap_slice_uv_to_tc(slice_: dict, tc_x: tuple, tc_y: tuple) -> tuple:
     (by construction of ``tile_uv_slices``), so a narrower ``tc_x``/``tc_y``
     (a subset of the slice's own range) maps to a narrower uv_rect via linear
     interpolation — no need to re-derive tile geometry.
-
-    The result is still endpoint-relative to ``tc_x``/``tc_y`` (not absolute
-    disk ``TexCoord``). Pass it through ``expand_uv_rect_to_absolute_tc``
-    before uploading as ``uvRect1``/``uvRect2`` for ``mag.frag``.
     """
     left, top, right, bottom = slice_["uv_rect"]
     stx0, stx1 = slice_["tc_x"]
@@ -68,39 +59,6 @@ def remap_slice_uv_to_tc(slice_: dict, tc_x: tuple, tc_y: tuple) -> tuple:
         _lerp(left, right, fx1),
         _lerp(top, bottom, fy1),
     )
-
-
-def expand_uv_rect_to_absolute_tc(
-    uv_rect: tuple, tc_x: tuple, tc_y: tuple
-) -> tuple:
-    """Expand an endpoint-relative uv_rect so ``mix(uv, absolute_tc)`` is correct.
-
-    ``mag.frag`` samples with disk-absolute ``TexCoord`` in ``[0, 1]`` while
-    scissor limits which fragments run. ``uv_rect`` from ``tile_uv_slices``
-    (and from ``remap_slice_uv_to_tc``) describes samples only at the
-    endpoints of ``tc_x``/``tc_y``. Extrapolate to the full ``[0, 1]`` domain
-    so fragments inside that scissor window hit the right texels.
-
-    Identity when ``tc`` is already ``(0, 1)`` on both axes.
-    """
-    left, top, right, bottom = uv_rect
-    tx0, tx1 = tc_x
-    ty0, ty1 = tc_y
-    dx = tx1 - tx0
-    dy = ty1 - ty0
-    if abs(dx) <= 1e-12:
-        u0 = u1 = left
-    else:
-        span_u = (right - left) / dx
-        u0 = left - span_u * tx0
-        u1 = u0 + span_u
-    if abs(dy) <= 1e-12:
-        v0 = v1 = top
-    else:
-        span_v = (bottom - top) / dy
-        v0 = top - span_v * ty0
-        v1 = v0 + span_v
-    return (u0, v0, u1, v1)
 
 
 def restrict_tc_axis(tc_x: tuple, tc_y: tuple, axis: str, lo: float, hi: float):
@@ -136,27 +94,18 @@ def tile_uv_slices(
 ) -> list:
     """Slice ``uv_rect`` (full-image 0..1 fraction) against a source's tile grid.
 
-    Returns a list of ``{"tile_key", "tile_index", "uv_rect" (tile-local
-    0..1), "tc_x", "tc_y"}``. ``tile_index`` is the ``(row, col)`` this slice
-    came from (``(0, 0)`` for the passthrough/untiled case) -- callers that
-    need the tile's texture-array slot/content-scale (``MagnifierPass``'s
-    ``_source_slices``) look those up from ``tile_index``, since every grid
-    (including a still-1x1 one) uploads through the shared array pipeline
-    (see docs/dev/rendering/tile-array-atlas-plan.md). A ``None``/1x1 grid
-    (source not tiled) yields a single passthrough slice covering the whole
-    ``uv_rect`` unchanged, so callers don't need a separate non-tiled code
-    path.
+    Returns a list of ``{"tile_key", "uv_rect" (tile-local 0..1), "tc_x", "tc_y"}``.
+    A ``None``/1x1 grid (source not tiled) yields a single passthrough slice
+    covering the whole ``uv_rect`` unchanged, so callers don't need a separate
+    non-tiled code path.
     """
     if grid is None or (grid.rows == 1 and grid.columns == 1):
         return [
             {
                 "tile_key": source_key,
-                "tile_index": (0, 0),
                 "uv_rect": tuple(uv_rect),
                 "tc_x": (0.0, 1.0),
                 "tc_y": (0.0, 1.0),
-                "core_tc_x": (0.0, 1.0),
-                "core_tc_y": (0.0, 1.0),
             }
         ]
 
@@ -181,22 +130,6 @@ def tile_uv_slices(
         tcy = uv_segment_to_tc_range(top, bottom, tile_top / total_h, tile_bottom / total_h)
         if tcx is None or tcy is None:
             continue
-        # Scissor uses the tile's *exact* (apron-free) footprint so adjacent
-        # tiles' on-screen clip rects don't overlap -- ``tcx``/``tcy`` above
-        # (apron-inclusive) are only for UV sampling continuity at edges.
-        # Under magnifier zoom, a 1px image-space apron overlap becomes a
-        # multi-pixel band where two tiles' scissors both draw, producing
-        # visible tile-riding/ghosting as the capture pans. Falls back to
-        # the apron tc when the capture window only clips this tile's apron
-        # sliver (core doesn't overlap uv_rect) to avoid a scissor gap.
-        core_tcx = uv_segment_to_tc_range(
-            left, right, region.left / total_w, region.right / total_w
-        )
-        core_tcy = uv_segment_to_tc_range(
-            top, bottom, region.top / total_h, region.bottom / total_h
-        )
-        if core_tcx is None or core_tcy is None:
-            core_tcx, core_tcy = tcx, tcy
         sub_left = left + tcx[0] * (right - left)
         sub_right = left + tcx[1] * (right - left)
         sub_top = top + tcy[0] * (bottom - top)
@@ -212,12 +145,9 @@ def tile_uv_slices(
         slices.append(
             {
                 "tile_key": tile_key_fn(source_key, row, col),
-                "tile_index": (row, col),
                 "uv_rect": (local_l, local_t, local_r, local_b),
                 "tc_x": tcx,
                 "tc_y": tcy,
-                "core_tc_x": core_tcx,
-                "core_tc_y": core_tcy,
             }
         )
     return slices
@@ -239,31 +169,14 @@ def dual_source_tile_pairs(slices1: list, slices2: list) -> list:
             if tc is None:
                 continue
             tc_x, tc_y = tc
-            core_tc = intersect_tc_rects(
-                s1.get("core_tc_x", s1["tc_x"]),
-                s1.get("core_tc_y", s1["tc_y"]),
-                s2.get("core_tc_x", s2["tc_x"]),
-                s2.get("core_tc_y", s2["tc_y"]),
-            )
-            core_tc_x, core_tc_y = core_tc if core_tc is not None else (tc_x, tc_y)
             pairs.append(
                 {
                     "tile_key1": s1["tile_key"],
                     "tile_key2": s2["tile_key"],
-                    "layer1": s1.get("layer", 0),
-                    "scale1": s1.get("content_scale", (1.0, 1.0)),
-                    "layer2": s2.get("layer", 0),
-                    "scale2": s2.get("content_scale", (1.0, 1.0)),
-                    "uv_rect1": expand_uv_rect_to_absolute_tc(
-                        remap_slice_uv_to_tc(s1, tc_x, tc_y), tc_x, tc_y
-                    ),
-                    "uv_rect2": expand_uv_rect_to_absolute_tc(
-                        remap_slice_uv_to_tc(s2, tc_x, tc_y), tc_x, tc_y
-                    ),
+                    "uv_rect1": remap_slice_uv_to_tc(s1, tc_x, tc_y),
+                    "uv_rect2": remap_slice_uv_to_tc(s2, tc_x, tc_y),
                     "tc_x": tc_x,
                     "tc_y": tc_y,
-                    "core_tc_x": core_tc_x,
-                    "core_tc_y": core_tc_y,
                 }
             )
     return pairs
@@ -274,15 +187,14 @@ def tc_rect_to_widget_px(
 ) -> tuple:
     """Map a tc sub-rect to a widget-px screen rect for scissor clipping.
 
-    Mirrors ``mag.vert``'s vertex mapping (``y = mix(quadBounds.y, quadBounds.w,
-    1 - tc.y)`` with ``quadBounds.y``/``.w`` the bottom/top NDC edges): both axes
-    are direct affine maps of ``tc``, so increasing ``tc.y`` moves toward the
-    screen bottom, same as increasing ``tc.x`` moves toward the right.
+    Mirrors ``mag.vert``'s vertex mapping: ``x`` is a direct affine map of
+    ``tc.x``, but ``y`` is inverted (``y = mix(quadBounds.y, quadBounds.w, 1 - tc.y)``),
+    so increasing ``tc.y`` moves toward the screen top.
     """
     x0 = cx_px - content_radius + tc_x[0] * (2.0 * content_radius)
     x1 = cx_px - content_radius + tc_x[1] * (2.0 * content_radius)
-    y_at_tc0 = cy_px - content_radius + tc_y[0] * (2.0 * content_radius)
-    y_at_tc1 = cy_px - content_radius + tc_y[1] * (2.0 * content_radius)
+    y_at_tc0 = cy_px + content_radius - tc_y[0] * (2.0 * content_radius)
+    y_at_tc1 = cy_px + content_radius - tc_y[1] * (2.0 * content_radius)
     y0, y1 = (y_at_tc0, y_at_tc1) if y_at_tc0 <= y_at_tc1 else (y_at_tc1, y_at_tc0)
     return x0, y0, max(0.0, x1 - x0), max(0.0, y1 - y0)
 
@@ -323,93 +235,31 @@ def build_tile_records(
     ``source_slices_fn(source_key, uv_rect) -> list[slice]`` is the only
     renderer-dependent hook (calls into ``TileTextureService``); everything
     else here is pure. Each returned record has ``tc_x``, ``tc_y``,
-    ``uv_rect1``, ``uv_rect2``, and one of ``tex1``/``tex2``/``texd``
-    (each a ``{"key", "layer", "scale"}`` dict, or ``None`` if unused by
-    the shader for that record's sampling branch) identifying the
-    texture-array tile to bind (``mag.frag`` samples one shared
-    ``sampler2DArray``, addressed per role by ``layer``, with ``uv_rect``
-    scaled by ``scale`` to land inside that layer's unresampled content
-    corner -- see ``MagnifierPass._source_slices``).
+    ``uv_rect1``, ``uv_rect2``, and one of ``tex1_key``/``tex2_key``/``texd_key``
+    set to the tile to bind (others ``None`` — unused by the shader for that
+    record's sampling branch, left as the caller's placeholder).
     """
-    _NO_TEX = {"key": None, "layer": 0, "scale": (1.0, 1.0)}
-
-    def _tex_from_slice(sl: dict) -> dict:
-        return {
-            "key": sl["tile_key"],
-            "layer": sl.get("layer", 0),
-            "scale": sl.get("content_scale", (1.0, 1.0)),
-        }
-
     if combined:
-        slices1 = list(source_slices_fn(tex_key_1, uv_rect1))
-        slices2 = list(source_slices_fn(tex_key_2, uv_rect2))
-        # Common case: each source is a single full-disk slice (untiled or
-        # capture fits in one tile). Draw once with both textures bound and
-        # let ``mag.frag`` pick the side via ``internalSplit`` — same UV
-        # mapping as split lenses. Half-scissor draws are only needed when
-        # a capture spans multiple tiles (different binds per sub-rect).
-        if (
-            len(slices1) == 1
-            and len(slices2) == 1
-            and is_full_tc(slices1[0]["tc_x"], slices1[0]["tc_y"])
-            and is_full_tc(slices2[0]["tc_x"], slices2[0]["tc_y"])
-        ):
-            return [
-                {
-                    "tc_x": _FULL_TC[0],
-                    "tc_y": _FULL_TC[1],
-                    "core_tc_x": _FULL_TC[0],
-                    "core_tc_y": _FULL_TC[1],
-                    "uv_rect1": expand_uv_rect_to_absolute_tc(
-                        slices1[0]["uv_rect"],
-                        slices1[0]["tc_x"],
-                        slices1[0]["tc_y"],
-                    ),
-                    "uv_rect2": expand_uv_rect_to_absolute_tc(
-                        slices2[0]["uv_rect"],
-                        slices2[0]["tc_x"],
-                        slices2[0]["tc_y"],
-                    ),
-                    "tex1": _tex_from_slice(slices1[0]),
-                    "tex2": _tex_from_slice(slices2[0]),
-                    "texd": None,
-                }
-            ]
-
         axis = "y" if comb_horizontal else "x"
         records = []
-        for half_is_source0, slices, split_lo, split_hi in (
-            (True, slices1, 0.0, internal_split),
-            (False, slices2, internal_split, 1.0),
+        for half_is_source0, uv_rect, tex_key, split_lo, split_hi in (
+            (True, uv_rect1, tex_key_1, 0.0, internal_split),
+            (False, uv_rect2, tex_key_2, internal_split, 1.0),
         ):
-            for sl in slices:
-                restricted = restrict_tc_axis(
-                    sl["tc_x"], sl["tc_y"], axis, split_lo, split_hi
-                )
+            for sl in source_slices_fn(tex_key, uv_rect):
+                restricted = restrict_tc_axis(sl["tc_x"], sl["tc_y"], axis, split_lo, split_hi)
                 if restricted is None:
                     continue
                 tc_x, tc_y = restricted
-                core_restricted = restrict_tc_axis(
-                    sl["core_tc_x"], sl["core_tc_y"], axis, split_lo, split_hi
-                )
-                core_tc_x, core_tc_y = (
-                    core_restricted if core_restricted is not None else (tc_x, tc_y)
-                )
-                # Half spit is scissor-only. Keep UV in absolute disk TexCoord
-                # form (same as split lenses); do not remap UV into the half.
-                uv = expand_uv_rect_to_absolute_tc(
-                    sl["uv_rect"], sl["tc_x"], sl["tc_y"]
-                )
+                uv = remap_slice_uv_to_tc(sl, tc_x, tc_y)
                 rec = {
                     "tc_x": tc_x,
                     "tc_y": tc_y,
-                    "core_tc_x": core_tc_x,
-                    "core_tc_y": core_tc_y,
                     "uv_rect1": uv if half_is_source0 else uv_rect1,
                     "uv_rect2": uv_rect2 if half_is_source0 else uv,
-                    "tex1": _tex_from_slice(sl) if half_is_source0 else _NO_TEX,
-                    "tex2": _NO_TEX if half_is_source0 else _tex_from_slice(sl),
-                    "texd": None,
+                    "tex1_key": sl["tile_key"] if half_is_source0 else None,
+                    "tex2_key": None if half_is_source0 else sl["tile_key"],
+                    "texd_key": None,
                 }
                 records.append(rec)
         return records
@@ -421,13 +271,11 @@ def build_tile_records(
             {
                 "tc_x": pair["tc_x"],
                 "tc_y": pair["tc_y"],
-                "core_tc_x": pair["core_tc_x"],
-                "core_tc_y": pair["core_tc_y"],
                 "uv_rect1": pair["uv_rect1"],
                 "uv_rect2": pair["uv_rect2"],
-                "tex1": {"key": pair["tile_key1"], "layer": pair["layer1"], "scale": pair["scale1"]},
-                "tex2": {"key": pair["tile_key2"], "layer": pair["layer2"], "scale": pair["scale2"]},
-                "texd": None,
+                "tex1_key": pair["tile_key1"],
+                "tex2_key": pair["tile_key2"],
+                "texd_key": None,
             }
             for pair in dual_source_tile_pairs(slices1, slices2)
         ]
@@ -435,32 +283,27 @@ def build_tile_records(
     if source_mode == 2:
         active_key = tex_key_1 if diff_mode == 3 else diff_key
         active_uv = uv_rect1
-        slot = "tex1" if diff_mode == 3 else "texd"
+        slot = "tex1_key" if diff_mode == 3 else "texd_key"
     elif source_mode == 1:
-        active_key, active_uv, slot = tex_key_2, uv_rect2, "tex2"
+        active_key, active_uv, slot = tex_key_2, uv_rect2, "tex2_key"
     else:
-        active_key, active_uv, slot = tex_key_1, uv_rect1, "tex1"
+        active_key, active_uv, slot = tex_key_1, uv_rect1, "tex1_key"
 
     records = []
     for sl in source_slices_fn(active_key, active_uv):
-        abs_uv = expand_uv_rect_to_absolute_tc(
-            sl["uv_rect"], sl["tc_x"], sl["tc_y"]
-        )
         rec = {
             "tc_x": sl["tc_x"],
             "tc_y": sl["tc_y"],
-            "core_tc_x": sl["core_tc_x"],
-            "core_tc_y": sl["core_tc_y"],
             "uv_rect1": uv_rect1,
             "uv_rect2": uv_rect2,
-            "tex1": _NO_TEX,
-            "tex2": _NO_TEX,
-            "texd": None,
+            "tex1_key": None,
+            "tex2_key": None,
+            "texd_key": None,
         }
-        if slot in ("tex1", "texd"):
-            rec["uv_rect1"] = abs_uv
+        if slot in ("tex1_key", "texd_key"):
+            rec["uv_rect1"] = sl["uv_rect"]
         else:
-            rec["uv_rect2"] = abs_uv
-        rec[slot] = _tex_from_slice(sl)
+            rec["uv_rect2"] = sl["uv_rect"]
+        rec[slot] = sl["tile_key"]
         records.append(rec)
     return records

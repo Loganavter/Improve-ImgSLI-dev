@@ -1,18 +1,17 @@
 """Auto-decoration of top-level QDialog/QMessageBox.
 
-Every ad-hoc dialog (including ``QMessageBox.warning`` and friends) must end
-up with a CustomTitleBar via the shared ``decorate_dialog`` wrapper —
-otherwise error popups slip through with the OS native frame. The
-auto-installer hooks ``QEvent.Type.Polish`` which fires before the window is
-mapped onto the screen. Client-side decorations are always enabled.
+If the user opts into custom decorations, every ad-hoc dialog (including
+``QMessageBox.warning`` and friends) must end up with a CustomTitleBar via
+the shared ``decorate_dialog`` wrapper — otherwise error popups slip through
+with the OS native frame. The auto-installer hooks ``QEvent.Type.Polish``
+which fires before the window is mapped onto the screen.
 """
 
 from __future__ import annotations
 
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-
-from tests.helpers.drain_until_stable import drain_until_stable
 
 from shared_toolkit.ui.decorate_dialog import (
     CUSTOM_DECORATION_RESIZE_MARGIN,
@@ -27,7 +26,25 @@ def qapp():
     yield app
 
 
-def test_qmessagebox_gets_auto_decorated(qapp):
+@pytest.fixture
+def custom_decorations_enabled():
+    qs = QSettings("improve-imgsli", "improve-imgsli")
+    prev = (
+        qs.value("use_custom_decorations")
+        if qs.contains("use_custom_decorations")
+        else None
+    )
+    qs.setValue("use_custom_decorations", "true")
+    qs.sync()
+    yield
+    if prev is None:
+        qs.remove("use_custom_decorations")
+    else:
+        qs.setValue("use_custom_decorations", prev)
+    qs.sync()
+
+
+def test_qmessagebox_gets_auto_decorated(qapp, custom_decorations_enabled):
     install_application_dialog_decorations(qapp)
 
     box = QMessageBox()
@@ -35,30 +52,22 @@ def test_qmessagebox_gets_auto_decorated(qapp):
     box.setWindowTitle("oops")
 
     box.ensurePolished()
-    drain_until_stable(
-        qapp,
-        lambda: getattr(box, "_csd_title_bar", None),
-        timeout_ms=1000,
-        stable_frames=2,
-    )
+    QApplication.processEvents()
 
     title_bar = getattr(box, "_csd_title_bar", None)
-    assert title_bar is not None, "QMessageBox must be auto-decorated"
+    assert (
+        title_bar is not None
+    ), "QMessageBox must be auto-decorated when custom decorations are enabled"
     box.deleteLater()
 
 
-def test_already_decorated_dialog_skipped(qapp):
+def test_already_decorated_dialog_skipped(qapp, custom_decorations_enabled):
     install_application_dialog_decorations(qapp)
 
     dlg = QDialog()
     dlg._csd_title_bar = "sentinel"
     dlg.ensurePolished()
-    drain_until_stable(
-        qapp,
-        lambda: getattr(dlg, "_csd_title_bar", None),
-        timeout_ms=1000,
-        stable_frames=2,
-    )
+    QApplication.processEvents()
 
     assert (
         dlg._csd_title_bar == "sentinel"
@@ -66,18 +75,13 @@ def test_already_decorated_dialog_skipped(qapp):
     dlg.deleteLater()
 
 
-def test_opt_out_dialog_skipped(qapp):
+def test_opt_out_dialog_skipped(qapp, custom_decorations_enabled):
     install_application_dialog_decorations(qapp)
 
     dlg = QDialog()
     dlg._csd_opt_out = True
     dlg.ensurePolished()
-    drain_until_stable(
-        qapp,
-        lambda: getattr(dlg, "_csd_title_bar", None),
-        timeout_ms=1000,
-        stable_frames=2,
-    )
+    QApplication.processEvents()
 
     assert getattr(dlg, "_csd_title_bar", None) is None
     dlg.deleteLater()

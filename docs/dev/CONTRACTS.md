@@ -2,19 +2,6 @@
 
 This document explains the 24+ contracts and protocols that define how different parts of the application communicate. Rather than listing every API, it focuses on *why* these contracts exist and how they solve specific architectural problems.
 
-## Three senses of “contract”
-
-The word **contract** is used consistently, but for three related ideas.
-`contract == interface` alone is incomplete.
-
-| Sense | Meaning | Where to read |
-|---|---|---|
-| **Interface** | Typed integration surface: implement these fields/methods to plug into the host (`TabContract`, `CanvasWidgetFeature`, `CanvasRenderPass`, …). | This page (why); field catalogs in [rendering/contracts.md](rendering/contracts.md), [tabs/contract.md](tabs/contract.md), [render-pass-contract.md](rendering/render-pass-contract.md) |
-| **Host call sequence** | Part of an interface: the host invokes methods in a fixed order (e.g. render pass `initialize` → `prepare` → `record` → `release`). Not a separate CI suite. | [render-pass-contract.md](rendering/render-pass-contract.md) |
-| **Architectural dogma** | Developer rules that keep isolation intact (“no direct feature imports in shared code”). Enforced by AST scans in CI — not a public API. | Design principles below; [TESTING.md](TESTING.md) (`tests/contracts/`) |
-
-This page is primarily about **interface** contracts and the isolation model behind them. Architectural dogmas appear here as principles; the executable checks live under `tests/contracts/`.
-
 ## The Big Picture
 
 The application uses **contract-based architecture** to solve a fundamental problem: how do you add visual features (magnifier, divider, guides) without scattering their logic across the renderer, state management, toolbar, settings, and export systems?
@@ -34,7 +21,7 @@ Each feature lives in **its own abstraction layer** — like a plugin in OpenFX.
 - Multiple coordinate systems (widget-px, canvas-px, image-px, screen-px)
 - Zoom, pan, rotation, or any viewport transformations
 - Raw Qt mouse/keyboard events
-- Texture uploads, buffer management, or QRhi context state
+- Texture uploads, buffer management, or GL context state
 - Serialization or deserialization details
 
 **What the feature receives from the core:**
@@ -69,7 +56,7 @@ Each feature lives in **its own abstraction layer** — like a plugin in OpenFX.
 ## Canvas Features (The Core Problem)
 
 Canvas features are tools like magnifier, divider, or guides that:
-1. Appear on the canvas (need scene objects and QRhi rendering)
+1. Appear on the canvas (need scene objects and GL rendering)
 2. React to interactions (need command handlers)
 3. Have editable properties (size, color, visibility)
 4. Appear in the toolbar and settings
@@ -130,16 +117,6 @@ Maps toolbar UI controls to feature command handlers.
 Declares: *"When button 'btn_magnifier_size' slider changes, call my size command with the value."*
 
 **Why separate**: Toolbar code doesn't know about features. Features declare their toolbar needs. The binding system wires them at runtime.
-
-### CanvasFeatureContextMenuZone
-
-A feature declares geometric territory where the host must not open a slot/image context menu.
-
-Declares: *"On my combined magnifier overlay, all host context menus go away — I own RMB there."*
-
-**How**: `WIDGET_FEATURE.build_context_menu_zones` → `CanvasFeatureContextMenuZone(zone_id, suppresses(ctx), priority)`. Shared canvas `contextMenuEvent` asks `is_context_menu_suppressed(ContextMenuHitContext)` before opening a menu. No feature literals in the canvas widget.
-
-**Why**: Same reason as gesture bindings — RMB routing for overlays must not hard-code magnifier (or future feature) hit geometry in shared canvas code.
 
 ### CanvasFeatureCommandAlias
 
@@ -227,11 +204,9 @@ Unions all feature requirements to get the final virtual canvas size.
 
 ## Canvas Widgets (The Rendering Backend Problem)
 
-Multiple renderers (QRhi, QPainter, export offscreen) need a common interface.
+Multiple renderers (GL, QPainter, export offscreen) need a common interface.
 
 ### BaseCanvasProtocol, GlLikeCanvasProtocol, ExportCanvasProtocol
-
-(`GlLikeCanvasProtocol` names the live QRhi canvas widget protocol.)
 
 Duck-typing protocols that let code call a canvas without knowing its concrete type.
 
@@ -257,109 +232,7 @@ Base protocol for all events. Lets code emit/listen to events without knowing co
 
 **Why**: Decoupling. Magnifier doesn't import video editor code. Video editor listens to magnifier events through the event bus.
 
-## Settings Persistence Contract (The Storage Problem)
-
-Every value a user can change in the UI (theme, UI scale, font mode, RHI
-backend, divider thickness, …) must reach the long-term config (QSettings)
-with an **explicitly declared type**, and the load/save surface must be a
-**full pass**: nothing saved without a typed load, nothing loaded without a
-save, nothing in the store that a reducer can mutate without a persistence
-path.
-
-Enforced by:
-
-- `tests/contracts/test_settings_persistence_contract.py` — static AST
-  dogmas (no runtime).
-- `tests/runtime/test_settings_full_pass.py` — behavioral full pass: every
-  typed setting survives `save_all_settings -> load_all_settings` as a
-  fixpoint, plus the out-of-band JSON blob and the bootstrap application of
-  persisted values to the process-wide singletons.
-- `src/tabs/image_compare/tests/plugins/test_settings_full_pass.py` — the
-  canvas-feature half of the sweep (every property with a `setting_key`
-  roundtrips `serialize -> write -> read -> deserialize` as a fixpoint).
-
-The scanners that define the surface live in
-`tests/contracts/_framework.py` (`settings_load_pairs`,
-`settings_save_keys`, `settings_incremental_save_keys`,
-`store_settings_field_names`) and are shared by the contract and the
-runtime sweep so they cannot drift apart.
-
-### Dogma 1 — Explicit types
-
-Every load in `SettingsManager.load_all_settings` calls
-`_get_setting(key, default, TYPE)` where `TYPE` is a literal
-`str | int | float | bool`. A missing type is an implicit, guessed-format
-roundtrip.
-
-### Dogma 2 — Full-pass pairing
-
-The keys loaded in `load_all_settings` are exactly the keys saved in
-`save_all_settings` (both directions). A setting that is only saved
-incrementally (or only loaded) drifts or resets between sessions.
-
-### Dogma 3 — Store coverage and the explicit transient/persistent manifests
-
-Every field of `SettingsState` (the only state a settings control can
-mutate through reducers) must be persisted — with one of three explicit
-declarations, nothing falls through implicitly:
-
-1. **Scalar pass** — typed `_get_setting` + `_save_setting` in
-   `SettingsManager` (the normal case).
-2. **Out-of-band blob** — a dedicated `_load_<name>` / `_save_<name>`
-   helper pair wired into both master passes. Current manifest:
-   - `keyboard_overrides` — `action_id -> chord` map, saved as JSON.
-3. **Explicitly transient** — declared in `TRANSIENT_STORE_SETTINGS` in
-   `tests/contracts/_framework.py` **with a reason**, because the value is
-   session-scoped by design. Current manifest:
-   - `export_resolution_scale` — per-export resolution scale, recomputed
-     from the export dialog for each export; not a user preference.
-
-Adding a store field without wiring one of these three paths fails the
-contract — this is the "no implicit controls" guarantee: a control that
-changes a value it never persists is structurally impossible.
-
-### Dogma 4 — Apply path uses a single full-snapshot writer
-
-The settings file is only ever written as a **coherent snapshot of the
-Store**: `SettingsApplicationService.apply()` mutates the store via
-`Set*Action` dispatches and ends by calling `_schedule_persist()`, which
-debounces a full `save_all_settings(store)` (typed loads ⇄ full save stay
-paired — see the persistence-contract tests). **No apply-path method may
-call the incremental `_save_setting`**: a partial write derived from
-dialog-widget state can silently overwrite good values with the widget's
-defaults (observed reset: `ui_mode` → beginner, `ui_scale_factor` → widget
-default, `rhi_backend` → default, written on a settings OK with no log).
-The low-level `_save_setting` remains only for direct single-key writers
-outside the apply path (video-editor dirs/favorites, first-run flag) whose
-value is simultaneously stored in the Store. Full mechanics and a
-troubleshooting guide: [SETTINGS_PERSISTENCE.md](SETTINGS_PERSISTENCE.md).
-
-### Dogma 5 — Mutation service requires a key
-
-Every call site of `set_viewport_value` / `set_settings_value` /
-`set_viewport_color` must pass an explicit `setting_key`. A mutation
-without one changes state that never reaches the config.
-
-### Dogma 6 — Canvas-feature properties
-
-Every canvas-feature property declaring a `setting_key` declares its kind
-(`bool` / `scalar` / `color` / `enum`) and must be a
-save->load fixpoint: the raw value written into QSettings comes back out
-unchanged, for defaults and mutations alike. A drift means the declared
-kind does not match the real serializer format.
-
-**Range discipline**: values a control can produce must survive the full
-pass. When a load path clamps (e.g. `text_alpha_percent` — the font flyout
-opacity slider and the feature property both clamp to `5..100`), the
-saving side must clamp to the same range so save->load is a fixpoint;
-`tests/runtime/test_settings_full_pass.py` keeps an explicit
-`_RANGE_SAFE_VALUES` manifest for such fields.
-
 ## Design Principles Behind These Contracts
-
-These are the **architectural** sense of contract — isolation rules that
-interface registration alone does not enforce. CI encodes many of them as
-AST dogmas in `tests/contracts/` (see [TESTING.md](TESTING.md)).
 
 1. **No direct imports of features in shared code** — Use contracts/aliases instead
 2. **Auto-discovery** — Features register, subsystems discover them
@@ -369,10 +242,6 @@ AST dogmas in `tests/contracts/` (see [TESTING.md](TESTING.md)).
 
 ## Related Documentation
 
-- [rendering/index.md](rendering/index.md) — Detailed guide to adding new canvas features
+- [QRHI_CANVAS_FEATURES.md](QRHI_CANVAS_FEATURES.md) — Detailed guide to adding new canvas features
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Overall app architecture
-- [tabs/index.md](tabs/index.md) · [tabs/contract.md](tabs/contract.md) — workspace tabs / `TabContract`
-- [rendering/contracts.md](rendering/contracts.md) — canvas feature field catalog
-- [rendering/render-pass-contract.md](rendering/render-pass-contract.md) — QRhi pass lifecycle
-- [TESTING.md](TESTING.md) — architectural AST dogmas vs behavior tests
-- [CAPABILITY_ALIASES.md](CAPABILITY_ALIASES.md) — command/property aliases without direct imports
+- [TAB_CONTRACT.md](TAB_CONTRACT.md) — Tab system details

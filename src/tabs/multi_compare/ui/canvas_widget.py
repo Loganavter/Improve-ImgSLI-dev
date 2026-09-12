@@ -1,109 +1,72 @@
-"""Canvas host widget for the multi-compare scene.
-
-Input chrome lives in ``canvas/interaction.py``; drop/hit projection in
-``ui/drop_targets.py`` and ``ui/hit_projection.py``. Feature gestures stay
-under ``canvas/features/*/input/``.
-Audit-Meta: pattern=thin-owner reason="Canvas widget thin owner — delegates to interaction/render_context/features"
-"""
+"""Canvas host widget for the multi-compare scene."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QContextMenuEvent, QMouseEvent, QPalette, QWheelEvent
+import numpy as np
+from PySide6.QtCore import QMimeData, QPoint, QPointF, QRect, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDrag,
+    QImage,
+    QMouseEvent,
+    QPalette,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QRhiWidget, QWidget
 
-from ui.canvas_infra.rhi.rhi_backend import configure_rhi_widget
-from shared.rendering.coalesced_flush import CoalescedFlush
-from shared.rendering.glass_panel import GlassPanelRegistry
+from ui.widgets.canvas.rhi_backend import configure_rhi_widget
 
-from tabs.multi_compare.canvas import interaction as canvas_interaction
-from tabs.multi_compare.first_frame_debug import (
-    mc_first_frame_debug,
-    mc_first_frame_debug_enabled,
-    mc_first_frame_readiness_repr,
+INTERNAL_SLOT_MIME = "application/x-imgsli-multi-slot"
+
+from tabs.multi_compare.canvas.gesture_resolver import (
+    GesturePressContext,
+    iter_active,
+    resolve_press,
 )
 from tabs.multi_compare.models import (
     CompareSlot,
     LeafNode,
     MultiCompareState,
+    SplitNode,
 )
-from tabs.multi_compare.scene import MultiCompareAction
+from tabs.multi_compare.scene import MultiCompareAction, actions
 from tabs.multi_compare.scene.renderer import MultiCompareRhiRenderer
-from tabs.multi_compare.ui import drop_targets, hit_projection
-from tabs.multi_compare.ui.canvas_helpers import (
-    INTERNAL_SLOT_MIME,
-    _dividers_locked,
-    _layout_is_symmetric,
-)
+from tabs.multi_compare.ui import layout_geometry
+from ui.context_menu.manager import open_context_menu
+from ui.context_menu.models import ContextMenuRequest, ContextMenuTarget
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger("ImproveImgSLI")
 
-# Re-exports for feature modules / tests that import from this module.
-__all__ = [
-    "INTERNAL_SLOT_MIME",
-    "MultiCompareCanvasWidget",
-    "_dividers_locked",
-    "_layout_is_symmetric",
-]
 
-# How many completed presents get a compositor settle kick. Shared with
-# image_compare so both canvas tabs wait for the first frame that actually
-# reaches the display (see shared/rendering/first_frame_gate.py).
-from shared.rendering.first_frame_gate import (
-    FIRST_PRESENT_SETTLE_COUNT as _FIRST_PRESENT_SETTLE_COUNT,
-    first_visual_present_count as _first_visual_present_count,
-)
-
-
-def _is_canvas_visible(widget):
-    try:
-        window = widget.window()
-        ui = getattr(window, "ui", None) if window is not None else None
-        if ui is None:
-            presenter = getattr(window, "presenter", None) if window is not None else None
-            ui = getattr(presenter, "ui", None) if presenter is not None else None
-        stack = getattr(ui, "workspace_stack", None) if ui is not None else None
-        if stack is None:
-            from PySide6.QtWidgets import QStackedWidget
-            p2 = widget.parentWidget()
-            while p2 is not None:
-                if isinstance(p2, QStackedWidget):
-                    stack = p2
-                    break
-                p2 = p2.parentWidget()
-        if stack is not None:
-            cur = stack.currentWidget()
-            if cur is None:
-                return bool(widget.isVisible())
-            if cur is widget:
-                return True
-            try:
-                if hasattr(cur, "isAncestorOf") and cur.isAncestorOf(widget):
-                    return True
-            except Exception:
-                pass
-            p2 = widget.parentWidget()
-            while p2 is not None:
-                if p2 is cur:
-                    return True
-                p2 = p2.parentWidget()
+def _layout_is_symmetric(node) -> bool:
+    if node is None or isinstance(node, LeafNode):
+        return True
+    if not isinstance(node, SplitNode):
+        return True
+    ws = node.normalized_weights()
+    if ws:
+        target = 1.0 / len(ws)
+        if any(abs(w - target) > 1e-4 for w in ws):
             return False
-        return bool(widget.isVisible())
-    except Exception:
-        try:
-            return bool(widget.isVisible())
-        except Exception:
-            return True
+    return all(_layout_is_symmetric(c) for c in node.children)
+
+
+def _dividers_locked(state) -> bool:
+    if getattr(state, "zoom", 1.0) <= 1.0:
+        return True
+    return _layout_is_symmetric(state.root)
 
 
 class MultiCompareCanvasWidget(QRhiWidget):
     """QRhi canvas host for multi-compare rendering and input dispatch."""
+
+    DIVIDER_GRAB_PX = 8
 
     ZOOM_MIN = 1.0
     ZOOM_MAX = 50.0
@@ -116,43 +79,21 @@ class MultiCompareCanvasWidget(QRhiWidget):
     def __init__(self, parent: QWidget | None = None, *, translate=None):
         super().__init__(parent)
         configure_rhi_widget(self)
-        # Match image_compare's CanvasWidget: never enable QWidget autofill on a
-        # QRhiWidget. Autofill + palette clear can fight RHI texture compositing
-        # (stale zoom after reset while render() already drew z=1). Clear color
-        # stays in the RHI pass via ``_theme_or_palette_bg()``.
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAutoFillBackground(True)
         self._allow_transparent_clear = False
         self.apply_theme_background()
         self._translate = translate or (lambda _key, default=None: default or _key)
 
         self.state = MultiCompareState()
 
-        # B1: session pixel cache (owned by the controller, shared across
-        # this page's MC sessions — keys are content-addressed). ``None``
-        # until the controller wires it (headless canvases read imageless).
-        self.pixel_cache = None
-
-        self._dispatch: Callable | None = None
+        self._dispatch: callable | None = None
 
         self._active_composition = None
-        self._export_canvas_viewport: tuple[int, int, int, int] | None = None
 
         self._renderer = MultiCompareRhiRenderer(self)
-        # Registered/unregistered by GlassHUD instances anchored to this
-        # canvas (see ui/widgets/glass_hud/hud.py) -- consumed by
-        # MultiCompareRhiRenderer.render(), which populates
-        # self._glass_panel_sprites/_glass_panel_images for each GlassHUD's
-        # own GlassPanelDisplayWidget to read. Mirrors image_compare's
-        # CanvasWidget.glass_panels -- without this attribute existing at
-        # all, GlassHUD._refresh_backdrop() silently no-ops (see its own
-        # `registry is None` guard), so this canvas's ZoomIndicator never
-        # got a blurred backdrop or its zoom-percent text rendered, only
-        # the plain Qt-painted panel shape and the (real child widget)
-        # reset button -- reported live as "рендерится только кнопка".
-        self.glass_panels = GlassPanelRegistry()
         self._first_frame_emitted = False
-        self._rhi_presents_completed = 0
-        self._composition_flush = CoalescedFlush(self._flush_composition)
 
         self._panning = False
         self._pan_start_pos = QPointF()
@@ -165,369 +106,15 @@ class MultiCompareCanvasWidget(QRhiWidget):
 
         self._lmb_press_pos: QPointF | None = None
         self._lmb_press_slot_id: int | None = None
-        self._view_update_pending = False
-        self._color_buffer_frozen = False
-        self._composition_stale: bool = False
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        mc_first_frame_debug(self, "canvas constructed")
-
     def set_state(self, state: MultiCompareState) -> None:
-        """Assign new state immediately (cheap); defer the expensive
-        texture-sync/composition-rebuild to a single coalesced flush per
-        event-loop tick, so N dispatches (zoom ticks, drag deltas, ...)
-        arriving before the next tick cost one rebuild, not N.
-        """
         self.state = state
-        mc_first_frame_debug(
-            self, "set_state slots=%s composition=%s", len(state.slots),
-            self._active_composition is not None,
-        )
-        if not _is_canvas_visible(self):
-            self._composition_stale = True
-            try:
-                from core.tracing.tracer import Tracer
-                if Tracer.enabled():
-                    Tracer.instance().record("render.mc.deferred", "MC composition deferred - background tab", {"slots": len(state.slots)})
-            except Exception:
-                pass
-            return
-        self._composition_flush.request()
-        self.update()
-
-    def _flush_composition(self) -> None:
-        if not _is_canvas_visible(self):
-            self._composition_stale = True
-            try:
-                from core.tracing.tracer import Tracer
-                if Tracer.enabled():
-                    Tracer.instance().record("render.mc.deferred", "MC _flush_composition deferred - background tab", {})
-            except Exception:
-                pass
-            return
         self._sync_textures()
         self._rebuild_composition()
-        self.request_view_update()
-
-    def is_current_stack_page(self) -> bool:
-        return _is_canvas_visible(self)
-
-    def flush_stale_composition(self) -> bool:
-        if not getattr(self, "_composition_stale", False):
-            return False
-        if not _is_canvas_visible(self):
-            return False
-        self._composition_stale = False
-        try:
-            from core.tracing.tracer import Tracer
-            if Tracer.enabled():
-                Tracer.instance().record("render.mc.flush", "MC stale composition flushed on show", {})
-        except Exception:
-            pass
-        self._composition_flush.request()
         self.update()
-        return True
-
-    def request_view_update(self) -> None:
-        """Ensure the QRhi backing store re-composites after view changes.
-
-        Immediate ``update()`` plus a next-tick pass so overlay hide/show in
-        the same stack frame (zoom-reset chip) cannot leave a stale frame.
-        """
-        self.update()
-        if self._view_update_pending:
-            return
-        self._view_update_pending = True
-        QTimer.singleShot(0, self._flush_view_update)
-
-    def _flush_view_update(self) -> None:
-        self._view_update_pending = False
-        if not self.isVisible():
-            return
-        self.update()
-
-    def is_color_buffer_frozen(self) -> bool:
-        fixed = self.fixedColorBufferSize()
-        return bool(fixed.isValid() and fixed.width() > 0 and fixed.height() > 0)
-
-    def freeze_color_buffer(self) -> bool:
-        """Pin the GPU color buffer (same idea as main-window CSD resize freeze).
-
-        Popup / CSD micro-geometry must not recreate the swapchain or
-        re-letterbox ``ox/oy/sr`` while a zoomed frame is on screen — that
-        looks like a zoom nudge even when ``zoom``/``pan`` are unchanged.
-        """
-        try:
-            if self.is_color_buffer_frozen():
-                self._color_buffer_frozen = True
-                return True
-            size = self.size()
-            if size.width() <= 0 or size.height() <= 0:
-                return False
-            self.setFixedColorBufferSize(size)
-            self._color_buffer_frozen = True
-            return True
-        except Exception:
-            logger.exception("freeze_color_buffer failed")
-            return False
-
-    def unfreeze_color_buffer(self) -> None:
-        """Clear a fixed color buffer pin and request one present."""
-        try:
-            self.setFixedColorBufferSize(QSize())
-        except Exception:
-            logger.exception("unfreeze_color_buffer failed")
-        self._color_buffer_frozen = False
-        if self.isVisible():
-            self.update()
-
-    def render(self, command_buffer) -> None:  # type: ignore[override]  # RHI entrypoint, shadows QWidget.render
-        # Match image_compare's CanvasWidget: only a completed beginPass/
-        # endPass counts as a real present, and the *first* presented buffer
-        # on D3D is often still an alpha hole through the translucent CSD
-        # shell -- wait for a settle present + compositor flush before
-        # trusting it enough to emit firstFrameRendered.
-        #
-        # Multi Compare additionally emits *after* the settle flush, not on
-        # the present itself: on Wayland/Vulkan the first beginPass/endPass
-        # is recorded while the compositor still shows the untouched
-        # (transparent) subsurface, and only flush_qrhi_compositor()'s
-        # requestUpdate/restack makes that frame visible. Emitting on
-        # present #1 hides the startup placeholder a frame too early — the
-        # user sees the transparent subsurface until the flush lands.
-        painted = self._renderer.render(command_buffer)
-        if not painted:
-            mc_first_frame_debug(
-                self, "render() returned NOT-painted (engine not ready yet)"
-            )
-            # Cold canvas would otherwise sit at presents==0 until the first
-            # DnD drives a frame — and that frame then pays the full cold-init
-            # cost as visible lag. Keep nudging until frames flow (bounded;
-            # the drag path still initializes as fallback).
-            self._nudge_init_retry()
-            return
-
-        self._rhi_presents_completed += 1
-        mc_first_frame_debug(
-            self, "render() painted present #%s [%s]",
-            self._rhi_presents_completed, mc_first_frame_readiness_repr(self),
-        )
-        if self._rhi_presents_completed <= _FIRST_PRESENT_SETTLE_COUNT:
-            # P4 settle-pump collapse (plan-mc-pipeline-refactor A4): the
-            # count invariant is untouched -- every painted present still
-            # counts toward the ``presents >= 10`` visual gate -- but only
-            # the boundary presents pay the full compositor restack. The
-            # first present needs it (makes the frame compositor-visible on
-            # Wayland/Vulkan) and the tenth needs it (pre-emit restack, so
-            # firstFrameRendered fires onto a genuinely visible frame);
-            # intermediate presents just pump one canvas repaint to keep the
-            # chain alive until the gate, without the raise_/activate +
-            # win/parent/overlay update churn of flush_qrhi_compositor.
-            if (
-                self._rhi_presents_completed == 1
-                or self._rhi_presents_completed >= _FIRST_PRESENT_SETTLE_COUNT
-            ):
-                self._settle_first_presents()
-            else:
-                self._pump_intermediate_present()
-
-    def _pump_intermediate_present(self) -> None:
-        """Keep the settle chain alive with a single canvas repaint.
-
-        A direct ``update()`` only marks the widget dirty for the next
-        frame (safe to call from inside ``render()``'s own paint), so the
-        next present still happens without the raise_/activate +
-        win/parent/overlay update churn of ``flush_qrhi_compositor``.
-        Guarded: the pump must never break a frame on a half-torn-down
-        widget (teardown races, ``__new__``-only unit fakes). Full
-        ``flush_qrhi_compositor`` stays reserved for the first/tenth
-        present (see ``render()``).
-        """
-        try:
-            self.update()
-        except (RuntimeError, AttributeError):
-            pass
-
-    def _settle_first_presents(self) -> None:
-        """Boundary-present restack (first + tenth) + pre-emit gate check.
-
-        Runs only where restack matters (see ``render()``'s P4 split):
-        intermediate presents pump via ``_pump_intermediate_present``
-        instead, so D3D still never shows a see-through hole while the
-        per-present flush churn collapses to two full flushes total."""
-
-        def _flush() -> None:
-            try:
-                from ui.canvas_infra.rhi.rhi_present_sync import flush_qrhi_compositor
-
-                flush_qrhi_compositor(self, reason="mc-first-present")
-                mc_first_frame_debug(self, "compositor settle flush ran")
-            except Exception:
-                self.update()
-            self._emit_first_frame_if_ready()
-
-        QTimer.singleShot(0, _flush)
-
-    def _emit_first_frame_if_ready(self) -> None:
-        """Emit firstFrameRendered only once the frame is compositor-visible."""
-        if self._rhi_presents_completed < _first_visual_present_count():
-            return
-        if not self._first_frame_emitted:
-            self._first_frame_emitted = True
-            mc_first_frame_debug(
-                self, "EMIT firstFrameRendered (presents=%s) [%s]",
-                self._rhi_presents_completed, mc_first_frame_readiness_repr(self),
-            )
-            self.firstFrameRendered.emit()
-
-    def setAutoFillBackground(self, enabled) -> None:  # noqa: N802 — Qt API
-        # Intentionally ignore — see __init__ comment. Image compare does the same.
-        return
-
-    def resizeEvent(self, event) -> None:  # noqa: D401 — Qt signature
-        super().resizeEvent(event)
-        # Skip no-op geometry churn and any resize while the color buffer is
-        # pinned for a popup/CSD interaction (context menu, window drag).
-        if event.size() == event.oldSize():
-            return
-        if self._color_buffer_frozen or self.is_color_buffer_frozen():
-            return
-        mc_first_frame_debug(self, "resizeEvent -> %s", event.size())
-        self.request_view_update()
-
-    def showEvent(self, event) -> None:  # noqa: N802 — Qt signature
-        super().showEvent(event)
-        mc_first_frame_debug(self, "showEvent (canvas visible)")
-        self._start_first_frame_sampler()
-        try:
-            self.flush_stale_composition()
-        except Exception:
-            pass
-        # Mirrors image_compare's CanvasWidget.showEvent: hidden stack pages
-        # never present, so on the first show force a repaint immediately and
-        # schedule the compositor settle flush before the first present. The
-        # flush is what makes the frame compositor-visible on Wayland/Vulkan,
-        # and firstFrameRendered is only emitted after it runs (see render()),
-        # so kicking it from showEvent as well keeps the startup placeholder
-        # up until the first genuinely visible frame.
-        self.request_view_update()
-        if self._rhi_presents_completed < _FIRST_PRESENT_SETTLE_COUNT:
-            QTimer.singleShot(0, self._settle_first_presents)
-        if self._rhi_presents_completed == 0:
-            # Cold canvas: this single update() can vanish pre-exposure
-            # without ever reaching render()/initialize(). Nudge until
-            # frames flow so the first DnD doesn't pay cold-init as lag.
-            self._nudge_init_retry()
-
-    def _start_first_frame_sampler(self) -> None:
-        """Periodically log what the canvas region actually shows on screen.
-
-        Catches the "transparent first frame" that the present timeline can't:
-        the compositor may keep showing the untouched (transparent) subsurface
-        even while RHI presents are being recorded. Samples every ~50 ms for
-        the first ~1.5 s after show, reporting Qt-side visibility/exposure and
-        the opaque fraction of a corner grab.
-        """
-        if not mc_first_frame_debug_enabled():
-            return
-        if getattr(self, "_ffd_sampler_started", False):
-            return
-        self._ffd_sampler_started = True
-        self._ffd_sampler_ticks = 0
-        from tabs.multi_compare.first_frame_debug import (
-            mc_first_frame_surface_repr,
-        )
-
-        def _probe_top_level_rhi_windows():
-            """List every top-level QRhiWidget window + their translucency.
-
-            "Прозрачное qrhi окно" that appears independently of the present
-            gate is a separate top-level widget (e.g. an offscreen export
-            canvas whose WA_DontShowOnScreen isn't honored by the compositor),
-            not the live canvas — this pinpoints which one it is.
-            """
-            try:
-                from PySide6.QtWidgets import QApplication, QRhiWidget
-
-                app = QApplication.instance()
-                if app is None:
-                    return
-                for top in app.topLevelWidgets():  # ALLOWED: debug probe — enumerates top-level QRhiWidgets generically, not tab-specific
-                    if not isinstance(top, QRhiWidget):
-                        continue
-                    mc_first_frame_debug(
-                        self,
-                        "top-level QRhiWidget name=%r visible=%s translucent=%s "
-                        "dont_show=%s geom=%s",
-                        getattr(top, "objectName", lambda: "")() or "<anon>",
-                        top.isVisible(),
-                        bool(
-                            top.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-                        ),
-                        bool(top.testAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)),
-                        top.geometry(),
-                    )
-            except Exception:
-                pass
-
-        def _probe_placeholder():
-            """Whether the startup placeholder fully covers the canvas and is
-            actually opaque — if it's transparent or smaller than the canvas,
-            the user sees the unrendered (transparent) surface through it."""
-            try:
-                owner = None
-                node = self
-                for _ in range(6):
-                    node = node.parentWidget()
-                    if node is None:
-                        break
-                    if hasattr(node, "_startup_placeholder"):
-                        owner = node
-                        break
-                if owner is None:
-                    mc_first_frame_debug(self, "placeholder probe: owner not found")
-                    return
-                placeholder = owner._startup_placeholder
-                bg = getattr(placeholder, "_bg_color", None)
-                bg_desc = (
-                    f"{bg.name()} a={bg.alpha()}"
-                    if bg is not None and bg.isValid()
-                    else "invalid"
-                )
-                covers = (
-                    placeholder.isVisible()
-                    and placeholder.geometry().contains(self.geometry())
-                )
-                mc_first_frame_debug(
-                    self,
-                    "placeholder probe vis=%s covers_full=%s bg=%s "
-                    "placeholder_geom=%s canvas_geom=%s",
-                    placeholder.isVisible(),
-                    covers,
-                    bg_desc,
-                    placeholder.geometry(),
-                    self.geometry(),
-                )
-            except Exception:
-                pass
-
-        _probe_top_level_rhi_windows()
-        _probe_placeholder()
-
-        def _tick():
-            self._ffd_sampler_ticks += 1
-            mc_first_frame_debug(
-                self,
-                "sampler presents=%s [%s]",
-                self._rhi_presents_completed,
-                mc_first_frame_surface_repr(self),
-            )
-            if self._ffd_sampler_ticks < 30:
-                QTimer.singleShot(50, _tick)
-
-        QTimer.singleShot(50, _tick)
 
     def set_dispatch(self, dispatch) -> None:
         """Install the redux dispatch callable used for interaction-driven changes."""
@@ -536,22 +123,6 @@ class MultiCompareCanvasWidget(QRhiWidget):
     def _do_dispatch(self, action: MultiCompareAction) -> None:
         if self._dispatch is not None:
             self._dispatch(action)
-
-    def _slot_sources(self) -> dict[int, object]:
-        """Resolved pixel sources for the current state (B1).
-
-        One ``cache.resolve`` per slot with a path — pixel tier first, then
-        preview, imageless slots omitted. Closed/evicted stores never
-        surface here (the cache validates before returning).
-        """
-        from tabs.multi_compare.pipeline.cache import resolve_slot_source
-
-        sources: dict[int, object] = {}
-        for slot in self.state.slots:
-            source = resolve_slot_source(self.pixel_cache, slot)
-            if source is not None:
-                sources[int(slot.id)] = source
-        return sources
 
     def _rebuild_composition(self) -> None:
         """Build the CompositionPlan from state and apply it to ``self``.
@@ -567,62 +138,264 @@ class MultiCompareCanvasWidget(QRhiWidget):
         )
         from ui.canvas_presentation.composition import resolve_composition
 
-        plan = build_composition_plan(self.state, sources=self._slot_sources())
+        plan = build_composition_plan(self.state)
         if plan is None:
             self._active_composition = None
             return
         self._active_composition = resolve_composition(plan)
 
-    # --- drop / hit projection (thin wrappers for features + tests) ---
+    def resizeEvent(self, event) -> None:  # noqa: D401 — Qt signature
+        super().resizeEvent(event)
+        self.update()
 
     def compute_drop_target(
         self, pos: QPoint, *, include_center: bool = False
     ) -> tuple[tuple[int, ...] | None, str | None, bool, int | None]:
-        return drop_targets.compute_drop_target(
-            self, pos, include_center=include_center
-        )
+        """Return (target_path, side, target_root, swap_slot_id).
+
+        target_root=True when tree is empty (whole widget is the drop zone).
+        When include_center=True, the central half of a leaf maps to side="center";
+        in that case swap_slot_id holds the leaf's slot id (for internal drag swap).
+        All zones are relative to the target leaf, never to the whole grid or an
+        enclosing split.
+        """
+        if self.state.root is None:
+            return None, None, True, None
+        leaf_entries = self._leaf_paths_and_rects()
+        if not leaf_entries:
+            return None, None, True, None
+
+        gap_target = self._drop_target_for_gap(pos)
+        if gap_target is not None:
+            return gap_target
+
+        target_leaf = None
+        target_rect = None
+        target_path: tuple[int, ...] = ()
+        for leaf, rect, path in leaf_entries:
+            if rect.contains(pos):
+                target_leaf = leaf
+                target_rect = rect
+                target_path = path
+                break
+        if target_leaf is None:
+            best_d2 = None
+            for leaf, rect, path in leaf_entries:
+                dx = max(rect.x() - pos.x(), 0, pos.x() - (rect.x() + rect.width() - 1))
+                dy = max(
+                    rect.y() - pos.y(), 0, pos.y() - (rect.y() + rect.height() - 1)
+                )
+                d2 = dx * dx + dy * dy
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    target_leaf = leaf
+                    target_rect = rect
+                    target_path = path
+            if target_leaf is None:
+                return None, None, False, None
+
+        u = (pos.x() - target_rect.x()) / max(target_rect.width(), 1)
+        v = (pos.y() - target_rect.y()) / max(target_rect.height(), 1)
+        if include_center and 0.25 <= u <= 0.75 and 0.25 <= v <= 0.75:
+            return target_path, "center", False, target_leaf.slot_id
+
+        distances = {"left": u, "right": 1 - u, "top": v, "bottom": 1 - v}
+        side = min(distances, key=lambda k: distances[k])
+        return target_path, side, False, None
 
     def _drop_target_for_gap(
         self, pos: QPoint
     ) -> tuple[tuple[int, ...], str, bool, None] | None:
-        return drop_targets.drop_target_for_gap(self, pos)
+        """Resolve the dedicated zones inside an actual split gap.
+
+        A vertical gap is split by height: the top quarter inserts above the
+        whole split, the bottom quarter below it, and the middle half inserts
+        between the adjacent children. Horizontal gaps use the symmetric
+        left/middle/right behavior.
+        """
+        for split, split_path, divider_index, divider_rect in self._drop_gaps():
+            if not divider_rect.contains(pos):
+                continue
+
+            adjacent_path = split_path + (divider_index + 1,)
+            if split.direction == "h":
+                fraction = (pos.y() - divider_rect.y()) / max(divider_rect.height(), 1)
+                if fraction < 0.25:
+                    return split_path, "top", False, None
+                if fraction >= 0.75:
+                    return split_path, "bottom", False, None
+                return adjacent_path, "left", False, None
+
+            fraction = (pos.x() - divider_rect.x()) / max(divider_rect.width(), 1)
+            if fraction < 0.25:
+                return split_path, "left", False, None
+            if fraction >= 0.75:
+                return split_path, "right", False, None
+            return adjacent_path, "top", False, None
+        return None
 
     def _canvas_layout(self) -> tuple[int, int, float, float, float] | None:
-        return hit_projection.canvas_layout(self)
+        """Return ``(canvas_w, canvas_h, sr, ox, oy)`` for projecting composition
+        canvas-px to widget-px using the same letterbox formula as ``render()``.
+
+        ``sr = min(fb_w/canvas_w, fb_h/canvas_h)``; ``ox/oy`` are letterbox
+        offsets. Mirrors :func:`tabs.multi_compare.scene.projection.build_render_context`
+        so hit-testing and rendering are guaranteed to agree.
+        """
+        if self.state.root is None or self.width() <= 0 or self.height() <= 0:
+            return None
+        comp = self._active_composition
+        if comp is not None and comp.canvas_w > 0 and comp.canvas_h > 0:
+            canvas_w = int(comp.canvas_w)
+            canvas_h = int(comp.canvas_h)
+        else:
+            from tabs.multi_compare.services.composition_builder import (
+                build_composition_plan,
+            )
+
+            plan = build_composition_plan(self.state, include_labels=False)
+            if plan is None:
+                return None
+            canvas_w = int(plan.canvas_w)
+            canvas_h = int(plan.canvas_h)
+        if canvas_w <= 0 or canvas_h <= 0:
+            return None
+        fb_w = float(self.width())
+        fb_h = float(self.height())
+        sr = min(fb_w / canvas_w, fb_h / canvas_h)
+        ox = (fb_w - canvas_w * sr) * 0.5
+        oy = (fb_h - canvas_h * sr) * 0.5
+        return canvas_w, canvas_h, sr, ox, oy
 
     def _project_canvas_rect(
         self, rect_canvas: QRect, sr: float, ox: float, oy: float
     ) -> QRect:
-        return hit_projection.project_canvas_rect(rect_canvas, sr, ox, oy)
+        x = int(round(ox + rect_canvas.x() * sr))
+        y = int(round(oy + rect_canvas.y() * sr))
+        w = max(1, int(round(rect_canvas.width() * sr)))
+        h = max(1, int(round(rect_canvas.height() * sr)))
+        return QRect(x, y, w, h)
 
-    def _composition_gap_canvas_px(self) -> int:
-        return hit_projection.composition_gap_canvas_px(self)
+    @staticmethod
+    def _composition_gap_canvas_px() -> int:
+        from tabs.multi_compare.services.composition_builder import (
+            DEFAULT_SPLIT_GAP_PX,
+        )
 
-    def _drop_gaps(self):
-        return hit_projection.drop_gaps(self)
+        return int(DEFAULT_SPLIT_GAP_PX)
 
-    def _leaf_paths_and_rects(self):
-        return hit_projection.leaf_paths_and_rects(self)
+    def _drop_gaps(
+        self,
+    ) -> list[tuple[SplitNode, tuple[int, ...], int, QRect]]:
+        """Return split gaps with their tree paths for drop-zone hit-testing.
+
+        Walks the layout in canvas-px (same gap as ``composition_builder``) and
+        projects rects through the composition letterbox transform so divider
+        hit-zones line up with what the renderer draws.
+        """
+        layout = self._canvas_layout()
+        if layout is None:
+            return []
+        canvas_w, canvas_h, sr, ox, oy = layout
+        canvas_rect = QRect(0, 0, canvas_w, canvas_h)
+        gaps_canvas = layout_geometry.drop_gaps(
+            self.state.root,
+            canvas_rect,
+            gap=self._composition_gap_canvas_px(),
+        )
+        return [
+            (split, path, idx, self._project_canvas_rect(rect, sr, ox, oy))
+            for (split, path, idx, rect) in gaps_canvas
+        ]
+
+    def _leaf_paths_and_rects(self) -> list[tuple[LeafNode, QRect, tuple[int, ...]]]:
+        layout = self._canvas_layout()
+        if layout is None:
+            return []
+        canvas_w, canvas_h, sr, ox, oy = layout
+        canvas_rect = QRect(0, 0, canvas_w, canvas_h)
+        leaves, _splits = layout_geometry.walk_paths(
+            self.state.root,
+            canvas_rect,
+            gap=self._composition_gap_canvas_px(),
+        )
+        return [
+            (leaf, self._project_canvas_rect(rect, sr, ox, oy), path)
+            for (leaf, rect, path) in leaves
+        ]
+
+    def _ancestor_splits_with_rects(
+        self, leaf_path: tuple[int, ...]
+    ) -> list[tuple[SplitNode, QRect, tuple[int, ...]]]:
+        """Splits enclosing the leaf, ordered outermost → innermost."""
+        layout = self._canvas_layout()
+        if layout is None:
+            return []
+        canvas_w, canvas_h, sr, ox, oy = layout
+        canvas_rect = QRect(0, 0, canvas_w, canvas_h)
+        _leaves, splits = layout_geometry.walk_paths(
+            self.state.root,
+            canvas_rect,
+            only_path=leaf_path,
+            gap=self._composition_gap_canvas_px(),
+        )
+        return [
+            (split, self._project_canvas_rect(rect, sr, ox, oy), path)
+            for (split, rect, path) in splits
+        ]
 
     def _node_rect_at_path(self, path: tuple[int, ...]) -> QRect | None:
-        return hit_projection.node_rect_at_path(self, path)
-
-    def _leaf_rects(self) -> list[tuple[LeafNode, QRect]]:
-        return hit_projection.leaf_rects(self)
-
-    # --- textures / RHI ---
+        if self.state.root is None:
+            return None
+        if not path:
+            return self.rect()
+        layout = self._canvas_layout()
+        if layout is None:
+            return None
+        canvas_w, canvas_h, sr, ox, oy = layout
+        canvas_rect = QRect(0, 0, canvas_w, canvas_h)
+        leaves, splits = layout_geometry.walk_paths(
+            self.state.root,
+            canvas_rect,
+            only_path=path,
+            gap=self._composition_gap_canvas_px(),
+        )
+        for _, rect, p in splits:
+            if p == path:
+                return self._project_canvas_rect(rect, sr, ox, oy)
+        for _, rect, p in leaves:
+            if p == path:
+                return self._project_canvas_rect(rect, sr, ox, oy)
+        return None
 
     def upload_image(self, slot: CompareSlot) -> None:
-        from tabs.multi_compare.pipeline.cache import resolve_slot_source
-
-        source = resolve_slot_source(self.pixel_cache, slot)
-        if source is None:
+        if slot.image is None:
             return
-        self.upload_pixel_source(slot.id, source)
+        self.upload_image_array(slot.id, slot.image)
 
-    def upload_pixel_source(self, slot_id: int, source) -> None:
-        self._renderer.queue_upload(slot_id, source)
+    def upload_image_array(self, slot_id: int, arr) -> None:
+        image = self._numpy_to_qimage(arr)
+        if image is None:
+            return
+        self._renderer.queue_upload(slot_id, image)
         self.update()
+
+    @staticmethod
+    def _numpy_to_qimage(arr: np.ndarray) -> QImage | None:
+        if arr.ndim == 3:
+            h, w, channels = arr.shape
+        elif arr.ndim == 2:
+            h, w = arr.shape
+            channels = 1
+        else:
+            return None
+        if channels == 4:
+            img = QImage(arr.tobytes(), w, h, w * 4, QImage.Format.Format_RGBA8888)
+        elif channels == 3:
+            img = QImage(arr.tobytes(), w, h, w * 3, QImage.Format.Format_RGB888)
+        else:
+            img = QImage(arr.tobytes(), w, h, w, QImage.Format.Format_Grayscale8)
+        return img.convertToFormat(QImage.Format.Format_RGBA8888).copy()
 
     def remove_texture(self, slot_id: int) -> None:
         self._renderer.queue_remove(slot_id)
@@ -633,69 +406,36 @@ class MultiCompareCanvasWidget(QRhiWidget):
 
         Union of ``state.slots`` (live data ownership — includes hidden slots
         during focused mode) and ``_active_composition.layers`` (export path
-        when ``state`` is empty). Slot pixels resolve from the session cache
-        (B1); texture eviction tracks the union so toggling
+        when ``state`` is empty). Texture eviction tracks the union so toggling
         focus never evicts a still-loaded slot.
         """
-        sources: dict[int, object] = self._slot_sources()
+        sources: dict[int, object] = {}
+        for slot in self.state.slots:
+            if slot.image is not None:
+                sources.setdefault(int(slot.id), slot.image)
         if self._active_composition is not None:
             for layer in self._active_composition.layers:
                 if layer.image is not None:
                     sources.setdefault(int(layer.layer_id), layer.image)
 
-        for sid, source in sources.items():
-            if (
-                not self._renderer.has_slot_texture(sid)
-                or self._renderer.slot_texture_source(sid) is not source
-            ):
-                self.upload_pixel_source(sid, source)
+        for sid, arr in sources.items():
+            if not self._renderer.has_slot_texture(sid):
+                self.upload_image_array(sid, arr)
         stale = [sid for sid in self._renderer.slot_texture_ids() if sid not in sources]
         for sid in stale:
             self.remove_texture(sid)
 
     def initialize(self, command_buffer) -> None:
-        mc_first_frame_debug(self, "initialize() renderer init starts")
         self._renderer.initialize(command_buffer)
-        if getattr(self._renderer, "initialized", False):
-            self._init_retry_count = 0
-            mc_first_frame_debug(self, "initialize() renderer ready")
-            return
-        # Init aborted (rhi/renderTarget not realized yet) — retry shortly.
-        # Otherwise a cold canvas sits at presents==0 until the first DnD
-        # drives a frame, and that first drag-driven frame pays the full
-        # cold-init cost (~160ms GUI stall → visible lag + frozen DnD cursor
-        # while the event loop is stuck compiling pipelines). Bounded: gives
-        # up after ~5s; the drag path still initializes as fallback.
-        # (image_compare never hits this: continuous repaints init at startup.)
-        mc_first_frame_debug(self, "initialize() deferred (not realized), retry scheduled")
-        self._nudge_init_retry()
-
-    def _nudge_init_retry(self) -> None:
-        """Schedule one more paint attempt while the renderer is cold.
-
-        Shared budget with ``initialize()`` (~5s): gives up on persistently
-        broken surfaces instead of update-spamming forever. Hidden widgets
-        never reach ``render()``/``initialize()``, so the chain self-stops
-        off-screen by construction.
-        """
-        if getattr(self._renderer, "initialized", False):
-            self._init_retry_count = 0
-            return
-        retries = getattr(self, "_init_retry_count", 0)
-        if retries < 50:
-            self._init_retry_count = retries + 1
-            QTimer.singleShot(100, self._schedule_init_retry)
-
-    def _schedule_init_retry(self) -> None:
-        try:
-            if not getattr(self._renderer, "initialized", False):
-                self.update()
-        except Exception:
-            pass
 
     def releaseResources(self) -> None:
         self._renderer.release()
-        self._composition_flush.cancel()
+
+    def render(self, command_buffer) -> None:
+        painted = self._renderer.render(command_buffer)
+        if painted and not self._first_frame_emitted:
+            self._first_frame_emitted = True
+            self.firstFrameRendered.emit()
 
     def apply_theme_background(self, color: QColor | None = None) -> None:
         bg = QColor(color) if isinstance(color, QColor) and color.isValid() else None
@@ -712,6 +452,8 @@ class MultiCompareCanvasWidget(QRhiWidget):
         palette.setColor(QPalette.ColorRole.Window, bg)
         palette.setColor(QPalette.ColorRole.Base, bg)
         self.setPalette(palette)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
+        self.setAutoFillBackground(True)
         self._theme_background_color = QColor(bg)
 
     def _theme_or_palette_bg(self) -> QColor:
@@ -724,42 +466,315 @@ class MultiCompareCanvasWidget(QRhiWidget):
             bg.setAlpha(255)
         return bg
 
-    # --- chrome input (stubs → canvas/interaction.py) ---
+    def _leaf_rects(self) -> list[tuple[LeafNode, QRect]]:
+        """Leaf rects in widget-px, projected from the composition layout."""
+        return [(leaf, rect) for (leaf, rect, _path) in self._leaf_paths_and_rects()]
 
     @staticmethod
     def _clamp_pan_values(
         pan_x: float, pan_y: float, zoom: float
     ) -> tuple[float, float]:
-        return canvas_interaction.clamp_pan_values(pan_x, pan_y, zoom)
+        """Clamp pan so the image edges never reveal background.
 
-    def _fit_scale_for(self, slot: CompareSlot, rect: QRect) -> tuple[float, float]:
-        return canvas_interaction.fit_scale_for(
-            slot, rect, canvas_interaction._source_for(self, slot)
-        )
+        Derivation: img_uv = (cell_uv − 0.5)/(fit·zoom) + 0.5 − pan. The visible
+        image region in cell-uv is [0.5 ± fit/2], at whose ends img_uv = 0 or 1
+        before pan. Forcing img_uv ∈ [0, 1] across that range yields
+        |pan| ≤ (zoom − 1) / (2·zoom), independent of fit.
+        """
+        z = max(zoom, 1.0)
+        limit = (z - 1.0) / (2.0 * z)
+        return max(-limit, min(limit, pan_x)), max(-limit, min(limit, pan_y))
+
+    @staticmethod
+    def _fit_scale_for(slot: CompareSlot, rect: QRect) -> tuple[float, float]:
+        if slot.image is None or rect.width() <= 0 or rect.height() <= 0:
+            return 1.0, 1.0
+        h, w = slot.image.shape[:2]
+        if h <= 0 or w <= 0:
+            return 1.0, 1.0
+        img_ar = w / h
+        cell_ar = rect.width() / rect.height()
+        if img_ar > cell_ar:
+            return 1.0, cell_ar / img_ar
+        return img_ar / cell_ar, 1.0
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        canvas_interaction.handle_wheel_event(self, event)
+        leaf_rects = self._leaf_rects()
+        if not leaf_rects:
+            event.ignore()
+            return
+
+        pos = event.position().toPoint()
+        leaf, rect = self._leaf_at(pos, leaf_rects) or (None, None)
+        if leaf is None:
+            event.ignore()
+            return
+
+        slot = next((s for s in self.state.slots if s.id == leaf.slot_id), None)
+        if slot is None:
+            event.ignore()
+            return
+
+        fit_x, fit_y = self._fit_scale_for(slot, rect)
+        cell_u = (pos.x() - rect.x()) / rect.width()
+        cell_v = (pos.y() - rect.y()) / rect.height()
+
+        delta = event.angleDelta().y()
+        if delta == 0:
+            event.accept()
+            return
+        factor = self.ZOOM_STEP if delta > 0 else 1.0 / self.ZOOM_STEP
+        z1 = self.state.zoom
+        z2 = max(self.ZOOM_MIN, min(self.ZOOM_MAX, z1 * factor))
+        if z2 == z1:
+            event.accept()
+            return
+
+        new_pan_x = self.state.pan_x + (cell_u - 0.5) / max(fit_x, 1e-6) * (
+            1.0 / z2 - 1.0 / z1
+        )
+        new_pan_y = self.state.pan_y + (cell_v - 0.5) / max(fit_y, 1e-6) * (
+            1.0 / z2 - 1.0 / z1
+        )
+        new_pan_x, new_pan_y = self._clamp_pan_values(new_pan_x, new_pan_y, z2)
+        self._do_dispatch(actions.set_zoom(z2, new_pan_x, new_pan_y))
+        event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        canvas_interaction.handle_mouse_press_event(self, event)
+        pos = event.position().toPoint()
 
-    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        canvas_interaction.handle_context_menu_event(self, event)
+        if event.button() == Qt.MouseButton.RightButton:
+            picked = self._leaf_at(pos, self._leaf_rects())
+            if picked is None:
+                return
+            leaf, rect = picked
+            slot = next((s for s in self.state.slots if s.id == leaf.slot_id), None)
+            open_context_menu(
+                ContextMenuRequest(
+                    source_widget=self,
+                    global_pos=event.globalPosition().toPoint(),
+                    local_pos=pos,
+                    session_type="multi_compare",
+                    target=ContextMenuTarget(
+                        kind="multi_compare_slot",
+                        id=leaf.slot_id,
+                        payload={
+                            "rect": rect,
+                            "path": slot.path if slot is not None else None,
+                            "label": slot.label if slot is not None else "",
+                        },
+                    ),
+                )
+            )
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            ctx = GesturePressContext(
+                handler=self,
+                local_pos=event.position(),
+                button=event.button().value,
+                modifiers=int(event.modifiers().value),
+            )
+            binding = resolve_press(ctx)
+            if binding is not None:
+                if binding.begin is not None:
+                    binding.begin(self, event.position())
+                event.accept()
+                return
+
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = True
+            self._pan_start_pos = event.position()
+            self._pan_start_state = (self.state.pan_x, self.state.pan_y)
+            leaf_rects = self._leaf_rects()
+            picked = self._leaf_at(pos, leaf_rects)
+            if picked is not None:
+                leaf, rect = picked
+                slot = next((s for s in self.state.slots if s.id == leaf.slot_id), None)
+                self._pan_ref_rect = rect
+                self._pan_ref_fit = (
+                    self._fit_scale_for(slot, rect) if slot is not None else (1.0, 1.0)
+                )
+            else:
+                self._pan_ref_rect = self.rect()
+                self._pan_ref_fit = (1.0, 1.0)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        canvas_interaction.handle_mouse_move_event(self, event)
+        active = iter_active(self)
+        if active:
+            buttons = event.buttons()
+            consumed = False
+            for binding in active:
+                if not (buttons & Qt.MouseButton(binding.button)):
+                    continue
+                if binding.update is not None:
+                    binding.update(self, event.position())
+                    consumed = True
+            if consumed:
+                event.accept()
+                return
+
+        if self._panning:
+            ref = self._pan_ref_rect
+            if ref.width() <= 0 or ref.height() <= 0:
+                return
+            fit_x, fit_y = self._pan_ref_fit
+            z = max(self.state.zoom, 1e-6)
+            delta = event.position() - self._pan_start_pos
+            new_pan_x = self._pan_start_state[0] + (delta.x() / ref.width()) / (
+                max(fit_x, 1e-6) * z
+            )
+            new_pan_y = self._pan_start_state[1] + (delta.y() / ref.height()) / (
+                max(fit_y, 1e-6) * z
+            )
+            new_pan_x, new_pan_y = self._clamp_pan_values(
+                new_pan_x, new_pan_y, self.state.zoom
+            )
+            self._do_dispatch(actions.set_pan(new_pan_x, new_pan_y))
+            event.accept()
+            return
+
+        div = self._divider_at(event.position())
+        if div is not None and not _dividers_locked(self.state):
+            _path, _idx, _rect, direction, _ws = div
+            self.setCursor(
+                Qt.CursorShape.SplitHCursor
+                if direction == "h"
+                else Qt.CursorShape.SplitVCursor
+            )
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        canvas_interaction.handle_mouse_release_event(self, event)
+        released_button = event.button().value
+        ended_any = False
+        for binding in iter_active(self):
+            if binding.button != released_button:
+                continue
+            if binding.end is not None:
+                binding.end(self)
+            ended_any = True
+        if ended_any:
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.MiddleButton and self._panning:
+            self._panning = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        canvas_interaction.handle_mouse_double_click_event(self, event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint()
+            div = self._divider_at(event.position())
+            if div is not None:
+                split_path, _idx, _drect, _direction, weights = div
+                n = len(weights)
+                if n > 0:
+                    self._do_dispatch(actions.set_split_weights(split_path, [1.0] * n))
+                event.accept()
+                return
+            leaf_rects = self._leaf_rects()
+            picked = self._leaf_at(pos, leaf_rects)
+            if picked is not None:
+                leaf, _ = picked
+                new_focus = None if self.state.is_focused else leaf.slot_id
+                self._do_dispatch(actions.set_focus(new_focus))
+            event.accept()
 
     def keyPressEvent(self, event) -> None:
-        canvas_interaction.handle_key_press_event(self, event)
+        key = event.key()
+        if key == Qt.Key.Key_Escape and self.state.is_focused:
+            self._do_dispatch(actions.set_focus(None))
+            event.accept()
+        elif key == Qt.Key.Key_0:
+            self._do_dispatch(actions.reset_view())
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     def _start_internal_drag(self, slot_id: int) -> None:
-        canvas_interaction.start_internal_drag(self, slot_id)
+        slot = next((s for s in self.state.slots if s.id == slot_id), None)
+        mime = QMimeData()
+        mime.setData(INTERNAL_SLOT_MIME, str(slot_id).encode("utf-8"))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+
+        rects = self._leaf_rects()
+        rect = next((r for l, r in rects if l.slot_id == slot_id), None)
+        if rect is not None and slot is not None and slot.image is not None:
+            from PySide6.QtGui import QImage, QPixmap
+
+            h, w = slot.image.shape[:2]
+            channels = slot.image.shape[2] if slot.image.ndim == 3 else 1
+            fmt = (
+                QImage.Format.Format_RGB888
+                if channels == 3
+                else QImage.Format.Format_RGBA8888
+            )
+            qimg = QImage(slot.image.tobytes(), w, h, w * channels, fmt)
+            preview = QPixmap.fromImage(qimg).scaledToWidth(
+                160, Qt.TransformationMode.SmoothTransformation
+            )
+            drag.setPixmap(preview)
+            drag.setHotSpot(QPoint(preview.width() // 2, preview.height() // 2))
+        drag.exec(Qt.DropAction.MoveAction)
 
     def _leaf_at(self, pos: QPoint, leaf_rects) -> tuple[LeafNode, QRect] | None:
-        return canvas_interaction.leaf_at(pos, leaf_rects)
+        for leaf, rect in leaf_rects:
+            if rect.contains(pos):
+                return leaf, rect
+        return None
+
+    def _divider_at(
+        self, pos: QPointF
+    ) -> tuple[tuple[int, ...], int, QRect, str, list[float]] | None:
+        """Return ``(split_path, divider_idx, divider_rect, direction, weights)``.
+
+        ``split_path`` is the chain of child indices from the root tree node to
+        the SplitNode that owns this divider. Used by mousePressEvent to drive
+        ``SetSplitWeights`` dispatches independent of any specific SplitNode
+        identity (the tree is immutable from the store's perspective).
+        """
+        grab = self.DIVIDER_GRAB_PX
+        for split, split_path, idx, drect in self._drop_gaps():
+            expanded = drect.adjusted(-grab, -grab, grab, grab)
+            if expanded.contains(pos.toPoint()):
+                return split_path, idx, drect, split.direction, list(split.weights)
+        return None
+
+    def _split_container_size_at(
+        self, split_path: tuple[int, ...], direction: str
+    ) -> int:
+        """Width / height of the SplitNode container at ``split_path``."""
+        rect = self._node_rect_at_path(split_path)
+        if rect is None:
+            return 0
+        return rect.width() if direction == "h" else rect.height()
+
+    MIN_PANE_FRACTION = 0.15
+    MIN_PANE_PIXELS = 100
+    MAX_CELL_ASPECT = 5.0
+
+    def _min_pane_weight(
+        self,
+        split_path: tuple[int, ...],
+        direction: str,
+        container_size_px: int,
+        total_weights: float,
+    ) -> float:
+        """Translate the readability floors into a weight value."""
+        rect = self._node_rect_at_path(split_path)
+        perp_size_px = 0
+        if rect is not None:
+            perp_size_px = rect.height() if direction == "h" else rect.width()
+        floor_px = self.MIN_PANE_PIXELS
+        if perp_size_px > 0:
+            floor_px = max(floor_px, int(perp_size_px / self.MAX_CELL_ASPECT))
+        floor_px = min(floor_px, container_size_px // 2)
+        frac_from_pct = self.MIN_PANE_FRACTION
+        frac_from_px = floor_px / container_size_px if container_size_px > 0 else 0.0
+        return max(frac_from_pct, frac_from_px) * total_weights

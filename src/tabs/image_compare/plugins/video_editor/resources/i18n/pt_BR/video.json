@@ -13,8 +13,6 @@
     "crf_constant_quality": "CRF (Qualidade Constante)",
     "done": "Concluído!",
     "export_log": "Log de Exportação",
-    "export_tabs": "Abas de exportação",
-    "export_actions": "Exportar",
     "edge_comparison": "Comparação de Bordas",
     "encoding_speed_preset": "Velocidade de Codificação (Predefinição)",
     "fast": "Rápido",
@@ -58,7 +56,6 @@
     "ssim_map": "Mapa SSIM",
     "standard": "Padrão",
     "superfast": "Super rápido",
-    "toolbar": "Barra de ferramentas",
     "ultrafast": "Ultra rápido",
     "veryfast": "Muito rápido",
     "veryslow": "Muito lento",
@@ -67,14 +64,6 @@
     "ffmpeg_output_args_hint": "Digite os argumentos de saída do FFmpeg.\nA entrada é um pipe rawvideo.",
     "crf_value_hint": "Valor CRF (0-51, Menor é melhor)",
     "cq_value_hint": "Valor de CQ (0-51, menor é melhor)",
-    "bitrate_hint": "Bitrate (ex: 5000k, 5M)",
-    "export_finished": "Exportação concluída {ts}",
-    "export_failed": "Falha na exportação {ts}",
-    "export_started": "Exportação iniciada {ts}",
-    "video_exported": "Vídeo Exportado",
-    "saved_to": "Salvo em: {path}"
-  },
-  "tooltip": {
-    "use_favorite": "Usar Favorito"
+    "bitrate_hint": "Bitrate (ex: 5000k, 5M)"
   }
 }

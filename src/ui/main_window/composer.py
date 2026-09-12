@@ -42,12 +42,9 @@ class MainWindowComposer:
         window.ui_resource_manager = ui_resource_manager
 
         from events.drag_drop_handler import DragAndDropService
-        from events.image_carry import ImageCarryService
 
         if DragAndDropService._instance is None:
             DragAndDropService._instance = DragAndDropService(self.context.store, window)
-        if ImageCarryService._instance is None:
-            ImageCarryService._instance = ImageCarryService(self.context.store, window)
 
         tray_manager = None
         if self._should_enable_system_tray():
@@ -57,25 +54,21 @@ class MainWindowComposer:
                 resource_manager=ui_resource_manager,
             )
             tray_manager.toggle_visibility_requested.connect(
-                window.action_registry.toggle_main_window_visibility
+                window.actions.toggle_main_window_visibility
             )
             tray_manager.open_last_file_requested.connect(
-                window.action_registry.open_last_saved_file
+                window.actions.open_last_saved_file
             )
             tray_manager.open_last_folder_requested.connect(
-                window.action_registry.open_last_saved_folder
+                window.actions.open_last_saved_folder
             )
-            app = QApplication.instance()
-            if app is not None:
-                tray_manager.quit_requested.connect(app.quit)
+            tray_manager.quit_requested.connect(QApplication.instance().quit)
 
         main_controller = MainController(self.context)
         event_handler = EventHandler(self.context.store, None)
         image_canvas = self._create_tab_owned_feature(
+            window,
             "image_canvas",
-            on_resolved=lambda canvas: canvas.connect_event_handler_signals(
-                event_handler
-            ),
             store=self.context.store,
             main_controller=main_controller,
             ui=window.ui,
@@ -87,6 +80,7 @@ class MainWindowComposer:
             ui=window.ui,
             main_window_app=window,
             image_canvas=image_canvas,
+            plugin_ui_registry=self.context.plugin_ui_registry,
         )
         presenter = MainWindowPresenter(
             window,
@@ -94,6 +88,7 @@ class MainWindowComposer:
             self.context.store,
             main_controller,
             features=features,
+            plugin_ui_registry=self.context.plugin_ui_registry,
         )
         event_handler.presenter = presenter
         main_controller.attach_window_shell(presenter)
@@ -112,15 +107,18 @@ class MainWindowComposer:
             ui_resource_manager=ui_resource_manager,
         )
 
-    def _create_tab_owned_feature(self, feature_id: str, **kwargs):
-        """Return a lazily-resolved tab-owned legacy-shell feature.
-
-        Not resolved until first access (`LazyTabService`) — the owning
-        tab's page need not exist yet at shell-build time. See
-        docs/dev/investigations/lazy-legacy-shell-plan.md.
-        """
-        from tabs.registry import LazyTabService
-
-        return LazyTabService(
-            feature_id, probe_method="create_main_window_feature", **kwargs
-        )
+    def _create_tab_owned_feature(
+        self,
+        window,
+        feature_id: str,
+        **kwargs,
+    ):
+        registry = getattr(window.ui, "_tab_registry", None)
+        if registry is None:
+            raise RuntimeError(
+                f"Tab-owned feature {feature_id!r} requested before tab discovery"
+            )
+        feature = registry.create_main_window_feature(feature_id, **kwargs)
+        if feature is None:
+            raise RuntimeError(f"No tab provided feature {feature_id!r}")
+        return feature

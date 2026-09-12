@@ -19,20 +19,23 @@ def has_initial_canvas_content(store: Any) -> bool:
         or 0
     )
     if single_mode == 1:
-        return bool(getattr(document, "image1_path", None))
+        return bool(
+            getattr(document, "image1_path", None)
+            or getattr(document, "original_image1", None)
+        )
     if single_mode == 2:
-        return bool(getattr(document, "image2_path", None))
+        return bool(
+            getattr(document, "image2_path", None)
+            or getattr(document, "original_image2", None)
+        )
     return False
 
 
 def refresh_startup_button_visuals(ui: Any) -> None:
-    # `ui` must be image_compare's own tab-owned widget — both buttons are
-    # unconditionally constructed by `ImageComparePrimitivesFactory`, so a
-    # missing attribute means the wrong object was passed in (see
-    # `ImageCompareLayoutManager.__init__` for the same rule, applied after
-    # the same bug was found here).
     for attr_name in (
         "btn_magnifier_color_settings",
         "btn_magnifier_color_settings_beginner",
     ):
-        getattr(ui, attr_name).refresh_visual_state()
+        button = getattr(ui, attr_name, None)
+        if button is not None and hasattr(button, "refresh_visual_state"):
+            button.refresh_visual_state()

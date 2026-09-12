@@ -51,12 +51,6 @@ class _VisibleDialog:
     def isVisible(self) -> bool:
         return True
 
-    def width(self) -> int:
-        return 640
-
-    def height(self) -> int:
-        return 480
-
     def updateGeometry(self) -> None:
         self.update_geometry_calls += 1
 
@@ -91,6 +85,7 @@ def test_settings_sidebar_separates_general_from_appearance():
         max_limit=200,
         debug_mode_enabled=False,
         system_notifications_enabled=True,
+        current_resolution_limit=0,
         active_tab="image_compare",
     )
 
@@ -109,13 +104,12 @@ def test_settings_sidebar_items_do_not_duplicate_labels_as_tooltips():
         max_limit=200,
         debug_mode_enabled=False,
         system_notifications_enabled=True,
+        current_resolution_limit=0,
         active_tab="image_compare",
     )
 
-    # 6 rows: 4 platform sections + both ambient per-tab sections
-    # (image_compare, image_gallery) — visible from any session context.
-    assert [row.button.toolTip() for row in dialog.sidebar._rows] == [""] * 6
+    assert [row.button.toolTip() for row in dialog.sidebar._rows] == [""] * 4
 
     dialog.update_language("ru")
 
-    assert [row.button.toolTip() for row in dialog.sidebar._rows] == [""] * 6
+    assert [row.button.toolTip() for row in dialog.sidebar._rows] == [""] * 4

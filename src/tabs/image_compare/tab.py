@@ -13,39 +13,24 @@ from __future__ import annotations
 
 from pathlib import Path
 import logging
-from typing import TYPE_CHECKING
 
-from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QWidget
 
 from tabs.contract import TabContext, TabContract, TabTransitionHint
-from tabs.image_compare.use_cases import drag_drop, host_callbacks, persistence, registration
 
-if TYPE_CHECKING:
-    from tabs.image_compare.widget import ImageCompareWidget
-
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp", ".jxl"}
+_STATE_SLOT = "image_compare.state"
 logger = logging.getLogger("ImproveImgSLI")
 
 
 class ImageCompareTab(TabContract):
-    startup_tier = "bootstrap"
-
     def __init__(self):
         self._widget: "ImageCompareWidget | None" = None
         self._active_session_id: str | None = None
-        self._nav_section = None
 
     @property
     def session_type(self) -> str:
         return "image_compare"
-
-    @property
-    def is_bootstrap_default(self) -> bool:
-        # Not the bootstrap default — that role is reserved exclusively for
-        # session_picker (core.store.INITIAL_WORKSPACE_SESSION_TYPE).
-        # Legacy main-window shell services route by capability (the tab that
-        # implements them answers), so image_compare needs no declared role.
-        return False
 
     def create_default_session_data(self):
         from core.store_viewport import SessionData
@@ -53,19 +38,9 @@ class ImageCompareTab(TabContract):
 
         return SessionData(image_state=ImageSessionState(), render_cache=RenderCacheState())
 
-    def consumes_canvas_key_events(self) -> bool:
-        # Wired in CanvasLifecycleCoordinator.connect_event_handler_signals.
-        return True
-
     @property
     def display_name(self) -> str:
         return "Image Compare"
-
-    @property
-    def icon(self) -> QIcon | None:
-        from tabs.image_compare.icons import Icon, get_icon
-
-        return get_icon(Icon.PHOTO)
 
     @property
     def resources_dir(self) -> Path | None:
@@ -87,14 +62,8 @@ class ImageCompareTab(TabContract):
 
     def create_page(self, parent: QWidget, context: TabContext) -> QWidget:
         from tabs.image_compare.widget import ImageCompareWidget
-        from tabs.image_compare.first_frame_debug import ic_first_frame_debug_enabled
 
         self._widget = ImageCompareWidget(parent, context=context)
-        if ic_first_frame_debug_enabled():
-            logger.info(
-                "[ic-page] create_page widget=%s",
-                str(hex(id(self._widget)))[-6:],
-            )
         return self._widget
 
     @property
@@ -109,194 +78,39 @@ class ImageCompareTab(TabContract):
             widgets = {}
             ui.legacy_tab_widgets = widgets
         widgets[self.session_type] = self._widget
-        from tabs.image_compare.first_frame_debug import ic_first_frame_debug_enabled
         from tabs.image_compare.ui.primitives import ImageComparePrimitivesFactory
 
-        if ic_first_frame_debug_enabled():
-            logger.info(
-                "[ic-page] assemble_host_page widget=%s",
-                str(hex(id(self._widget)))[-6:],
-            )
         parent = getattr(ui, "main_window", None) or self._widget
-        ImageComparePrimitivesFactory(self._widget, ui).build(parent)
-        self._widget.image_label._ffd_primary = True
-        if ic_first_frame_debug_enabled():
-            logger.info(
-                "[ic-page] canvas built widget=%s canvas=%s",
-                str(hex(id(self._widget.image_label)))[-6:],
-                str(hex(id(self._widget.image_label)))[-6:],
-            )
+        ImageComparePrimitivesFactory(ui).build(parent)
         self._widget.assemble(ui)
-        self._widget.image_label.set_drag_overlay_state(False)
-        self._widget.install_rating_wheel_handlers()
-        self._create_magnifier_flyout(ui)
         return True
 
-    def _create_magnifier_flyout(self, ui) -> None:
-        """Create the magnifier visibility flyout — tab-owned, stored on the
-        tab's own widget (see ImageComparePrimitivesFactory's docstring for
-        why tab-built widgets attach to ``self._widget``, never to ``ui``)."""
-        if getattr(self._widget, "magnifier_visibility_flyout", None) is not None:
-            return  # already created
-        from ui.widgets.panel_visibility_flyout import PanelVisibilityFlyout
-
-        parent = getattr(ui, "main_window", None) or self._widget
-        flyout = PanelVisibilityFlyout(parent, slot_icon="magnifier.svg")
-        self._widget.magnifier_visibility_flyout = flyout
-        self._connect_magnifier_flyout_buttons(flyout, ui)
-
-    def _connect_magnifier_flyout_buttons(self, flyout, ui) -> None:
-        """Connect magnifier visibility buttons to the store."""
-        from ui.canvas_infra.scene.feature_state_api import (
-            execute_feature_command,
-            query_feature_state,
-        )
-
-        store = getattr(ui, "store", None) or (
-            self._widget._context.store if self._widget and self._widget._context else None
-        )
-        if store is None:
-            return
-
-        def _query(part: str) -> bool:
-            state = query_feature_state(store, "magnifier", "active_state")
-            if state is None:
-                return True
-            return bool(state.get(f"visible_{part}", True))
-
-        flyout.btn_left.toggled.connect(
-            lambda checked: execute_feature_command(
-                store, "magnifier", "set_active_visibility_parts",
-                left=not checked, center=_query("center"), right=_query("right"),
-            )
-        )
-        flyout.btn_right.toggled.connect(
-            lambda checked: execute_feature_command(
-                store, "magnifier", "set_active_visibility_parts",
-                left=_query("left"), center=_query("center"), right=not checked,
-            )
-        )
-        flyout.btn_center.toggled.connect(
-            lambda checked: execute_feature_command(
-                store, "magnifier", "set_active_visibility_parts",
-                left=_query("left"), center=not checked, right=_query("right"),
-            )
-        )
-
-    def finalize_host_page(self, ui) -> None:
-        if self._widget is None:
-            return
-        self._widget.toggle_edit_layout_visibility(False)
-        self._widget.apply_icon_sizes()
-
     def apply_host_session_mode(self, ui, session_title: str | None = None) -> bool:
-        if self._widget is None:
+        edit_layout = getattr(ui, "edit_layout_widget", None)
+        file_names = getattr(ui, "btn_file_names", None)
+        if edit_layout is None or file_names is None:
             return False
-        # Store-first: panel visibility follows the SSOT flag in the Store's
-        # viewport render_config, never the (possibly stale) widget button.
-        flag = False
-        try:
-            store = getattr(ui, "store", None)
-            if store is None:
-                ctx = getattr(self._widget, "_context", None)
-                store = getattr(ctx, "store", None) if ctx is not None else None
-            viewport = getattr(store, "viewport", None) if store is not None else None
-            render = getattr(viewport, "render_config", None) if viewport is not None else None
-            if render is not None:
-                flag = bool(getattr(render, "include_file_names_in_saved", False))
-        except Exception:
-            flag = False
-        self._widget.toggle_edit_layout_visibility(bool(flag))
+        edit_layout.setVisible(bool(file_names.isChecked()))
         return True
 
     def transition_hint(self) -> TabTransitionHint:
-        # No cover mask: unified with multi_compare, both tabs rely on the
-        # canvas's own startup placeholder for first-frame coverage. The mask
-        # was dropped because on Wayland it blocks the QRhiWidget's first
-        # expose/initialize while covering the stack (measured on multi_compare:
-        # initialize delayed ~400ms until the mask force-released). First-frame
-        # readiness is instead gated on the genuinely compositor-visible
-        # present (see shared/rendering/first_frame_gate.py), and the
-        # placeholder hides only after that frame is on screen.
-        return TabTransitionHint(cover_on_enter=False)
-
-    def on_activated(self, context: TabContext) -> None:
-        session_id = self._resolve_active_session_id(context)
-        if session_id is not None:
-            self.on_active_session_changed(session_id, context)
-        if self._widget is not None:
-            self._register_nav_section()
-            from PySide6.QtCore import Qt
-
-            try:
-                from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
-
-                reason = (
-                    Qt.FocusReason.OtherFocusReason
-                    if NavigationManager.get_instance().last_input_was_keyboard()
-                    else Qt.FocusReason.MouseFocusReason
-                )
-            except Exception:
-                reason = Qt.FocusReason.OtherFocusReason
-            self._widget.setFocus(reason)
-            try:
-                if getattr(self._widget, "_render_stale", False) and self._widget.is_current_stack_page():
-                    self._widget._flush_stale_render()
-            except Exception:
-                pass
-            try:
-                if getattr(self._widget, "_metrics_stale", False) and self._widget.is_current_stack_page():
-                    self._widget._flush_stale_metrics()
-            except Exception:
-                pass
-            try:
-                chrome = getattr(self._widget, "chrome_sync", None)
-                if chrome is not None and hasattr(chrome, "flush_stale_render"):
-                    window = getattr(context, "main_window", None)
-                    presenter = getattr(window, "presenter", None) if window is not None else None
-                    if presenter is not None:
-                        chrome.flush_stale_render(presenter)
-            except Exception:
-                pass
-        from ui.actions.registry import get_action_registry
-
-        self._register_actions(get_action_registry())
-
-    def _toolbar_rows(self) -> list[QWidget | None]:
-        w = self._widget
-        if w is None:
-            return []
-        return [
-            getattr(w, "selection_widget", None),
-            getattr(w, "checkbox_widget", None),
-            getattr(w, "footer_info_widget", None),
-            getattr(w, "edit_layout_widget", None),
-            getattr(w, "save_buttons_widget", None),
-        ]
-
-    def _register_nav_section(self) -> None:
-        if self._widget is None:
-            return
-        from tabs.host_helpers import declare_toolbar_navigation
-
-        self._nav_section = declare_toolbar_navigation(
-            self._widget,
-            self._toolbar_rows(),
-            tag="image-compare",
+        # QRhi warm-up can be long; widen the mask window vs the default 300 ms.
+        return TabTransitionHint(
+            cover_on_enter=True, min_duration_ms=50, max_duration_ms=400
         )
 
-    def on_active_session_changed(self, session_id: str, context: TabContext) -> None:
-        if session_id == self._active_session_id:
-            return
-        self._snapshot_into(context, self._active_session_id)
-        self._active_session_id = session_id
-        self._restore_from(context, session_id)
+    def on_activated(self, context: TabContext) -> None:
+        new_id = self._resolve_active_session_id(context)
+        if new_id != self._active_session_id:
+            self._snapshot_into(context, self._active_session_id)
+            self._active_session_id = new_id
+            self._restore_from(context, new_id)
+        if self._widget is not None:
+            self._widget.setFocus()
+        # The transition mask is released by ImageCompareWidget when the
+        # canvas emits ``firstVisualFrameReady`` — no host-side release here.
 
     def on_deactivated(self, context: TabContext) -> None:
-        if self._widget is not None:
-            from core.navigation import NavigationManager
-
-            NavigationManager.get_instance().unregister(self._widget)
         self._snapshot_into(context, self._active_session_id)
 
     def on_session_created(self, session_id: str, context: TabContext) -> None:
@@ -320,52 +134,205 @@ class ImageCompareTab(TabContract):
         return getattr(session, "id", None)
 
     def _snapshot_into(self, context: TabContext, session_id: str | None) -> None:
-        persistence.snapshot_into(self, context, session_id)
+        if session_id is None or self._widget is None:
+            return
+        store = getattr(context, "store", None)
+        if store is None or not hasattr(store, "set_session_state_slot"):
+            return
+        ui = getattr(self._widget._context, "main_window", None) if self._widget._context else None
+        ui = getattr(ui, "ui", None) if ui is not None else None
+        if ui is None:
+            return
+        from tabs.image_compare.models import ImageCompareState
+
+        state = ImageCompareState(
+            show_file_names=bool(getattr(getattr(ui, "btn_file_names", None), "isChecked", lambda: False)()),
+            edit_name_1=getattr(getattr(ui, "edit_name1", None), "text", lambda: "")(),
+            edit_name_2=getattr(getattr(ui, "edit_name2", None), "text", lambda: "")(),
+        )
+        try:
+            store.set_session_state_slot(
+                _STATE_SLOT, state, session_id=session_id, emit_scope=None,
+            )
+        except Exception:
+            pass
 
     def _restore_from(self, context: TabContext, session_id: str | None) -> None:
-        persistence.restore_from(self, context, session_id)
+        if session_id is None or self._widget is None:
+            return
+        store = getattr(context, "store", None)
+        if store is None or not hasattr(store, "ensure_session_state_slot"):
+            return
+        from tabs.image_compare.models import ImageCompareState
+
+        try:
+            state = store.ensure_session_state_slot(
+                _STATE_SLOT, session_id=session_id, factory=ImageCompareState,
+            )
+        except Exception:
+            return
+        if state is None:
+            return
+        ui = getattr(self._widget._context, "main_window", None) if self._widget._context else None
+        ui = getattr(ui, "ui", None) if ui is not None else None
+        if ui is None:
+            return
+        btn = getattr(ui, "btn_file_names", None)
+        if btn is not None and hasattr(btn, "setChecked"):
+            btn.setChecked(bool(state.show_file_names))
+        for attr, value in (("edit_name1", state.edit_name_1), ("edit_name2", state.edit_name_2)):
+            edit = getattr(ui, attr, None)
+            if edit is not None and hasattr(edit, "setText"):
+                edit.setText(value or "")
 
     def serialize_session(self, session_id: str, context: TabContext) -> dict | None:
-        return persistence.serialize_session(self, session_id, context)
+        store = getattr(context, "store", None)
+        if store is None:
+            return None
+        session = store.get_workspace_session(session_id)
+        if session is None or session.session_type != self.session_type:
+            return None
+        doc = session.document
+        ui_state = session.state_slots.get(_STATE_SLOT)
 
-    def collect_pixel_cache_sources(self, session_id: str, context: TabContext) -> dict:
-        return persistence.collect_pixel_cache_sources(self, session_id, context)
+        def _items(items):
+            return [
+                {"path": it.path, "display_name": it.display_name, "rating": it.rating}
+                for it in items
+            ]
+
+        return {
+            "version": 1,
+            "image_list1": _items(doc.image_list1) if doc else [],
+            "image_list2": _items(doc.image_list2) if doc else [],
+            "current_index1": doc.current_index1 if doc else -1,
+            "current_index2": doc.current_index2 if doc else -1,
+            "image1_path": doc.image1_path if doc else None,
+            "image2_path": doc.image2_path if doc else None,
+            "show_file_names": bool(ui_state.show_file_names) if ui_state else False,
+            "edit_name_1": ui_state.edit_name_1 if ui_state else "",
+            "edit_name_2": ui_state.edit_name_2 if ui_state else "",
+        }
 
     def deserialize_session(self, session_id: str, data: dict, context: TabContext) -> None:
-        persistence.deserialize_session(self, session_id, data, context)
+        store = getattr(context, "store", None)
+        if store is None or not data:
+            return
+        session = store.get_workspace_session(session_id)
+        if session is None:
+            return
+        from tabs.image_compare.state.document import DocumentModel, ImageItem
+        from tabs.image_compare.models import ImageCompareState
 
-    def rehydrate_session(self, session_id: str, context: TabContext) -> None:
-        persistence.rehydrate_session(self, session_id, context)
+        def _items(entries):
+            # `image=None` — pixel data is not persisted, only the source
+            # path; the existing load pipeline decodes it from disk lazily,
+            # the same way `ImageSessionState.loaded_image*_paths` already
+            # tracks history without holding pixels.
+            return [
+                ImageItem(
+                    path=e.get("path", ""),
+                    display_name=e.get("display_name", ""),
+                    rating=e.get("rating", 0),
+                )
+                for e in entries or []
+            ]
+
+        session.document = DocumentModel(
+            image_list1=_items(data.get("image_list1")),
+            image_list2=_items(data.get("image_list2")),
+            current_index1=data.get("current_index1", -1),
+            current_index2=data.get("current_index2", -1),
+            image1_path=data.get("image1_path"),
+            image2_path=data.get("image2_path"),
+        )
+        store.set_session_state_slot(
+            _STATE_SLOT,
+            ImageCompareState(
+                show_file_names=bool(data.get("show_file_names", False)),
+                edit_name_1=data.get("edit_name_1", ""),
+                edit_name_2=data.get("edit_name_2", ""),
+            ),
+            session_id=session_id,
+            emit_scope=None,
+        )
 
     def accepts_drop(self, paths: list[Path]) -> bool:
-        from tabs.image_compare.debug import ic_dnd_debug
-
-        ic_dnd_debug("Tab accepts_drop: %d paths", len(paths))
-        ok = drag_drop.accepts_drop(paths)
-        ic_dnd_debug("Tab accepts_drop -> %s", ok)
-        return ok
+        return any(p.suffix.lower() in _IMAGE_EXTENSIONS for p in paths)
 
     def handle_drop(self, paths: list[Path], hint: dict | None = None) -> bool:
-        from tabs.image_compare.debug import ic_dnd_debug
+        from PySide6.QtCore import QTimer
 
-        ic_dnd_debug("Tab handle_drop: ENTER")
-        ok = drag_drop.handle_drop(self, paths, hint)
-        ic_dnd_debug("Tab handle_drop -> %s", ok)
-        return ok
+        widget = self._widget
+        if widget is None:
+            logger.warning("ImageCompareTab.handle_drop: widget is not initialized")
+            return False
+        main_window = getattr(widget._context, "main_window", None) if widget._context else None
+        if main_window is None:
+            logger.warning("ImageCompareTab.handle_drop: main_window is unavailable")
+            return False
+        controller = getattr(main_window, "main_controller", None)
+        if controller is None:
+            presenter = getattr(main_window, "presenter", None)
+            controller = getattr(presenter, "main_controller", None)
+        sessions = getattr(controller, "sessions", None) if controller else None
+        if sessions is None:
+            logger.warning(
+                "ImageCompareTab.handle_drop: sessions controller unavailable "
+                "(main_controller=%r presenter=%r)",
+                getattr(main_window, "main_controller", None),
+                getattr(main_window, "presenter", None),
+            )
+            return False
+        image_paths = [str(p) for p in paths if p.suffix.lower() in _IMAGE_EXTENSIONS]
+        if not image_paths:
+            logger.debug(
+                "ImageCompareTab.handle_drop: no supported image paths in %s",
+                paths,
+            )
+            return False
+        slot = 1
+        if hint is not None:
+            if "slot" in hint:
+                slot = 1 if int(hint.get("slot") or 1) == 1 else 2
+            elif "is_left_area" in hint:
+                slot = 1 if bool(hint.get("is_left_area")) else 2
+        logger.debug(
+            "ImageCompareTab.handle_drop: scheduling load paths=%s slot=%s hint=%s",
+            image_paths,
+            slot,
+            hint,
+        )
+        QTimer.singleShot(
+            0, lambda: sessions.load_images_from_paths(image_paths, slot)
+        )
+        return True
 
-    def _register_settings(self, registry) -> None:
-        registration.register_settings(self, registry)
+    def contribute_settings(self, registry) -> None:
+        from plugins.settings.pages.analysis import build as build_analysis
+        from plugins.settings.registry import SettingsSection
+        from tabs.image_compare.ui.settings_performance import build_image_perf_extras
+        from ui.icon_manager import AppIcon
 
-    def _register_actions(self, registry) -> None:
-        registration.register_actions(self, registry)
-
-    def _resync_action_shortcuts(self) -> None:
-        registration.resync_action_shortcuts(self)
+        registry.add(
+            SettingsSection(
+                section_id="image_compare.analysis",
+                title_key="label.details",
+                icon=AppIcon.HIGHLIGHT_DIFFERENCES,
+                build=build_analysis,
+                owner_tab=self.session_type,
+                order=40,
+            )
+        )
+        registry.add_section_extra(
+            "builtin.performance",
+            build_image_perf_extras,
+            owner_tab=self.session_type,
+            order=10,
+        )
 
     def create_main_window_feature(self, feature_id: str, **kwargs):
         if feature_id != "image_canvas":
-            return None
-        if self._widget is None:
             return None
         from tabs.image_compare.presenters.image_canvas.presenter import (
             ImageCanvasPresenter,
@@ -374,50 +341,224 @@ class ImageCompareTab(TabContract):
         return ImageCanvasPresenter(
             kwargs["store"],
             kwargs["main_controller"],
-            self._widget,
+            kwargs["ui"],
             kwargs["main_window_app"],
         )
 
     def create_service(self, service_id: str, *args, **kwargs):
-        from tabs.image_compare.service_factory import create_service as _create
+        if service_id == "snapshot_frame_renderer":
+            from tabs.image_compare.services.video_snapshot_rendering import (
+                SnapshotFrameRenderer,
+            )
 
-        return _create(self, service_id, *args, **kwargs)
+            return SnapshotFrameRenderer(*args, **kwargs)
+        if service_id == "still_snapshot_bounds":
+            from tabs.image_compare.services.snapshot_render_plan_builder import (
+                calculate_still_snapshot_bounds,
+            )
 
-    def get_canvas_geometry_provider(self):
-        if self._widget is None:
-            return None
-        from tabs.image_compare.canvas_geometry_provider import (
-            ImageCompareCanvasGeometryProvider,
-        )
+            return calculate_still_snapshot_bounds(*args, **kwargs)
+        if service_id == "global_canvas_bounds":
+            from tabs.image_compare.services.snapshot_render_plan_builder import (
+                calculate_global_canvas_bounds,
+            )
 
-        return ImageCompareCanvasGeometryProvider(self._canvas_label)
+            return calculate_global_canvas_bounds(*args, **kwargs)
+        if service_id == "live_frame_snapshot":
+            from tabs.image_compare.services.live_snapshot import (
+                build_live_frame_snapshot,
+            )
 
-    def _canvas_label(self):
-        return host_callbacks.canvas_label(self)
+            return build_live_frame_snapshot(*args, **kwargs)
+        if service_id == "export_save_context_builder":
+            from tabs.image_compare.services.export_context_builder import (
+                ExportContextBuilder,
+            )
 
-    def _clear_transient_text_focus(self, focused_widget) -> bool:
-        return host_callbacks.clear_transient_text_focus(self, focused_widget)
+            return ExportContextBuilder(*args, **kwargs)
+        if service_id == "export_state_coordinator":
+            from tabs.image_compare.services.export_state import ExportStateCoordinator
 
-    def _sync_interpolation_combo_state(
-        self, count: int, current_index: int, text: str, items: list[str]
-    ) -> bool:
-        return host_callbacks.sync_interpolation_combo_state(
-            self, count, current_index, text, items
-        )
+            return ExportStateCoordinator(*args, **kwargs)
+        if service_id == "export_save_flow":
+            from tabs.image_compare.services.export_save_flow import (
+                ExportSaveFlowCoordinator,
+            )
 
-    def _setup_view_mode_buttons(
-        self,
-        diff_actions: list[tuple[str, str]],
-        diff_mode: str,
-        channel_actions: list[tuple[str, str]],
-        channel_mode: str,
-    ) -> bool:
-        return host_callbacks.setup_view_mode_buttons(
-            self, diff_actions, diff_mode, channel_actions, channel_mode
-        )
+            return ExportSaveFlowCoordinator(*args, **kwargs)
+        if service_id == "image_export_service":
+            from tabs.image_compare.services.image_export import ExportService
 
-    def _is_canvas_content_ready(self) -> bool:
-        return host_callbacks.is_canvas_content_ready(self)
+            return ExportService(*args, **kwargs)
+        if service_id == "clipboard_paste_service":
+            from tabs.image_compare.services.clipboard import ClipboardService
+
+            return ClipboardService(*args, **kwargs)
+        if service_id == "layout_manager":
+            from tabs.image_compare.ui.layout_manager import ImageCompareLayoutManager
+
+            return ImageCompareLayoutManager(*args, **kwargs)
+        if service_id == "settings_color_picker_coordinator":
+            from tabs.image_compare.ui.settings_color_pickers import (
+                SettingsColorPickerCoordinator,
+            )
+
+            return SettingsColorPickerCoordinator(*args, **kwargs)
+        if service_id == "settings_viewport_application":
+            from tabs.image_compare.ui.settings_application import (
+                ImageCompareSettingsApplication,
+            )
+
+            return ImageCompareSettingsApplication(*args, **kwargs).apply()
+        if service_id == "settings_metrics_query":
+            from tabs.image_compare.ui.settings_persistence import (
+                query_image_compare_metrics_settings,
+            )
+
+            return query_image_compare_metrics_settings(*args, **kwargs)
+        if service_id == "session_has_content":
+            store = args[0] if args else kwargs.get("store")
+            image_state = store.viewport.session_data.image_state
+            return image_state is not None and bool(image_state.image1)
+        if service_id == "settings_canvas_feature_load":
+            from tabs.image_compare.ui.settings_persistence import (
+                load_image_compare_feature_settings,
+            )
+
+            load_image_compare_feature_settings(*args, **kwargs)
+            return True
+        if service_id == "settings_canvas_feature_save":
+            from tabs.image_compare.ui.settings_persistence import (
+                save_image_compare_feature_settings,
+            )
+
+            save_image_compare_feature_settings(*args, **kwargs)
+            return True
+        if service_id == "magnifier_visibility_flyout":
+            from tabs.image_compare.ui.magnifier_visibility_flyout import (
+                MagnifierVisibilityFlyout,
+            )
+
+            return MagnifierVisibilityFlyout(*args, **kwargs)
+        if service_id == "magnifier_visibility_controller":
+            from tabs.image_compare.ui.transient_magnifier import (
+                MagnifierVisibilityController,
+            )
+
+            return MagnifierVisibilityController(*args, **kwargs)
+        if service_id == "magnifier_instances_popup_controller":
+            from tabs.image_compare.ui.transient_magnifier_instances import (
+                MagnifierInstancesPopupController,
+            )
+
+            return MagnifierInstancesPopupController(*args, **kwargs)
+        if service_id == "toolbar_presenter":
+            from tabs.image_compare.presenters.toolbar_presenter import (
+                ToolbarPresenter,
+            )
+
+            return ToolbarPresenter(*args, **kwargs)
+        if service_id == "install_translations":
+            from tabs.image_compare.ui.translations import (
+                install_image_compare_translations,
+            )
+
+            install_image_compare_translations(*args, **kwargs)
+            return True
+        if service_id == "canvas_widget_class":
+            from tabs.image_compare.canvas.widget import get_canvas_widget_class
+
+            return get_canvas_widget_class()
+        if service_id == "canvas_render_scene":
+            from tabs.image_compare.canvas.scene import build_render_scene
+
+            return build_render_scene(*args, **kwargs)
+        if service_id == "canvas_reset_overlays":
+            from tabs.image_compare.canvas.helpers import reset_canvas_overlays
+
+            canvas = args[0]
+            reset_canvas_overlays(canvas)
+            return True
+        if service_id == "canvas_feature_command":
+            from tabs.image_compare.canvas.registry import registry
+
+            feature_name, command_id, *command_args = args
+            command = registry().get_feature_command(feature_name, command_id)
+            if command is None:
+                return None
+            return command(*command_args, **kwargs)
+        if service_id == "canvas_feature_command_alias":
+            from tabs.image_compare.canvas.registry import registry
+
+            alias, *command_args = args
+            command = registry().get_feature_command_by_alias(alias)
+            if command is None:
+                return None
+            return command(*command_args, **kwargs)
+        if service_id == "canvas_plan_split_sync":
+            from tabs.image_compare.canvas.registry import registry
+
+            command = registry().get_feature_command_by_alias("splitter.sync_split_position")
+            if command is None:
+                return None
+            return command(*args, **kwargs)
+        if service_id == "canvas_live_runtime_overlays":
+            from tabs.image_compare.canvas.registry import registry
+
+            store, canvas = args
+            return registry().apply_feature_live_runtime_overlays(store, canvas)
+        if service_id == "canvas_snapshot_overlay_params":
+            canvas, plan = args
+            canvas.set_guides_params(
+                plan.guides_enabled,
+                plan.guides_color,
+                plan.guides_thickness,
+            )
+            canvas.set_capture_color(plan.capture_color)
+            return True
+        if service_id == "canvas_plan_runtime_overlays":
+            from tabs.image_compare.canvas.presentation.plan_applicator import (
+                apply_plan_runtime_overlays,
+            )
+
+            return apply_plan_runtime_overlays(*args, **kwargs)
+        if service_id == "canvas_sync_geometry_state":
+            from tabs.image_compare.canvas.presentation.plan_applicator import (
+                sync_geometry_state,
+            )
+
+            return sync_geometry_state(*args, **kwargs)
+        if service_id == "canvas_legacy_render_plan":
+            from tabs.image_compare.canvas.presentation.plan_applicator import (
+                apply_legacy_canvas_render_plan,
+            )
+
+            canvas, plan = args
+            return apply_legacy_canvas_render_plan(canvas, plan, **kwargs)
+        if service_id == "unified_flyout_controller":
+            from tabs.image_compare.ui.transient_flyouts import FlyoutController
+
+            return FlyoutController(*args, **kwargs)
+        if service_id == "popup_close_extension":
+            from tabs.image_compare.ui.popup_closing import ImageComparePopupClosing
+
+            return ImageComparePopupClosing(*args, **kwargs)
+        if service_id == "has_initial_canvas_content":
+            from tabs.image_compare.ui.startup_readiness import (
+                has_initial_canvas_content,
+            )
+
+            return has_initial_canvas_content(*args, **kwargs)
+        if service_id == "requires_first_frame_startup_gate":
+            return True
+        if service_id == "refresh_startup_button_visuals":
+            from tabs.image_compare.ui.startup_readiness import (
+                refresh_startup_button_visuals,
+            )
+
+            refresh_startup_button_visuals(*args, **kwargs)
+            return True
+        return None
 
     def register_canvas_features(self) -> None:
         import tabs.image_compare.canvas.features as features_pkg
@@ -428,16 +569,7 @@ class ImageCompareTab(TabContract):
     def apply_appearance(self, host_window) -> None:
         from tabs.image_compare.ui.appearance import apply_image_canvas_appearance
 
-        # Pass the tab-owned widget: host_window.ui is the main shell
-        # (Ui_ImageComparisonApp) and carries no image_label — the canvas
-        # and its container live on self._widget (primitives + layout).
-        apply_image_canvas_appearance(host_window, canvas_owner=self._widget)
-        if self._widget is not None and self._widget.isVisible():
-            self._widget.reapply_button_styles()
+        apply_image_canvas_appearance(host_window)
 
     def dispose(self) -> None:
-        if self._widget is not None:
-            from core.navigation import NavigationManager
-
-            NavigationManager.get_instance().unregister(self._widget)
         self._widget = None

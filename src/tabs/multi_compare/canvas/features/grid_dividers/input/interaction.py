@@ -14,29 +14,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, Qt
 
-from tabs.multi_compare.canvas.features.grid_dividers.input.hit import (
-    divider_at,
-    min_pane_weight,
-    split_container_size_at,
-)
 from tabs.multi_compare.scene import actions
 
 
-def _sizes_for(handler):
-    """Natural sizes from the session cache (B1: keeps the reducer pure)."""
-    try:
-        from tabs.multi_compare.pipeline.cache import sizes_for_slots
-
-        return sizes_for_slots(
-            getattr(handler, "pixel_cache", None),
-            getattr(getattr(handler, "state", None), "slots", None),
-        )
-    except Exception:
-        return None
-
-
 def begin_divider_drag(handler, local_pos: QPointF) -> None:
-    div = divider_at(handler, local_pos)
+    div = handler._divider_at(local_pos)
     if div is None:
         return
     split_path, idx, _drect, direction, weights = div
@@ -57,7 +39,7 @@ def update_divider_drag(handler, local_pos: QPointF) -> None:
         if direction == "h"
         else local_pos.y() - handler._divider_start_cursor.y()
     )
-    container_size_px = split_container_size_at(handler, split_path, direction)
+    container_size_px = handler._split_container_size_at(split_path, direction)
     if container_size_px <= 0:
         return
     total_pair = ws[idx] + ws[idx + 1]
@@ -65,8 +47,8 @@ def update_divider_drag(handler, local_pos: QPointF) -> None:
     weight_delta = delta_px / container_size_px * total_weights
     new_left = ws[idx] + weight_delta
     new_right = ws[idx + 1] - weight_delta
-    min_w = min_pane_weight(
-        handler, split_path, direction, container_size_px, total_weights
+    min_w = handler._min_pane_weight(
+        split_path, direction, container_size_px, total_weights
     )
 
     max_w = total_pair - min_w
@@ -77,9 +59,7 @@ def update_divider_drag(handler, local_pos: QPointF) -> None:
         new_right = total_pair - new_left
     ws[idx] = new_left
     ws[idx + 1] = new_right
-    handler._do_dispatch(
-        actions.set_split_weights(split_path, ws, sizes=_sizes_for(handler))
-    )
+    handler._do_dispatch(actions.set_split_weights(split_path, ws))
 
 
 def end_divider_drag(handler) -> None:

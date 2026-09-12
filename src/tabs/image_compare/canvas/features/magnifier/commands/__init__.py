@@ -45,7 +45,6 @@ from tabs.image_compare.canvas.features.magnifier.commands.viewport import (
     viewport_set_active_combined,
     viewport_set_active_divider_color,
     viewport_set_active_freeze,
-    viewport_set_active_guides_color,
     viewport_set_active_instance,
     viewport_set_active_laser_enabled,
     viewport_set_active_offset,
@@ -57,10 +56,6 @@ from tabs.image_compare.canvas.features.magnifier.commands.viewport import (
     viewport_set_instance_visibility,
     viewport_set_internal_split,
     viewport_toggle_enabled,
-)
-from tabs.image_compare.canvas.features.magnifier.persistence import (
-    restore_magnifier_from_project,
-    serialize_magnifier_for_project,
 )
 
 
@@ -189,8 +184,6 @@ def build_magnifier_commands(render_canvas_payload) -> dict[str, Any]:
             else 0
         ),
         "query.is_horizontal": query_is_horizontal,
-        "project.serialize": serialize_magnifier_for_project,
-        "project.restore": restore_magnifier_from_project,
         "viewport.toggle_enabled": viewport_toggle_enabled,
         "viewport.ensure_active": viewport_ensure_active,
         "viewport.set_active_size": viewport_set_active_size,
@@ -199,7 +192,6 @@ def build_magnifier_commands(render_canvas_payload) -> dict[str, Any]:
         "viewport.set_active_spacing": viewport_set_active_spacing,
         "viewport.set_active_border_color": viewport_set_active_border_color,
         "viewport.set_active_divider_color": viewport_set_active_divider_color,
-        "viewport.set_active_guides_color": viewport_set_active_guides_color,
         "viewport.set_active_laser_enabled": viewport_set_active_laser_enabled,
         "viewport.set_active_visibility_parts": viewport_set_active_visibility_parts,
         "viewport.set_active_orientation": viewport_set_active_orientation,

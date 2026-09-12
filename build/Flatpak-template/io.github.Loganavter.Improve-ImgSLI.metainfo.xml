@@ -21,32 +21,22 @@
       <li>Use persistent settings, multilingual interface support, and structured diagnostics for advanced troubleshooting.</li>
     </ul>
     <p>
-      The application is distributed under the GPL-3.0-or-later License.
-      It uses PySide6 and Qt 6 (LGPL-3.0-or-later). See LICENSE and
-      THIRD_PARTY_LICENSES.md in the source repository for details.
+      The application is distributed under the GPL-3.0 License.
     </p>
   </description>
   <url type="homepage">https://github.com/Loganavter/Improve-ImgSLI</url>
   <launchable type="desktop-id">io.github.Loganavter.Improve-ImgSLI.desktop</launchable>     
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/Loganavter/media_archive/2.0.0/Improve_ImgSLI/screenshots/screenshot_1.jpg</image>
+      <image>https://raw.githubusercontent.com/Loganavter/media_archive/1.9.0/Improve_ImgSLI/screenshots/screenshot_1.jpg</image>
       <caption>Magnifier</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Loganavter/media_archive/2.0.0/Improve_ImgSLI/screenshots/screenshot_2.jpg</image>
+      <image>https://raw.githubusercontent.com/Loganavter/media_archive/1.9.0/Improve_ImgSLI/screenshots/screenshot_2.jpg</image>
       <caption>Difference View</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Loganavter/media_archive/2.0.0/Improve_ImgSLI/screenshots/screenshot_3.jpg</image>
-      <caption>Multi Compare</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/Loganavter/media_archive/2.0.0/Improve_ImgSLI/screenshots/screenshot_4.jpg</image>
-      <caption>Create a workspace</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/Loganavter/media_archive/2.0.0/Improve_ImgSLI/screenshots/screenshot_5.jpg</image>
+      <image>https://raw.githubusercontent.com/Loganavter/media_archive/1.9.0/Improve_ImgSLI/screenshots/screenshot_3.jpg</image>
       <caption>Video Editor</caption>
     </screenshot>
   </screenshots>
@@ -55,18 +45,6 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="11.0.0" date="2026-08-09">
-      <url>https://github.com/Loganavter/Improve-ImgSLI/releases/tag/v11.0.0</url>
-      <description>
-        <p>Move to a mip-pyramid LOD rendering stack, reworked toolkit widgets (glass-effect HUD flyouts, new color picker, improved scrollable toolbar buttons), and packaging fixes for the v10 Flatpak/AUR issues.</p>
-      </description>
-    </release>
-    <release version="10.0.1" date="2026-07-20">
-      <url>https://github.com/Loganavter/Improve-ImgSLI/releases/tag/v10.0.1</url>
-      <description>
-        <p>Fix multiple inheritance crashes in UI and update to sli-ui-toolkit 3.1.9</p>
-      </description>
-    </release>
     <release version="9.0.0" date="2026-05-30">
       <description>
         <p>A major release focused on smoother canvas interaction, sharper rendering, and a richer multi-magnifier workflow.</p>

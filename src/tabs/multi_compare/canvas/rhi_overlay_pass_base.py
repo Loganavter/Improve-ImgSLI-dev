@@ -1,10 +1,13 @@
 """Shared QRhi fullscreen textured-overlay pass base for Multi Compare features.
 
-``layer_labels`` and ``drag_drop_overlay`` rasterize into an independent
-framebuffer-sized ``QImage`` and draw it as one alpha-blended textured quad —
-shared QRhi plumbing (pipeline, texture, SRB, blend); subclasses implement
-``_raster``. Grid dividers use a dedicated GPU quad pass instead (no FB-sized
-overlay texture). Split out per MULTI_COMPARE_QRHI_REFACTOR.md Phase B3.
+``grid_dividers``, ``layer_labels``, and ``drag_drop_overlay`` each rasterize
+their own content into an independent framebuffer-sized ``QImage`` and draw
+it as one alpha-blended textured quad — this is the QRhi plumbing (pipeline,
+texture, SRB, blend state) that's otherwise identical across all three;
+subclasses only implement ``_raster``. Split out per
+MULTI_COMPARE_QRHI_REFACTOR.md Phase B3 so each feature gets an independent
+``CanvasRenderPass`` (own texture/draw call) instead of the old shared
+combined-texture ``OverlayTexturePass``.
 """
 
 from __future__ import annotations
@@ -16,11 +19,9 @@ from PySide6.QtCore import QSize
 from PySide6.QtGui import (
     QImage,
     QRhiBuffer,
-    QRhi,
     QRhiGraphicsPipeline,
     QRhiSampler,
     QRhiShaderResourceBinding,
-    QRhiShaderResourceBindings,
     QRhiShaderStage,
     QRhiTexture,
     QRhiViewport,
@@ -41,72 +42,20 @@ class FullscreenOverlayTexturePass(CanvasRenderPass):
     """Rasterize-to-texture, draw-as-fullscreen-quad QRhi pass base."""
 
     def __init__(self) -> None:
-        self.rhi: QRhi | None = None
-        self.pipeline: QRhiGraphicsPipeline | None = None
-        self._render_pass_descriptor = None
-        self._pipeline_sample_count: int | None = None
-        self.vertex_buffer: QRhiBuffer | None = None
-        self.uniform_buffer: QRhiBuffer | None = None
-        self.sampler: QRhiSampler | None = None
-        self.texture: QRhiTexture | None = None
+        self.rhi = None
+        self.pipeline = None
+        self.vertex_buffer = None
+        self.uniform_buffer = None
+        self.sampler = None
+        self.texture = None
         self.texture_size: QSize | None = None
-        self.srb: QRhiShaderResourceBindings | None = None
+        self.srb = None
         self.active = False
 
     def _raster(self, widget, ctx) -> QImage | None:
         """Return the framebuffer-sized overlay image for this frame, or
         ``None``/a null image if this pass has nothing to draw."""
         raise NotImplementedError
-
-    def _ensure_pipeline(self, target, *, force: bool = False) -> bool:
-        """Recreate overlay pipeline if the swapchain render-pass descriptor changed."""
-        if self.rhi is None or target is None or self.srb is None:
-            return False
-        descriptor = target.renderPassDescriptor()
-        sample_count = int(target.sampleCount())
-        if (
-            not force
-            and self.pipeline is not None
-            and descriptor is self._render_pass_descriptor
-            and sample_count == self._pipeline_sample_count
-        ):
-            return False
-        if self.pipeline is not None:
-            try:
-                self.pipeline.destroy()
-            except RuntimeError:
-                pass
-            self.pipeline = None
-
-        pipeline = self.rhi.newGraphicsPipeline()
-        pipeline.setShaderStages(
-            [
-                QRhiShaderStage(
-                    QRhiShaderStage.Type.Vertex, load_shader("overlay.vert.qsb")
-                ),
-                QRhiShaderStage(
-                    QRhiShaderStage.Type.Fragment, load_shader("overlay.frag.qsb")
-                ),
-            ]
-        )
-        pipeline.setTopology(QRhiGraphicsPipeline.Topology.TriangleStrip)
-        pipeline.setSampleCount(sample_count)
-        pipeline.setRenderPassDescriptor(descriptor)
-        blend = QRhiGraphicsPipeline.TargetBlend()
-        blend.enable = True
-        blend.srcColor = QRhiGraphicsPipeline.BlendFactor.One  # type: ignore[assignment]  # PySide6 stub types BlendFactor fields as int
-        blend.dstColor = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[assignment]
-        blend.srcAlpha = QRhiGraphicsPipeline.BlendFactor.One  # type: ignore[assignment]
-        blend.dstAlpha = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[assignment]
-        pipeline.setTargetBlends([blend])
-        pipeline.setShaderResourceBindings(self.srb)
-        pipeline.setVertexInputLayout(vertex_input_layout())
-        if not pipeline.create():
-            raise RuntimeError(f"Failed to create {type(self).__name__} QRhi pipeline")
-        self.pipeline = pipeline
-        self._render_pass_descriptor = descriptor
-        self._pipeline_sample_count = sample_count
-        return True
 
     def initialize(self, rhi, target) -> None:
         self.release()
@@ -144,10 +93,34 @@ class FullscreenOverlayTexturePass(CanvasRenderPass):
         self.texture_size = QSize(1, 1)
 
         self.srb = self._build_srb()
-        self._ensure_pipeline(target)
+
+        self.pipeline = rhi.newGraphicsPipeline()
+        self.pipeline.setShaderStages(
+            [
+                QRhiShaderStage(
+                    QRhiShaderStage.Type.Vertex, load_shader("overlay.vert.qsb")
+                ),
+                QRhiShaderStage(
+                    QRhiShaderStage.Type.Fragment, load_shader("overlay.frag.qsb")
+                ),
+            ]
+        )
+        self.pipeline.setTopology(QRhiGraphicsPipeline.Topology.TriangleStrip)
+        self.pipeline.setSampleCount(target.sampleCount())
+        self.pipeline.setRenderPassDescriptor(target.renderPassDescriptor())
+        blend = QRhiGraphicsPipeline.TargetBlend()
+        blend.enable = True
+        blend.srcColor = QRhiGraphicsPipeline.BlendFactor.One
+        blend.dstColor = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha
+        blend.srcAlpha = QRhiGraphicsPipeline.BlendFactor.One
+        blend.dstAlpha = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha
+        self.pipeline.setTargetBlends([blend])
+        self.pipeline.setShaderResourceBindings(self.srb)
+        self.pipeline.setVertexInputLayout(vertex_input_layout())
+        if not self.pipeline.create():
+            raise RuntimeError(f"Failed to create {type(self).__name__} QRhi pipeline")
 
     def _build_srb(self):
-        assert self.rhi is not None
         srb = self.rhi.newShaderResourceBindings()
         stages = (
             QRhiShaderResourceBinding.StageFlag.VertexStage
@@ -186,29 +159,18 @@ class FullscreenOverlayTexturePass(CanvasRenderPass):
         overlay_size = overlay_image.size()
         if self.texture_size != overlay_size:
             try:
-                if self.texture is not None:
-                    self.texture.destroy()
+                self.texture.destroy()
             except RuntimeError:
                 pass
-            assert self.rhi is not None
             self.texture = self.rhi.newTexture(QRhiTexture.Format.RGBA8, overlay_size)
             if not self.texture.create():
                 raise RuntimeError(f"Failed to resize {type(self).__name__} texture")
             self.texture_size = overlay_size
             try:
-                if self.srb is not None:
-                    self.srb.destroy()
+                self.srb.destroy()
             except RuntimeError:
                 pass
             self.srb = self._build_srb()
-            # Pipeline was created against the previous SRB; rebuild so the
-            # layout binding stays valid after texture resize (Vulkan).
-            try:
-                rt = widget.renderTarget() if widget is not None else None
-            except Exception:
-                rt = None
-            if rt is not None:
-                self._ensure_pipeline(rt, force=True)
         resource_updates.uploadTexture(self.texture, overlay_image)
         self.active = True
         if getattr(widget, "_mc_overlay_debug", False):
@@ -245,8 +207,6 @@ class FullscreenOverlayTexturePass(CanvasRenderPass):
                     pass
         self.rhi = None
         self.pipeline = None
-        self._render_pass_descriptor = None
-        self._pipeline_sample_count = None
         self.vertex_buffer = None
         self.uniform_buffer = None
         self.sampler = None

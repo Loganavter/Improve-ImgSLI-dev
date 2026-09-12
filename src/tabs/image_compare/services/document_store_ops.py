@@ -1,9 +1,11 @@
 """Document/image-pair store operations that belong to image_compare.
 
-These manipulate DocumentModel (SlotSource: image_list1/2 + current_index1/2
-+ derived image1_path/2) and viewport image_state (PipelineView).
-Pixels live in PipelineCache, not DocumentModel. See
-plan_loading_simplification.md Phase 3.
+These directly manipulate ``DocumentModel`` (``tabs/image_compare/state/document.py``)
+and the image1/image2 fields of ``ViewportState.session_data`` — both are
+image_compare's own "pair of images" concept, not a generic core one. They
+used to live on ``core.store_operations.StoreOperationsMixin`` alongside
+truly generic viewport-cache operations; see step 9 in
+``tabs/image_compare/docs/MIGRATION_PLAN.md``.
 """
 
 from __future__ import annotations
@@ -16,81 +18,107 @@ from tabs.image_compare.canvas.registry import registry
 
 
 def clear_image_slot_data(store, image_number: int) -> None:
-    dispatcher = store.get_dispatcher()
-    assert dispatcher is not None, "clear_image_slot_data requires dispatcher"
-    from core.state_management.actions import ClearImageSlotDataAction
+    if store.get_dispatcher():
+        from core.state_management.actions import ClearImageSlotDataAction
 
-    dispatcher.dispatch(ClearImageSlotDataAction(image_number), scope="viewport")
+        store.get_dispatcher().dispatch(
+            ClearImageSlotDataAction(image_number), scope="viewport"
+        )
+        return
 
+    document = store.get_session_state_slot("document")
+    if image_number == 1:
+        document.original_image1 = None
+        document.full_res_image1 = None
+        document.preview_image1 = None
+        document.image1_path = None
+        document.clear_last_display_name(1)
+        store.viewport.session_data.image_state.image1 = None
+        store.viewport.session_data.render_cache.display_cache_image1 = None
+    else:
+        document.original_image2 = None
+        document.full_res_image2 = None
+        document.preview_image2 = None
+        document.image2_path = None
+        document.clear_last_display_name(2)
+        store.viewport.session_data.image_state.image2 = None
+        store.viewport.session_data.render_cache.display_cache_image2 = None
 
-def set_crop_override(store, list_num: int, index: int, value: bool | None) -> None:
-    """Persist a per-image autocrop tristate override via dispatch (W5).
-
-    Scope ``document`` like the rest of the document pattern — the
-    dispatcher emits, so no manual ``emit_state_change`` is needed on the
-    dispatch path. Unlike the rating path (in-place item mutation), this
-    never touches ``ImageItem`` directly; ``DocumentReducer`` replaces it.
-    """
-    dispatcher = store.get_dispatcher()
-    assert dispatcher is not None, "set_crop_override requires dispatcher"
-    from core.state_management.actions import SetCropOverrideAction
-
-    dispatcher.dispatch(
-        SetCropOverrideAction(slot=list_num, index=index, value=value),
-        scope="document",
-    )
+    session = store.viewport.session_data
+    session.render_cache.scaled_image1_for_display = None
+    session.render_cache.scaled_image2_for_display = None
+    session.render_cache.cached_scaled_image_dims = None
+    session.render_cache.last_display_cache_params = None
+    store.invalidate_render_cache()
 
 
 def set_current_image_data(store, image_number: int, image, path, display_name) -> None:
-    # SlotSource: path is derived from list+index, no document pixel write.
-    # PipelineView via single Transaction (1 dispatch, 1 emit).
-    from core.state_management.actions import InvalidateGeometryCacheAction, SetImageSessionImageAction
-
-    try:
-        store.transact(
-            [
-                SetImageSessionImageAction(slot=image_number, image=image),
-                InvalidateGeometryCacheAction(),
-            ],
-            scope="viewport",
+    if store.get_dispatcher():
+        from core.state_management.actions import (
+            SetFullResImageAction,
+            SetImagePathAction,
+            SetOriginalImageAction,
         )
-    except Exception:
+
         dispatcher = store.get_dispatcher()
-        assert dispatcher is not None
-        with store.batch_changes():
-            dispatcher.dispatch(SetImageSessionImageAction(slot=image_number, image=image), scope="viewport")
-            dispatcher.dispatch(InvalidateGeometryCacheAction(), scope="viewport")
+        dispatcher.dispatch(
+            SetFullResImageAction(image_number, image), scope="document"
+        )
+        dispatcher.dispatch(
+            SetOriginalImageAction(image_number, image), scope="document"
+        )
+        dispatcher.dispatch(
+            SetImagePathAction(image_number, path), scope="document"
+        )
+        return
+
+    document = store.get_session_state_slot("document")
+    if image_number == 1:
+        document.full_res_image1 = image
+        document.original_image1 = image
+        document.image1_path = path
+        store.viewport.session_data.image_state.image1 = image
+    else:
+        document.full_res_image2 = image
+        document.original_image2 = image
+        document.image2_path = path
+        store.viewport.session_data.image_state.image2 = image
+    store.emit_state_change("document")
 
 
 def swap_all_image_data(store) -> None:
-    dispatcher = store.get_dispatcher()
-    assert dispatcher is not None, "swap_all_image_data requires dispatcher"
-    from core.state_management.actions import InvalidateGeometryCacheAction, SetCurrentIndexAction, SetImageSessionImageAction
-
     doc = store.get_session_state_slot("document")
     vp = store.viewport
 
-    # Capture before any dispatch — replace() returns a new document, so later
-    # captures would see already-swapped values.
-    image1 = vp.session_data.image_state.image1
-    image2 = vp.session_data.image_state.image2
-    idx1 = doc.current_index1
-    idx2 = doc.current_index2
-    list1 = doc.image_list1
-    list2 = doc.image_list2
+    doc.image_list1, doc.image_list2 = doc.image_list2, doc.image_list1
+    doc.current_index1, doc.current_index2 = doc.current_index2, doc.current_index1
 
-    with store.batch_changes():
-        # viewport PipelineView swap
-        dispatcher.dispatch(SetImageSessionImageAction(slot=1, image=image2), scope="viewport")
-        dispatcher.dispatch(SetImageSessionImageAction(slot=2, image=image1), scope="viewport")
-        # SlotSource swap
-        dispatcher.dispatch(SetCurrentIndexAction(slot=1, index=idx2), scope="document")
-        dispatcher.dispatch(SetCurrentIndexAction(slot=2, index=idx1), scope="document")
-        # image_list swap via slot write (no SetImageListAction yet)
-        live_doc = store.get_session_state_slot("document")
-        new_doc = _dc_replace(live_doc, image_list1=list2, image_list2=list1)
-        store.set_session_state_slot("document", new_doc, emit_scope="document")
-        dispatcher.dispatch(InvalidateGeometryCacheAction(), scope="viewport")
+    doc.original_image1, doc.original_image2 = (
+        doc.original_image2,
+        doc.original_image1,
+    )
+    doc.full_res_image1, doc.full_res_image2 = (
+        doc.full_res_image2,
+        doc.full_res_image1,
+    )
+    doc.preview_image1, doc.preview_image2 = doc.preview_image2, doc.preview_image1
+    doc.image1_path, doc.image2_path = doc.image2_path, doc.image1_path
+
+    vp.session_data.image_state.image1, vp.session_data.image_state.image2 = (
+        vp.session_data.image_state.image2,
+        vp.session_data.image_state.image1,
+    )
+    vp.session_data.render_cache.display_cache_image1, vp.session_data.render_cache.display_cache_image2 = (
+        vp.session_data.render_cache.display_cache_image2,
+        vp.session_data.render_cache.display_cache_image1,
+    )
+    vp.session_data.render_cache.scaled_image1_for_display, vp.session_data.render_cache.scaled_image2_for_display = (
+        vp.session_data.render_cache.scaled_image2_for_display,
+        vp.session_data.render_cache.scaled_image1_for_display,
+    )
+
+    store.invalidate_geometry_cache()
+    store.emit_state_change("document")
 
 
 def copy_for_worker(store):
@@ -113,9 +141,6 @@ def copy_for_worker(store):
     new_session_data.render_cache.cached_diff_image = (
         src_session.render_cache.cached_diff_image
     )
-    new_session_data.render_cache.cached_diff_source_key = (
-        src_session.render_cache.cached_diff_source_key
-    )
 
     new_viewport = ViewportState(
         new_render_config,
@@ -131,6 +156,8 @@ def copy_for_worker(store):
         document,
         image_list1=list(document.image_list1),
         image_list2=list(document.image_list2),
+        preview_image1=None,
+        preview_image2=None,
         full_res_ready1=False,
         full_res_ready2=False,
         preview_ready1=False,

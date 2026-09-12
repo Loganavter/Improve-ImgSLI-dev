@@ -12,7 +12,6 @@ from .feature_contract import CanvasSceneFeature
 from .pass_contract import CanvasRenderPass, CanvasRenderPassBase
 from .widget_contract import (
     CanvasFeatureCommandAlias,
-    CanvasFeatureContextMenuZone,
     CanvasFeatureGestureBinding,
     CanvasFeatureProperty,
     CanvasFeatureSettingsEventBinding,
@@ -31,7 +30,7 @@ class CanvasFeatureRegistry:
     docs/dev/CANVAS_FEATURE_REGISTRY_PER_TAB.md.
     """
 
-    def __init__(self, tab_type: str | None) -> None:
+    def __init__(self, tab_type: str) -> None:
         self.tab_type = tab_type
         self._packages: list[ModuleType] = []
 
@@ -51,7 +50,6 @@ class CanvasFeatureRegistry:
         self.get_feature_settings_event_bindings.cache_clear()
         self.get_feature_toolbar_bindings.cache_clear()
         self.get_feature_gesture_bindings.cache_clear()
-        self.get_feature_context_menu_zones.cache_clear()
         self.get_feature_toolbar_binding.cache_clear()
         self.get_feature_command.cache_clear()
         self.get_feature_command_by_alias.cache_clear()
@@ -207,7 +205,7 @@ class CanvasFeatureRegistry:
         payloads: dict[str, object] = {}
         for feature_name, commands in self.get_feature_commands().items():
             payload_command = commands.get("render.canvas_payload")
-            if payload_command is None or not callable(payload_command):
+            if payload_command is None:
                 continue
             payloads[feature_name] = payload_command(store)
         return payloads
@@ -235,20 +233,6 @@ class CanvasFeatureRegistry:
                 continue
             bindings.extend(feature.build_gesture_bindings())
         return tuple(sorted(bindings, key=lambda b: (b.priority, b.gesture_id)))
-
-    @lru_cache(maxsize=1)
-    def get_feature_context_menu_zones(
-        self,
-    ) -> tuple[CanvasFeatureContextMenuZone, ...]:
-        zones: list[CanvasFeatureContextMenuZone] = []
-        for feature in sorted(
-            self.get_widget_features(),
-            key=lambda item: (item.property_order, item.name),
-        ):
-            if feature.build_context_menu_zones is None:
-                continue
-            zones.extend(feature.build_context_menu_zones())
-        return tuple(sorted(zones, key=lambda z: (z.priority, z.zone_id)))
 
     @lru_cache(maxsize=32)
     def get_feature_toolbar_binding(
@@ -368,10 +352,10 @@ class CanvasFeatureRegistry:
         return tuple(passes)
 
 
-_REGISTRIES: dict[str | None, CanvasFeatureRegistry] = {}
+_REGISTRIES: dict[str, CanvasFeatureRegistry] = {}
 
 
-def get_canvas_registry(tab_type: str | None) -> CanvasFeatureRegistry:
+def get_canvas_registry(tab_type: str) -> CanvasFeatureRegistry:
     registry = _REGISTRIES.get(tab_type)
     if registry is None:
         registry = CanvasFeatureRegistry(tab_type)

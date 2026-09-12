@@ -19,7 +19,7 @@ What works:
 - Keyboard shortcuts: `1`-`9` focus slots, `0` resets zoom, Escape exits focus.
 - QRhi rendering through the tab-owned canvas path.
 - Theme-aware clear/background color.
-- Always-on split dividers as GPU quads (`GridDividersPass`).
+- Always-on split dividers in the overlay pass.
 - Camera-fixed filename labels with tab-local label settings.
 - Export dialog with preview, output directory/favorites, filename, format,
   resolution, aspect-ratio lock, quality, and background settings.
@@ -50,17 +50,6 @@ multi_compare/
     shaders/             # QRhi shaders and compiled qsb files
     ui/                  # canvas widget, toolbar, footer, labels, geometry
 ```
-
-## Local Docs
-
-- [ARCHITECTURE.md](ARCHITECTURE.md) - current tab architecture and boundaries.
-- [plugins/multi_compare.md](plugins/multi_compare.md) - the tab's `@plugin`
-  (session blueprint + state slot).
-- **investigations** (private, `improve-imgsli-internal-docs` repo, this
-  same path `src/tabs/multi_compare/docs/investigations/`) — long-form case
-  write-ups for rendering bugs confined to this tab (transient zoom nudge,
-  mip-cascade). Cross-tab investigations live at
-  `docs/dev/rendering/investigations/` in that same private repo.
 
 ## Ownership rules
 

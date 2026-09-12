@@ -18,21 +18,11 @@ class MainWindowActions:
         timeout_ms: int = 4000,
     ) -> None:
         window = self.window
-        enabled = bool(
-            getattr(window.store.settings, "system_notifications_enabled", True)
-        )
-        service = getattr(window, "notification_service", None)
-        # Keep the service flag aligned with the store — apply paths can miss
-        # the window shell, leaving _enabled stale while settings are correct.
-        if service is not None:
-            try:
-                service.set_enabled(enabled)
-            except Exception:
-                pass
-        if not enabled or service is None:
+        enabled = getattr(window.store.settings, "system_notifications_enabled", True)
+        if not enabled:
             return
         try:
-            service.send(title, message, image_path, timeout_ms)
+            window.notification_service.send(title, message, image_path, timeout_ms)
         except Exception:
             import logging
 

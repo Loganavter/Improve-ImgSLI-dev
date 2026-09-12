@@ -23,6 +23,11 @@ class CoreUIComponentsUpdateEvent:
     components: tuple = ()
 
 @dataclass(frozen=True)
+class PluginEvent:
+    plugin_name: str
+    stage: str
+
+@dataclass(frozen=True)
 class WorkspaceSessionCreatedEvent:
     session_id: str
     session_type: str
@@ -31,9 +36,3 @@ class WorkspaceSessionCreatedEvent:
 class WorkspaceSessionClosedEvent:
     session_id: str
     session_type: str
-
-@dataclass(frozen=True)
-class WorkspaceSessionActivatedEvent:
-    session_id: str
-    session_type: str
-    previous_session_id: str | None = None

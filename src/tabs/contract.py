@@ -10,8 +10,6 @@ from typing import Any
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QWidget
 
-from ui.canvas_infra.viewport.contract import CanvasGeometryProvider
-
 
 @dataclass(frozen=True)
 class TabTransitionHint:
@@ -73,27 +71,6 @@ class TabContract(ABC):
         return None
 
     @property
-    def is_bootstrap_default(self) -> bool:
-        """True only for the tab that owns the pre-session workspace window.
-
-        This role is **reserved exclusively for ``session_picker``** — the
-        tab whose session ``core.store.INITIAL_WORKSPACE_SESSION_TYPE`` names
-        as the app's initial workspace session. ``TabRegistry.activate_default``
-        seeds ``_active_session_type`` from it for the narrow window before
-        the first real ``sync_session_mode()`` reconciles it, and
-        ``bootstrap_default_tab()`` resolves to it.
-
-        No other tab may claim it: ``TabRegistry._bootstrap_default_tab()``
-        raises if a non-``session_picker`` tab returns True here. Legacy
-        main-window shell construction is *not* routed through this flag —
-        it goes to the shell-host session type hardcoded in ``TabRegistry``.
-        """
-        return False
-
-    startup_tier: str = "deferred"
-    """When ``TabRegistry.discover(tier=...)`` imports this tab: ``bootstrap`` or ``deferred``."""
-
-    @property
     def resources_dir(self) -> Path | None:
         """Path to tab-owned resources (icons, qss, etc). None if no resources."""
         return None
@@ -149,27 +126,22 @@ class TabContract(ABC):
     def on_window_shutdown(self, host_window) -> None:
         """Tear down tab-owned timers / threads when the host window closes."""
 
-    def on_resize_settled(self, viewport_state) -> None:
-        """Called after the window resize settles.  Tabs can update
-        overlays, placeholders, etc. here instead of the host reaching
-        into tab-specific widgets."""
-
-    def on_host_revealed(self) -> None:
-        """Called when the host window becomes visible after startup.
-        Tabs can refresh opaque fills, sync recent panels, etc."""
-
     def on_session_created(self, session_id: str, context: TabContext) -> None:
         """Called when a new session of this tab's type is created."""
 
     def on_session_closed(self, session_id: str, context: TabContext) -> None:
         """Called when a session of this tab's type is closed."""
 
-    def on_active_session_changed(self, session_id: str, context: TabContext) -> None:
-        """Called when the active workspace session id changes while this tab's
-        page is visible (same ``session_type``, different ``session_id``)."""
-
     def on_quick_save(self, context: TabContext) -> None:
         """Handle the cross-tab quick-save button when this tab is active."""
+
+    def contribute_settings(self, registry: "SettingsRegistry") -> None:
+        """Register settings sections this tab contributes.
+
+        Called once during app startup. ``registry`` provides ``add(section_id,
+        title, factory, *, tab=None)`` where ``tab`` is the session_type the
+        section belongs to (None = always shown).
+        """
 
     def create_main_window_feature(self, feature_id: str, **kwargs: Any) -> Any:
         """Create a tab-owned feature still hosted by the legacy main presenter.
@@ -193,69 +165,9 @@ class TabContract(ABC):
         """
         return False
 
-    def finalize_host_page(self, ui: Any) -> None:
-        """One-time cosmetic pass over this tab's own chrome once the host
-        finishes building the workspace shell (initial visibility, icon
-        sizing). Called once per registered tab; no-op unless overridden.
-        """
-
     def apply_host_session_mode(self, ui: Any, session_title: str | None = None) -> bool:
         """Apply host chrome state for this tab when it becomes active."""
         return False
-
-    def get_canvas_geometry_provider(self) -> CanvasGeometryProvider | None:
-        """Return this tab's `CanvasGeometryProvider`, or `None` if it has
-        no canvas concept.
-
-        This is the *only* growth point for canvas coordinate-math/hit-test
-        needs — see `ui.canvas_infra.viewport.contract.CanvasGeometryProvider`
-        for the full method set. Do not add more single-purpose canvas
-        methods directly on `TabContract`; extend the provider protocol
-        instead, so tabs without a canvas never have to stub anything.
-        """
-        return None
-
-    def owns_widget(self, candidate: Any) -> bool:
-        """True if `candidate` belongs to this tab's canvas. Forwards to
-        `get_canvas_geometry_provider()`; do not override directly.
-        """
-        provider = self.get_canvas_geometry_provider()
-        return provider is not None and provider.owns_widget(candidate)
-
-    def consumes_canvas_key_events(self) -> bool:
-        """True if this tab handles canvas key events via
-        `EventHandler.canvas_keyboard_press_event_signal` /
-        `canvas_keyboard_release_event_signal` (see `events/router.py`'s
-        `route_global_keyboard_event`).
-
-        When True, key presses/releases targeting a widget this tab
-        `owns_widget()` are swallowed by the app-wide event filter and
-        re-emitted as those signals instead of being delivered to the
-        widget's own `keyPressEvent`/`keyReleaseEvent` — so the tab must
-        connect to them (see `image_compare`'s
-        `CanvasLifecycleCoordinator.connect_event_handler_signals`).
-
-        Default False: key events reach the owned widget's own
-        `keyPressEvent`/`keyReleaseEvent` through normal Qt delivery, which
-        is what tabs that never wired the signal-based path expect.
-        """
-        return False
-
-    def get_canvas_size(self) -> tuple[int, int] | None:
-        provider = self.get_canvas_geometry_provider()
-        return provider.get_size() if provider is not None else None
-
-    def map_global_to_canvas_local(self, global_pos: Any) -> Any | None:
-        provider = self.get_canvas_geometry_provider()
-        return provider.map_global_to_local(global_pos) if provider is not None else None
-
-    def get_canvas_content_rect_px(self) -> tuple[int, int, int, int] | None:
-        provider = self.get_canvas_geometry_provider()
-        return provider.get_content_rect_px() if provider is not None else None
-
-    def get_canvas_zoom_pan(self) -> tuple[float, float, float]:
-        provider = self.get_canvas_geometry_provider()
-        return provider.get_zoom_pan() if provider is not None else (1.0, 0.0, 0.0)
 
     def register_canvas_features(self) -> None:
         """Register tab-owned canvas feature packages with the host canvas shell.
@@ -300,14 +212,6 @@ class TabContract(ABC):
         """
         return None
 
-    def collect_pixel_cache_sources(
-        self, session_id: str, context: TabContext
-    ) -> dict[str, Any]:
-        """Map absolute source path -> live, open ``TiledPixelStore`` for this
-        session, for tabs that support embedding a decode-skip cache in
-        project saves. Default: no sources (opt-in per tab)."""
-        return {}
-
     def deserialize_session(
         self, session_id: str, data: dict[str, Any], context: TabContext
     ) -> None:
@@ -318,16 +222,6 @@ class TabContract(ABC):
         already hold blueprint defaults) — implementations should overwrite
         those defaults with `data`, not assume slots are empty.
         """
-
-    def rehydrate_session(self, session_id: str, context: TabContext) -> None:
-        """Reload runtime media (decoded pixels, GPU caches) from persisted
-        paths after ``deserialize_session``. No-op unless overridden."""
-
-    def duplicate_session(
-        self, source_session_id: str, context: TabContext
-    ) -> dict[str, Any] | None:
-        """Return a snapshot suitable for cloning ``source_session_id``."""
-        return self.serialize_session(source_session_id, context)
 
     def dispose(self) -> None:
         """Cleanup when the tab is being unloaded."""
@@ -352,20 +246,8 @@ class TabContext:
         self.event_bus = event_bus
         self.thread_pool = thread_pool
         self.main_window = main_window
-        # Fallback only when there is no store (tests). Prefer ``settings``
-        # property — Redux replaces ``store.settings`` on every settings
-        # action, so a captured reference goes stale after language change.
-        self._settings_fallback = settings
+        self.settings = settings
         self.services = dict(services or {})
-
-    @property
-    def settings(self) -> Any:
-        store = self.store
-        if store is not None:
-            live = getattr(store, "settings", None)
-            if live is not None:
-                return live
-        return self._settings_fallback
 
     def get_active_session(self) -> Any:
         if self.store:
@@ -375,13 +257,11 @@ class TabContext:
     def tr(self, key: str, default: str | None = None) -> str:
         """Translate a key using the app's i18n system."""
         try:
-            from resources.translations import get_current_language, tr
+            from resources.translations import tr
 
-            settings = self.settings
-            language = getattr(settings, "current_language", None) if settings else None
-            if not language:
-                language = get_current_language() or "en"
-            result = tr(key, language, default=default)
+            settings = self.settings or getattr(self.store, "settings", None)
+            language = getattr(settings, "current_language", "en")
+            result = tr(key, language)
             return result if result != key else (default or key)
         except Exception:
             return default or key

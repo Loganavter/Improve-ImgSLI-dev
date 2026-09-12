@@ -4,10 +4,11 @@ import time
 
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QSizePolicy
 
 from events.image_label_event_handler import ImageLabelEventHandler
 from events.window_event_handler import WindowEventHandler
-from tabs.image_compare.canvas.helpers import get_canvas
+from tabs.image_compare.canvas.helpers import clear_canvas_diff_source, get_canvas
 
 _last_debug_log_time = 0
 _debug_log_interval = 1.0
@@ -20,20 +21,22 @@ def initialize_canvas_presenter(presenter) -> None:
     presenter.window_handler = WindowEventHandler(
         presenter.store,
         presenter.main_controller,
-        presenter.widget,
+        presenter.ui,
         presenter.main_window_app,
     )
 
-    presenter.current_displayed_pixmap = None
+    presenter.current_displayed_pixmap: QPixmap | None = None
     presenter.current_rendering_task_id = 0
+    presenter.current_scaling_task_id = 0
+    presenter._display_cache_request_key = None
     presenter._last_displayed_task_id = 0
-    presenter._cached_base_pixmap = None
+    presenter._cached_base_pixmap: QPixmap | None = None
     presenter._last_bg_signature = None
     presenter._last_mag_signature = None
     presenter._cached_split_pos = -1.0
     presenter._cached_render_params = None
-    presenter._last_magnifier_pos = None
-    presenter._last_capture_pos = None
+    presenter._last_magnifier_pos: QPoint | None = None
+    presenter._last_capture_pos: QPoint | None = None
     presenter._last_label_dims = None
     presenter._pending_interactive_mode = None
     presenter._is_magnifier_worker_running = False
@@ -70,7 +73,7 @@ def debug_log_gate():
 
 
 def get_current_label_dimensions(presenter) -> tuple[int, int]:
-    canvas = get_canvas(presenter.widget)
+    canvas = get_canvas(presenter.ui)
     if canvas is not None:
         size = canvas.size()
         return (size.width(), size.height())
@@ -78,13 +81,49 @@ def get_current_label_dimensions(presenter) -> tuple[int, int]:
 
 
 def update_minimum_window_size(presenter):
-    main_window = presenter.main_window_app
-    if not getattr(main_window, "_is_ui_stable", False):
+    if not getattr(presenter.main_window_app, "_is_ui_stable", False):
         return
 
-    from ui.layout_geometry import apply_main_window_minimum
+    layout = presenter.main_window_app.layout()
+    canvas = get_canvas(presenter.ui)
+    if not layout or canvas is None:
+        return
 
-    apply_main_window_minimum(main_window)
+    original_policy = canvas.sizePolicy()
+    temp_policy = QSizePolicy(
+        QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
+    )
+    temp_policy.setHeightForWidth(original_policy.hasHeightForWidth())
+    temp_policy.setWidthForHeight(original_policy.hasWidthForHeight())
+    temp_policy.setVerticalPolicy(
+        QSizePolicy.Policy.Preferred
+        if original_policy.verticalPolicy() != QSizePolicy.Policy.Ignored
+        else QSizePolicy.Policy.Ignored
+    )
+    temp_policy.setHorizontalPolicy(
+        QSizePolicy.Policy.Preferred
+        if original_policy.horizontalPolicy() != QSizePolicy.Policy.Ignored
+        else QSizePolicy.Policy.Ignored
+    )
+
+    try:
+        canvas.setSizePolicy(temp_policy)
+        canvas.updateGeometry()
+        layout.invalidate()
+        layout.activate()
+
+        layout_hint_size = layout.sizeHint()
+        new_min_w = max(250, layout_hint_size.width()) + 10
+        new_min_h = max(300, layout_hint_size.height()) + 10
+        current_min = presenter.main_window_app.minimumSize()
+        if current_min.width() != new_min_w or current_min.height() != new_min_h:
+            presenter.main_window_app.setMinimumSize(new_min_w, new_min_h)
+    finally:
+        if canvas.sizePolicy() != original_policy:
+            canvas.setSizePolicy(original_policy)
+            canvas.updateGeometry()
+            layout.invalidate()
+            layout.activate()
 
 
 def invalidate_render_state(presenter):
@@ -95,45 +134,27 @@ def invalidate_render_state(presenter):
     presenter.current_displayed_pixmap = None
     presenter._pending_interactive_mode = None
     presenter._pending_cached_diff_request_key = None
+    presenter._active_diff_toast_key = None
     toast_manager = getattr(presenter.main_window_app, "toast_manager", None)
     active_toast_id = getattr(presenter, "_active_diff_toast_id", None)
-    if active_toast_id is None:
-        presenter._active_diff_toast_key = None
-        return
-    if toast_manager is None:
-        # No manager to close with — keep the id so a later manager can close it.
-        return
-    try:
-        toast_manager.close_toast(active_toast_id)
-    except Exception:
-        pass
+    if toast_manager is not None and active_toast_id is not None:
+        try:
+            toast_manager.close_toast(active_toast_id)
+        except Exception:
+            pass
     presenter._active_diff_toast_id = None
-    presenter._active_diff_toast_key = None
-    # Deliberately not clear_canvas_diff_source(image_label) here anymore:
-    # this runs on every image swap (loading.py's post-load
-    # _invalidate_image_canvas_render_state calls), and unconditionally
-    # wiping the GPU-side diff texture reference the instant a swap starts
-    # defeated the whole point of keeping the stale diff visible until the
-    # new one is ready (cached_diff_source_key-based staleness, see
-    # diff_cache.py) -- sync_diff_texture already re-uploads reactively
-    # whenever cached_diff_image actually changes, and already clears the
-    # texture itself when diff_mode leaves "ssim", so nothing here needs to
-    # force it (docs/dev/KNOWN_BUGS.md same-slot-swap SSIM follow-up).
+
+    image_label = get_canvas(getattr(presenter, "ui", None))
+    if image_label is not None:
+        clear_canvas_diff_source(image_label)
 
 
 def start_interactive_movement(presenter):
     if not presenter.store.viewport.view_state.optimize_interactive_movement:
-        dispatcher = presenter.store.get_dispatcher()
-        if dispatcher is not None:
-            from core.state_management.interaction_actions import SetInteractiveModeAction
-
-            dispatcher.dispatch(SetInteractiveModeAction(False), scope="viewport")
+        presenter.store.viewport.interaction_state.is_interactive_mode = False
+        presenter.store.emit_state_change()
         if presenter.main_controller is not None:
             presenter.main_controller.update_requested.emit()
         return
-    dispatcher = presenter.store.get_dispatcher()
-    if dispatcher is not None:
-        from core.state_management.interaction_actions import SetInteractiveModeAction
-
-        dispatcher.dispatch(SetInteractiveModeAction(True), scope="viewport")
+    presenter.store.viewport.interaction_state.is_interactive_mode = True
     presenter.schedule_update()

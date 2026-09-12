@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import logging
+import os
 
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QPalette, QPixmap
 from PySide6.QtWidgets import QFrame, QLabel, QRhiWidget
 
-from shared.debug_flags import env_flag as _env_flag
-from sli_ui_toolkit.managers import SettleGate
-
 from core.state_management.interaction_actions import SetResizeInProgressAction
-from plugins.onboarding import host as onboarding_host
-from ui.widgets.flyout_debug import flyout_debug
 
 logger = logging.getLogger("ImproveImgSLI")
 
 _RESIZE_SHIELD_ATTR = "_imgsli_resize_shield"
-_MAIN_WINDOW_RESIZE_SETTLE_MS = 150
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() not in (
+        "",
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
 def _resize_debug_enabled() -> bool:
@@ -28,8 +33,6 @@ def _resize_visual_debug_enabled() -> bool:
 
 
 def _resize_shield_enabled() -> bool:
-    # Opt-in only: frozen/stretched buffer + QLabel overlay looks like a hack
-    # during live window resize. Default path keeps live letterbox redraws.
     return _env_flag("IMGSLI_RESIZE_SHIELD")
 
 
@@ -286,43 +289,8 @@ def _clear_rhi_resize_shields(window) -> None:
 class MainWindowRuntime:
     def __init__(self, window):
         self.window = window
-        self._resize_settle = SettleGate(
-            on_settle=self.handle_debounced_resize,
-            on_pulse=self._pulse_resize,
-            interval_ms=_MAIN_WINDOW_RESIZE_SETTLE_MS,
-            parent=window,
-        )
-
-    def _notify_active_tab_resize_settled(self) -> None:
-        """Notify the active tab that resize settled — generic hook."""
-        window = self.window
-        ui = getattr(window, "ui", None)
-        tab_registry = getattr(ui, "_tab_registry", None) if ui is not None else None
-        stack = getattr(ui, "workspace_stack", None) if ui is not None else None
-        if tab_registry is None or stack is None:
-            return
-        current = stack.currentWidget()
-        for session_type in tab_registry.registered_types:
-            if tab_registry.get_page(session_type) is not current:
-                continue
-            tab = tab_registry.get_tab(session_type)
-            if tab is not None:
-                try:
-                    tab.on_resize_settled(
-                        window.store.viewport.view_state
-                    )
-                except Exception:
-                    pass
-            break
-
-    def notify_resize(self) -> None:
-        self._resize_settle.ping()
-
-    def cancel_resize_settle(self) -> None:
-        self._resize_settle.cancel()
 
     def handle_debounced_resize(self) -> None:
-        """After the drag quiets: one heavy schedule_update, no visual freeze."""
         window = self.window
         _resize_debug(
             "debounced window=%dx%d in_progress=%s shield_enabled=%s",
@@ -342,18 +310,19 @@ class MainWindowRuntime:
         if not window.isMaximized() and not window.isFullScreen():
             window.geometry_manager.update_normal_geometry_if_needed()
 
-        if onboarding_host.is_active(window):
-            onboarding_host.sync_geometry(window)
-        self._notify_active_tab_resize_settled()
-
-    def _sync_live_chrome(self) -> None:
-        """Geometry that must track the window every pixel — never wait for settle."""
-        window = self.window
         window.startup_runtime.sync_cover_geometry()
-        if onboarding_host.is_active(window):
-            onboarding_host.sync_geometry(window)
+        if window.ui is not None:
+            window.ui.image_startup_placeholder.sync_geometry()
+            window.ui.zoom_indicator.sync_position()
+        if getattr(window, "onboarding_overlay", None):
+            window.onboarding_overlay.resize(window.size())
+        if window.ui is not None:
+            window.ui.update_drag_overlays(
+                window.store.viewport.view_state.is_horizontal,
+                window.ui.is_drag_overlay_visible(),
+            )
 
-    def _pulse_resize(self) -> None:
+    def handle_resize(self) -> None:
         window = self.window
         self._hide_unified_flyout()
         in_progress = window.store.viewport.interaction_state.resize_in_progress
@@ -374,17 +343,18 @@ class MainWindowRuntime:
                 _ensure_rhi_resize_shields(window)
         elif _resize_shield_enabled():
             _sync_rhi_resize_shields(window)
-        self._sync_live_chrome()
-
-    def handle_resize(self) -> None:
-        # Compat alias: resizeEvent / callers use notify_resize (SettleGate).
-        self.notify_resize()
+        if not _resize_shield_enabled():
+            window.schedule_update()
+        window._debounced_resize_timer.start()
 
     def handle_move(self) -> None:
         window = self.window
         window.startup_runtime.sync_cover_geometry()
-        if onboarding_host.is_active(window):
-            onboarding_host.sync_geometry(window)
+        if window.ui is not None:
+            window.ui.image_startup_placeholder.sync_geometry()
+            window.ui.zoom_indicator.sync_position()
+        if getattr(window, "onboarding_overlay", None):
+            window.onboarding_overlay.resize(window.size())
         self._hide_unified_flyout()
         if not window.isMaximized() and not window.isFullScreen():
             window.geometry_manager.update_normal_geometry_if_needed()
@@ -392,23 +362,22 @@ class MainWindowRuntime:
     def handle_show(self) -> None:
         window = self.window
         window.startup_runtime.sync_cover_geometry()
-        if onboarding_host.is_active(window) and not window._startup_visual_ready_emitted:
+        if window.ui is not None:
+            window.ui.image_startup_placeholder.sync_geometry()
+            window.ui.zoom_indicator.sync_position()
+        if (
+            window.onboarding_overlay is not None
+            and not window._startup_visual_ready_emitted
+        ):
             window.startup_runtime.emit_visual_ready()
         if window._offscreen_prewarm_active:
             return
         if not window._is_ui_stable:
-            QTimer.singleShot(50, self._mark_ui_stable_and_finish)
-
-    def _mark_ui_stable_and_finish(self) -> None:
-        window = self.window
-        setattr(window, "_is_ui_stable", True)
-        window.schedule_update()
-        self._apply_window_minimum(window)
-
-    def _apply_window_minimum(self, window) -> None:
-        from ui.layout_geometry import apply_main_window_minimum
-
-        apply_main_window_minimum(window)
+            QTimer.singleShot(
+                50,
+                lambda: setattr(window, "_is_ui_stable", True)
+                or window.schedule_update(),
+            )
 
     def _hide_unified_flyout(self) -> None:
         window = self.window

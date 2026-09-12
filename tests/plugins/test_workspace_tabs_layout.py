@@ -16,6 +16,7 @@ def _strip(parent=None) -> AdaptiveTabStrip:
     return AdaptiveTabStrip(
         add_icon=AppIcon.ADD,
         close_icon=AppIcon.CLOSE,
+        add_button_menu=[],
         parent=parent,
     )
 
@@ -24,7 +25,11 @@ def test_workspace_bar_is_toolkit_adaptive_tab_strip():
     window = QWidget()
     strip = _strip(window)
     ui = SimpleNamespace(
-        main_window=SimpleNamespace(store=SimpleNamespace()),
+        main_window=SimpleNamespace(
+            store=SimpleNamespace(
+                settings=SimpleNamespace(show_workspace_tabs=True),
+            )
+        ),
         workspace_tabs=strip,
         btn_new_session=strip.add_button,
     )

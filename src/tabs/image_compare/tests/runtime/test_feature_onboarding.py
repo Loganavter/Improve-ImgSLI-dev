@@ -15,11 +15,6 @@ import pytest
 SRC = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, os.pardir, os.pardir)
 FEATURES_DIR = os.path.join(SRC, "tabs", "image_compare", "canvas", "features")
 
-import tabs.image_compare.canvas.features as image_compare_features
-from ui.canvas_infra.scene.registry import get_canvas_registry
-
-get_canvas_registry("image_compare").register_package(image_compare_features)
-
 class TestAutoDiscovery:
 
     def test_template_excluded_from_widget_features(self):
@@ -60,6 +55,7 @@ class TestAutoDiscovery:
             "filename_overlay",
             "guides",
             "magnifier",
+            "paste_overlay",
         }
         assert expected <= names, f"Missing features: {expected - names}"
 
@@ -104,6 +100,20 @@ class TestFeatureContracts:
         for f in registry.get_widget_features():
             assert callable(f.reduce_view_state), f"{f.name}: missing reduce_view_state"
             assert callable(f.reduce_render_config), f"{f.name}: missing reduce_render_config"
+
+    def test_all_render_passes_have_stack_role(self):
+        from ui.canvas_infra.scene.registry import get_canvas_registry
+        from ui.canvas_infra.scene.stacking_policy import CanvasStackRole
+
+        registry = get_canvas_registry("image_compare")
+        registry.get_render_passes.cache_clear()
+        for p in registry.get_render_passes():
+            assert p.stack_role is not None, (
+                f"{type(p).__name__} missing stack_role"
+            )
+            assert isinstance(p.stack_role, CanvasStackRole), (
+                f"{type(p).__name__}.stack_role is {type(p.stack_role)}"
+            )
 
 class TestTemplateIsValid:
 

@@ -1,9 +1,8 @@
-# Audit-Meta: pattern=state-machine reason="single canvas interaction router — gesture/drag/zoom routing"
 from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 
 _log = logging.getLogger("ImproveImgSLI.feature_overlay.interaction")
 
@@ -29,7 +28,6 @@ from ui.canvas_infra.viewport.state import (
     set_pan_offsets,
     set_zoom_level,
 )
-from .rhi_renderer._debug import rhi_render_debug
 
 
 def _float_attr(obj, attr: str, default: float) -> float:
@@ -108,6 +106,83 @@ def compute_split_position_for_view_transform(
     )
 
 
+def update_paste_overlay_rects(widget):
+    state = widget.runtime_state
+    width = float(widget.width())
+    height = float(widget.height())
+    if width <= 0 or height <= 0:
+        return
+
+    center_x = width / 2.0
+    center_y = height / 2.0
+    button_size = state._paste_overlay_button_size
+    spacing = state._paste_overlay_spacing
+    center_size = state._paste_overlay_center_size
+
+    empty = QRectF()
+    state._paste_overlay_rects["up"] = empty
+    state._paste_overlay_rects["down"] = empty
+    state._paste_overlay_rects["left"] = empty
+    state._paste_overlay_rects["right"] = empty
+
+    if state._paste_overlay_horizontal:
+        state._paste_overlay_rects["up"] = QRectF(
+            center_x - button_size / 2.0,
+            center_y - button_size - spacing / 2.0 - center_size / 2.0,
+            button_size,
+            button_size,
+        )
+        state._paste_overlay_rects["down"] = QRectF(
+            center_x - button_size / 2.0,
+            center_y + spacing / 2.0 + center_size / 2.0,
+            button_size,
+            button_size,
+        )
+    else:
+        state._paste_overlay_rects["left"] = QRectF(
+            center_x - button_size - spacing / 2.0 - center_size / 2.0,
+            center_y - button_size / 2.0,
+            button_size,
+            button_size,
+        )
+        state._paste_overlay_rects["right"] = QRectF(
+            center_x + spacing / 2.0 + center_size / 2.0,
+            center_y - button_size / 2.0,
+            button_size,
+            button_size,
+        )
+
+    state._paste_overlay_rects["cancel"] = QRectF(
+        center_x - center_size / 2.0,
+        center_y - center_size / 2.0,
+        center_size,
+        center_size,
+    )
+
+
+def set_paste_overlay_state(
+    widget,
+    visible: bool,
+    is_horizontal: bool = False,
+    texts: dict | None = None,
+):
+    state = widget.runtime_state
+    state._paste_overlay_visible = visible
+    state._paste_overlay_horizontal = is_horizontal
+    if texts is not None:
+        state._paste_overlay_texts = {
+            "up": texts.get("up", ""),
+            "down": texts.get("down", ""),
+            "left": texts.get("left", ""),
+            "right": texts.get("right", ""),
+        }
+    if not visible:
+        state._paste_overlay_hovered_button = None
+        widget.unsetCursor()
+    update_paste_overlay_rects(widget)
+    widget.update()
+
+
 def set_drag_overlay_state(
     widget,
     visible: bool,
@@ -130,6 +205,31 @@ def set_drag_overlay_state(
     state._drag_overlay_texts = new_texts
     state._drag_overlay_cache_key = None
     state._drag_overlay_cached_image = None
+    widget.update()
+
+
+def paste_overlay_button_at(widget, pos: QPointF | QPoint) -> str | None:
+    state = widget.runtime_state
+    if not state._paste_overlay_visible:
+        return None
+
+    point = QPointF(pos)
+    for direction in ("up", "down", "left", "right", "cancel"):
+        rect = state._paste_overlay_rects.get(direction)
+        if rect is not None and not rect.isNull() and rect.contains(point):
+            return direction
+    return None
+
+
+def set_paste_overlay_hover(widget, hovered: str | None):
+    state = widget.runtime_state
+    if state._paste_overlay_hovered_button == hovered:
+        return
+    state._paste_overlay_hovered_button = hovered
+    if hovered is None:
+        widget.unsetCursor()
+    else:
+        widget.setCursor(Qt.CursorShape.PointingHandCursor)
     widget.update()
 
 
@@ -193,20 +293,6 @@ def update_split_for_zoom(widget, new_zoom, new_pan_x, new_pan_y):
         new_pan_x=float(new_pan_x),
         new_pan_y=float(new_pan_y),
         content_rect=content_rect,
-    )
-    rhi_render_debug(
-        "update_split_for_zoom is_horizontal=%s split_visual=%.4f->%s "
-        "zoom=%.3f->%.3f pan=(%.3f,%.3f)->(%.3f,%.3f) content_rect=%s",
-        is_horizontal,
-        split_visual,
-        f"{new_split:.4f}" if new_split is not None else None,
-        get_zoom_level(widget),
-        float(new_zoom),
-        get_pan_offset_x(widget),
-        get_pan_offset_y(widget),
-        float(new_pan_x),
-        float(new_pan_y),
-        content_rect_px,
     )
     if new_split is not None:
         synced = False
@@ -324,6 +410,7 @@ def set_overlay_coords(
         state._occluded_capture_arcs = []
         for i in range(len(overlay._quads)):
             overlay._quads[i] = None
+        state._feature_overlay_quad_ndc = None
     widget._request_update()
 
 
@@ -379,56 +466,25 @@ def handle_wheel_event(widget, event):
     modifiers = event.modifiers()
 
     if modifiers & Qt.KeyboardModifier.ControlModifier:
-        # Every wheel tick is applied immediately and unconditionally --
-        # no "render still pending, drop this tick" throttle. That throttle
-        # used to exist to protect a slow render from a buffered OS burst of
-        # wheel deltas, but it only moved the problem: dropped ticks lost
-        # their direction and magnitude, which is what caused zoom to
-        # visibly reverse or stall on bursts (see
-        # docs/dev/rendering/tile-array-atlas-plan.md Findings). State
-        # updates here are cheap float math; Qt's own widget.update()
-        # already coalesces into a single repaint no matter how many times
-        # it's called before the next frame, so there is nothing left for a
-        # custom throttle to protect.
-        angle_delta_y = int(event.angleDelta().y())
-        cur_zoom = get_zoom_level(widget)
-        cur_pan_x = get_pan_offset_x(widget)
-        cur_pan_y = get_pan_offset_y(widget)
         result = compute_wheel_zoom_transform(
             WheelZoomRequest(
                 widget_width=widget.width(),
                 widget_height=widget.height(),
                 mouse_x=float(event.position().x()),
                 mouse_y=float(event.position().y()),
-                current_zoom=cur_zoom,
-                current_pan_x=cur_pan_x,
-                current_pan_y=cur_pan_y,
-                angle_delta_y=angle_delta_y,
+                current_zoom=get_zoom_level(widget),
+                current_pan_x=get_pan_offset_x(widget),
+                current_pan_y=get_pan_offset_y(widget),
+                angle_delta_y=int(event.angleDelta().y()),
             )
         )
         if result is not None:
             new_zoom, new_pan_x, new_pan_y = result
-            rhi_render_debug(
-                "wheel_zoom APPLIED angle_delta_y=%d zoom=%.3f->%.3f pan=(%.3f,%.3f)->(%.3f,%.3f)",
-                angle_delta_y,
-                cur_zoom,
-                new_zoom,
-                cur_pan_x,
-                cur_pan_y,
-                new_pan_x,
-                new_pan_y,
-            )
             update_split_for_zoom(widget, new_zoom, new_pan_x, new_pan_y)
             set_pan_offsets(widget, new_pan_x, new_pan_y)
             set_zoom_level(widget, new_zoom)
             widget.zoomChanged.emit(get_zoom_level(widget))
             widget.update()
-        else:
-            rhi_render_debug(
-                "wheel_zoom REJECTED (transform returned None) angle_delta_y=%d cur_zoom=%.3f",
-                angle_delta_y,
-                cur_zoom,
-            )
 
         event.accept()
         return
@@ -441,6 +497,19 @@ def handle_mouse_press_event(widget, event):
         event.accept()
         return
 
+    if (
+        widget.runtime_state._paste_overlay_visible
+        and event.button() == Qt.MouseButton.LeftButton
+    ):
+        button = paste_overlay_button_at(widget, event.position())
+        if button == "cancel" or button is None:
+            set_paste_overlay_state(widget, False)
+            widget.pasteOverlayCancelled.emit()
+        else:
+            set_paste_overlay_state(widget, False)
+            widget.pasteOverlayDirectionSelected.emit(button)
+        event.accept()
+        return
     if event.button() == Qt.MouseButton.MiddleButton:
         widget._pan_dragging = True
         widget._pan_last_pos = event.position()
@@ -494,71 +563,39 @@ def handle_mouse_move_event(widget, event):
             widget.update()
         event.accept()
         return
+    if widget.runtime_state._paste_overlay_visible:
+        set_paste_overlay_hover(
+            widget, paste_overlay_button_at(widget, event.position())
+        )
+        event.accept()
+        return
     widget.mouseMoved.emit(event)
 
 
-from shared.canvas.keyboard_constants import (
-    KEY_PAN as _KEY_PAN,
-    KEY_PAN_NUDGE as _KEY_PAN_NUDGE,
-    KEY_ZOOM_IN as _KEY_ZOOM_IN,
-    KEY_ZOOM_OUT as _KEY_ZOOM_OUT,
-)
-
-
-def _apply_keyboard_pan(widget, key) -> None:
-    if bool(getattr(widget.runtime_state, "_read_only", False)):
-        return
-    zoom = get_zoom_level(widget)
-    dx = -1 if key == Qt.Key.Key_Left else (1 if key == Qt.Key.Key_Right else 0)
-    dy = -1 if key == Qt.Key.Key_Up else (1 if key == Qt.Key.Key_Down else 0)
-    dpan_x = dx * _KEY_PAN_NUDGE / max(zoom, 1e-6)
-    dpan_y = dy * _KEY_PAN_NUDGE / max(zoom, 1e-6)
-    set_pan(
-        widget,
-        get_pan_offset_x(widget) + dpan_x,
-        get_pan_offset_y(widget) + dpan_y,
-    )
-
-
-def _apply_keyboard_zoom(widget, key) -> None:
-    if bool(getattr(widget.runtime_state, "_read_only", False)):
-        return
-    angle_delta_y = 120 if key in _KEY_ZOOM_IN else -120
-    result = compute_wheel_zoom_transform(
-        WheelZoomRequest(
-            widget_width=widget.width(),
-            widget_height=widget.height(),
-            # Keyboard zoom anchors at the viewport center (mouse at center),
-            # which leaves pan unchanged — same result as the wheel around the
-            # middle of the widget.
-            mouse_x=float(widget.width()) / 2.0,
-            mouse_y=float(widget.height()) / 2.0,
-            current_zoom=get_zoom_level(widget),
-            current_pan_x=get_pan_offset_x(widget),
-            current_pan_y=get_pan_offset_y(widget),
-            angle_delta_y=angle_delta_y,
-        )
-    )
-    if result is None:
-        return
-    new_zoom, new_pan_x, new_pan_y = result
-    update_split_for_zoom(widget, new_zoom, new_pan_x, new_pan_y)
-    set_pan_offsets(widget, new_pan_x, new_pan_y)
-    set_zoom_level(widget, new_zoom)
-    widget.zoomChanged.emit(get_zoom_level(widget))
-    widget.update()
-
-
 def handle_key_press_event(widget, event):
-    key = event.key()
-    if key in _KEY_PAN:
-        _apply_keyboard_pan(widget, key)
-        event.accept()
-        return
-    if key in _KEY_ZOOM_IN or key in _KEY_ZOOM_OUT:
-        _apply_keyboard_zoom(widget, key)
-        event.accept()
-        return
+    state = widget.runtime_state
+    if state._paste_overlay_visible:
+        key_to_direction = {
+            Qt.Key.Key_Up: "up",
+            Qt.Key.Key_W: "up",
+            Qt.Key.Key_Down: "down",
+            Qt.Key.Key_S: "down",
+            Qt.Key.Key_Left: "left",
+            Qt.Key.Key_A: "left",
+            Qt.Key.Key_Right: "right",
+            Qt.Key.Key_D: "right",
+        }
+        if event.key() == Qt.Key.Key_Escape:
+            set_paste_overlay_state(widget, False)
+            widget.pasteOverlayCancelled.emit()
+            event.accept()
+            return
+        direction = key_to_direction.get(event.key())
+        if direction and not state._paste_overlay_rects[direction].isNull():
+            set_paste_overlay_state(widget, False)
+            widget.pasteOverlayDirectionSelected.emit(direction)
+            event.accept()
+            return
     widget.keyPressed.emit(event)
 
 
@@ -567,4 +604,6 @@ def handle_key_release_event(widget, event):
 
 
 def handle_leave_event(widget, event):
+    if widget.runtime_state._paste_overlay_visible:
+        set_paste_overlay_hover(widget, None)
     super(type(widget), widget).leaveEvent(event)
