@@ -65,6 +65,51 @@ def is_degenerate_upload_image(image) -> bool:
     return w <= 0 or h <= 0
 
 
+def is_blank_upload_image(image) -> bool:
+    """True when every sampled pixel is fully transparent black.
+
+    Sized-but-blank uploads pass `is_degenerate_upload_image` (valid
+    size) yet paint zero layers while marked resident — the
+    ic-right-image-vanish-2026-09-19 failing-run signature (no
+    degenerate warnings, healthy sizes, transparent GPU tiles).
+    Samples 8 points (corners/centers); a genuinely all-black tile
+    false-positives, so this only ever warns, never gates behavior.
+    Returns False for anything unreadable (degenerate case owns that).
+    """
+    if is_degenerate_upload_image(image):
+        return False
+    try:
+        w_attr = getattr(image, "width", None)
+        h_attr = getattr(image, "height", None)
+        w = int(w_attr() if callable(w_attr) else w_attr)
+        h = int(h_attr() if callable(h_attr) else h_attr)
+        pixel_at = getattr(image, "pixelColor", None)
+        if not callable(pixel_at):
+            return False
+        pts = {
+            (0, 0),
+            (w - 1, 0),
+            (0, h - 1),
+            (w - 1, h - 1),
+            (w // 2, h // 2),
+            (w // 2, 0),
+            (w // 2, h - 1),
+            (0, h // 2),
+        }
+        for x, y in pts:
+            try:
+                px = pixel_at(
+                    max(0, min(x, w - 1)), max(0, min(y, h - 1))
+                )
+                if px.alpha() != 0 or px.red() != 0 or px.green() != 0 or px.blue() != 0:
+                    return False
+            except Exception:
+                return False
+        return True
+    except Exception:
+        return False
+
+
 class TileArrayResourcesBase:
     """Owns the shared texture array(s), the array graphics pipeline/SRB
     cache, and the per-instance/uniform buffers backing it -- one instance
@@ -176,6 +221,16 @@ class TileArrayResourcesBase:
             logger.warning(
                 "[TileArray] degenerate upload source_key=%s index=%s — "
                 "layer keeps zeros while marked resident",
+                source_key,
+                index,
+            )
+        elif is_blank_upload_image(image):
+            # Anomaly only (vanish hunt): valid size, zero content.
+            # Bounded: a resident tile uploads once, so this fires at
+            # most once per tile, not per frame.
+            logger.warning(
+                "[TileArray] blank-content upload source_key=%s index=%s — "
+                "sized image with all-zero pixels, layer keeps zeros",
                 source_key,
                 index,
             )

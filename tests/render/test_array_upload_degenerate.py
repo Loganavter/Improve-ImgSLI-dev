@@ -9,7 +9,10 @@ changing behavior.
 from PIL import Image
 from PySide6.QtGui import QImage
 
-from engine.gpu.array_resources import is_degenerate_upload_image
+from engine.gpu.array_resources import (
+    is_blank_upload_image,
+    is_degenerate_upload_image,
+)
 
 
 def test_none_is_degenerate():
@@ -28,3 +31,20 @@ def test_zero_area_qimage_is_degenerate():
 
 def test_healthy_pil_is_not_degenerate():
     assert is_degenerate_upload_image(Image.new("RGBA", (4, 4))) is False
+
+
+def test_blank_transparent_qimage_is_blank():
+    img = QImage(10, 10, QImage.Format.Format_RGBA8888)
+    img.fill(0x00000000)
+    assert is_blank_upload_image(img) is True
+
+
+def test_red_qimage_is_not_blank():
+    img = QImage(10, 10, QImage.Format.Format_RGBA8888)
+    img.fill(0xFFFF0000)
+    assert is_blank_upload_image(img) is False
+
+
+def test_null_qimage_is_not_blank_double_count():
+    # Degenerate owns the null case; blank stays quiet on unreadables.
+    assert is_blank_upload_image(QImage()) is False
