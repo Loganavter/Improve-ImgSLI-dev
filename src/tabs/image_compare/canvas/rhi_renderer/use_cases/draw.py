@@ -17,13 +17,47 @@ preserved verbatim so divider/filename still suppress until
 
 from __future__ import annotations
 
+import struct
+
 from PySide6.QtGui import QRhiDepthStencilClearValue, QRhiViewport
 
 from ui.canvas_infra.rhi.render_executor import iter_active_render_passes
 
 from engine.frame.context import FrameContext, make_ids
+from tabs.image_compare.canvas.loupe_trace import throttle_emit as _draw_throttle_emit
+from tabs.image_compare.debug import ic_preview_debug as _draw_preview_log
 from ..resources import pack_array_instance
 from ..uniforms import pack_array_uniforms
+
+# Byte offsets into the packed blobs (see resources._ARRAY_INSTANCE_FMT
+# "<4f4f4f2f3i4f4f" and uniforms._ARRAY_UNIFORM_FMT; splitPosition sits
+# after mat4(64) + offset(8) + zoom(8) = byte 80).
+_PACKED_SPLIT_OFFSET = 80
+_INSTANCE_STRIDE = 100
+_INSTANCE_LAYER2_OFFSET = 16 + 16 + 16 + 8 + 4
+
+
+def unpack_packed_split(uniform_bytes: bytes) -> float | None:
+    """Split float the GPU will actually read (vanish-hunt probe)."""
+    try:
+        if uniform_bytes is None or len(uniform_bytes) < _PACKED_SPLIT_OFFSET + 4:
+            return None
+        return float(struct.unpack_from("<f", uniform_bytes, _PACKED_SPLIT_OFFSET)[0])
+    except Exception:
+        return None
+
+
+def unpack_instance_layer2(instance_bytes: bytes, index: int) -> int | None:
+    """layer2 slot of the Nth submitted instance (vanish-hunt probe)."""
+    try:
+        if instance_bytes is None:
+            return None
+        off = int(index) * _INSTANCE_STRIDE + _INSTANCE_LAYER2_OFFSET
+        if off + 4 > len(instance_bytes) or int(index) < 0:
+            return None
+        return int(struct.unpack_from("<i", instance_bytes, off)[0])
+    except Exception:
+        return None
 
 
 def submit_array_draw(
@@ -159,13 +193,15 @@ def submit_array_draw(
         _target_for_pipeline = target if target is not None else widget.renderTarget()
         renderer.resources.array_resources.ensure_array_pipeline(_target_for_pipeline)
         renderer.resources.array_resources.ensure_array_instance_capacity(len(array_draw_plan))
+        _packed_uniforms = None
         if _base_image is not None and updates is not None:
+            _packed_uniforms = pack_array_uniforms(
+                renderer.rhi, _base_image, diff_source_ready=bool(_diff_ready)
+            )
             updates.updateDynamicBuffer(
                 renderer.resources.array_resources.array_uniform_buffer,
                 0,
-                pack_array_uniforms(
-                    renderer.rhi, _base_image, diff_source_ready=bool(_diff_ready)
-                ),
+                _packed_uniforms,
             )
         instance_bytes = b"".join(
             pack_array_instance(
@@ -188,6 +224,43 @@ def submit_array_draw(
             )
             for index, item in enumerate(array_draw_plan)
         )
+        # Vanish-hunt probes (ic-right-image-vanish-2026-09-19): verify the
+        # bytes actually submitted — packed split vs scene value, instance
+        # layer2 vs plan items. Change-gated: silent on steady frames.
+        # No behavior change: read-only inspection of already-packed blobs.
+        try:
+            if _packed_uniforms is not None:
+                _packed_split = unpack_packed_split(_packed_uniforms)
+                try:
+                    _scene_split = round(float(_base_image.split_position), 4)
+                except Exception:
+                    _scene_split = None
+                if _packed_split is not None and _scene_split is not None:
+                    _sp_sig = (_scene_split, round(float(_packed_split), 4))
+                    if _draw_throttle_emit("submit.packed_split", _sp_sig):
+                        _draw_preview_log(
+                            "submit packed split scene=%s packed=%s match=%s",
+                            _sp_sig[0],
+                            _sp_sig[1],
+                            _sp_sig[0] == _sp_sig[1],
+                        )
+            _n_inst = len(instance_bytes) // _INSTANCE_STRIDE
+            if _n_inst > 0:
+                _inst_l2 = [
+                    unpack_instance_layer2(instance_bytes, i)
+                    for i in range(min(_n_inst, 3))
+                ]
+                _plan_l2 = [getattr(it, "layer2", None) for it in array_draw_plan[:3]]
+                _li_sig = (tuple(_inst_l2), tuple(_plan_l2))
+                if _draw_throttle_emit("submit.instance_layer2", _li_sig):
+                    _draw_preview_log(
+                        "submit instances layer2 submitted=%s plan=%s match=%s",
+                        list(_inst_l2),
+                        list(_plan_l2),
+                        list(_inst_l2) == list(_plan_l2),
+                    )
+        except Exception:
+            pass
         if updates is not None:
             updates.updateDynamicBuffer(
                 renderer.resources.array_resources.array_instance_buffer, 0, instance_bytes
