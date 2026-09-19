@@ -154,8 +154,10 @@ def unify_pair(
         u1, u2 = resize_images_processor(pil1, pil2, method_name)
         # Vanish-hunt probe (ic-right-image-vanish-2026-09-19): a blank
         # pair member exits here looking healthy (memo validates openness
-        # only). DEBUG-gated, once per unify — silent in prod.
-        logger.debug(
+        # only). INFO (not DEBUG: root level rises past DEBUG after
+        # startup, and the neighboring task lines are INFO already) —
+        # once per unify, silent enough for prod.
+        logger.info(
             "[Unify] pair content u1=%s u2=%s",
             unify_content_signature(u1),
             unify_content_signature(u2),
