@@ -22,6 +22,53 @@ logger = logging.getLogger("ImproveImgSLI")
 _ACCURATE_UNIFY_MAX_PIXELS = 4096 * 4096
 
 
+def unify_content_signature(pil_image) -> str:
+    """Tiny content fingerprint for unify debug (vanish hunt): size +
+    corner/center samples + all-zero verdict over 5 probes. Microsecond-
+    cheap (no full scan); a zeros-everywhere store trips `zero5=True`.
+    Pure helper so it stays unit-testable."""
+    if pil_image is None:
+        return "None"
+    try:
+        if isinstance(pil_image, TiledPixelStore):
+            w, h = pil_image.size
+            if w <= 0 or h <= 0:
+                return f"{w}x{h} empty"
+            pts = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w // 2, h // 2)]
+            samples = [
+                tuple(pil_image.read_array((x, y, x + 1, y + 1)).reshape(-1).tolist())
+                for x, y in pts
+            ]
+            zero5 = all(all(v == 0 for v in s[:3]) for s in samples)
+            return f"{w}x{h} zero5={zero5} c={samples[-1][:3]}"
+    except Exception:
+        pass
+    try:
+        w, h = int(pil_image.width), int(pil_image.height)
+    except Exception:
+        return "unmeasurable"
+    if w <= 0 or h <= 0:
+        return f"{w}x{h} empty"
+    try:
+        rgb = (
+            pil_image.convert("RGB")
+            if getattr(pil_image, "mode", None) != "RGB"
+            else pil_image
+        )
+        pts = {
+            "tl": (0, 0),
+            "tr": (w - 1, 0),
+            "bl": (0, h - 1),
+            "br": (w - 1, h - 1),
+            "c": (w // 2, h // 2),
+        }
+        samples = {k: rgb.getpixel(p) for k, p in pts.items()}
+        zero5 = all(v == (0, 0, 0) for v in samples.values())
+        return f"{w}x{h} zero5={zero5} c={samples.get('c')}"
+    except Exception:
+        return f"{w}x{h} unreadable"
+
+
 def is_preview_tier(source) -> bool:
     """True when ``source`` is a preview-tier QImage (never unify input).
 
@@ -105,6 +152,14 @@ def unify_pair(
             logger.debug("Unify aborted (source closed): %s", exc)
             return None, None
         u1, u2 = resize_images_processor(pil1, pil2, method_name)
+        # Vanish-hunt probe (ic-right-image-vanish-2026-09-19): a blank
+        # pair member exits here looking healthy (memo validates openness
+        # only). DEBUG-gated, once per unify — silent in prod.
+        logger.debug(
+            "[Unify] pair content u1=%s u2=%s",
+            unify_content_signature(u1),
+            unify_content_signature(u2),
+        )
         return maybe_wrap_pixel_store(u1), maybe_wrap_pixel_store(u2)
 
     if (w1, h1) == (target_w, target_h) and (w2, h2) == (target_w, target_h):

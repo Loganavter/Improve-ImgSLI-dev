@@ -30,6 +30,8 @@ from tabs.image_compare.canvas.render_arch import (
 from .render_config import update_display_split_position
 from ui.canvas_infra.rhi.render_metrics import RenderMetrics
 from engine.cache.render_debug import rhi_render_debug
+from tabs.image_compare.canvas.loupe_trace import throttle_emit as _split_throttle_emit
+from tabs.image_compare.debug import ic_preview_debug as _split_preview_log
 from .texture_parts.base_images import (
     update_common_letterbox_geometry,
     upload_pil_images,
@@ -256,6 +258,28 @@ def build_render_runtime_context(widget) -> RenderRuntimeContext:
     if getattr(scene_frame, "split_override", None) is not None:
         content_split = float(scene_frame.split_override)
     content_split = max(0.0, min(1.0, content_split))
+    # Vanish-hunt probe (ic-right-image-vanish-2026-09-19): the packed
+    # split never appears in logs, so a pinned uniform is invisible.
+    # Change-gated via the loupe throttle store: silent on steady frames.
+    try:
+        _split_sig = (
+            round(float(scene_frame.split_position_visual), 4),
+            (
+                None
+                if getattr(scene_frame, "split_override", None) is None
+                else round(float(scene_frame.split_override), 4)
+            ),
+            round(float(content_split), 4),
+        )
+        if _split_throttle_emit("scene.split_packed", _split_sig):
+            _split_preview_log(
+                "scene split visual=%s override=%s packed=%s",
+                _split_sig[0],
+                _split_sig[1],
+                _split_sig[2],
+            )
+    except Exception:
+        pass
     base_image = BaseImagePrimitive(
         split_position=content_split,
         is_horizontal=bool(scene_frame.is_horizontal),

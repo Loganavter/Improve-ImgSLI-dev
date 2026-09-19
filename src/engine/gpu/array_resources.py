@@ -14,6 +14,7 @@ GPU resources those decisions get realized against.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Sequence
 
 from PySide6.QtCore import QSize
@@ -37,6 +38,31 @@ from PySide6.QtGui import (
 
 from engine.cache.tile_debug import log_tile_event, tile_dump_enabled
 from engine.cache.tile_texture_service import TileTextureService
+
+logger = logging.getLogger("ImproveImgSLI")
+
+
+def is_degenerate_upload_image(image) -> bool:
+    """True when `image` carries no pixels to upload (None, null QImage,
+    or zero-area). Uploading it marks a layer resident while leaving
+    zeros behind — the ic-right-image-vanish-2026-09-19 signature
+    (healthy counts, white side). Pure helper so it stays unit-testable
+    without GPU state. Accepts QImage (methods) and PIL (properties)."""
+    if image is None:
+        return True
+    try:
+        if hasattr(image, "isNull") and bool(image.isNull()):
+            return True
+    except Exception:
+        return True
+    try:
+        w_attr = getattr(image, "width", None)
+        h_attr = getattr(image, "height", None)
+        w = int(w_attr() if callable(w_attr) else w_attr)
+        h = int(h_attr() if callable(h_attr) else h_attr)
+    except Exception:
+        return True
+    return w <= 0 or h <= 0
 
 
 class TileArrayResourcesBase:
@@ -143,6 +169,16 @@ class TileArrayResourcesBase:
         uploads are queued and submitted, instead of paying
         O(array capacity) whole-array mip regeneration per tile."""
         tile_key = tile_service.tile_key(source_key, *index)
+        if is_degenerate_upload_image(image):
+            # Anomaly only (vanish hunt): proceeding would mark resident
+            # over zeros. No behavior change — still enqueued exactly as
+            # before, but now visible in the plain log without TILE_DUMP.
+            logger.warning(
+                "[TileArray] degenerate upload source_key=%s index=%s — "
+                "layer keeps zeros while marked resident",
+                source_key,
+                index,
+            )
         byte_size = image.width() * image.height() * 4
         content_size = (image.width(), image.height())
         tile_service.mark_resident(source_key, index, byte_size, content_size)
