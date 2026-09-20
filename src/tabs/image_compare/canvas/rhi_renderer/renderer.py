@@ -31,6 +31,7 @@ from engine.frame.context import (
     make_ids,
     snapshot_last_frame,
 )
+from engine.frame.trace_export import maybe_dump_trace
 from tabs.image_compare.canvas.loupe_trace import throttle_emit as _throttle_emit
 
 # [ic-preview] correlation for "placeholder missing" flash (same env flag as
@@ -288,7 +289,17 @@ class RhiCanvasRenderer:
         # P1A frame-context is born here: reset the reused collector so every
         # frame starts empty; pilot points below record into it additively.
         self.frame_context.reset()
-        _frame = _prepare_frame_impl(self, widget, command_buffer, clear_color)
+        # Perf spans (Wave C, plan-engine-perf-debugger-2026-09-20):
+        # wheel-to-photon sub-spans live on this owner context (the IC
+        # FrameContext owner); lazy detail factories only, no draw change.
+        with self.frame_context.span(
+            "ic.prepare",
+            detail=lambda: {
+                "widget": type(widget).__name__,
+                "size": [widget.width(), widget.height()],
+            },
+        ):
+            _frame = _prepare_frame_impl(self, widget, command_buffer, clear_color)
         if _frame is None:
             snapshot_last_frame(self.frame_context)
             return False
@@ -442,9 +453,13 @@ class RhiCanvasRenderer:
             dirty_layers.setdefault(array_index, set()).update(layers)
         dirty_layer_count = sum(len(layers) for layers in dirty_layers.values())
         mips_cascade_start = time.monotonic()
-        self._pending_dirty_layers = self.resources.generate_all_dirty_mips(
-            command_buffer, dirty_layers, time_budget_ms=MIPS_CASCADE_TIME_BUDGET_MS
-        )
+        with self.frame_context.span(
+            "ic.mips",
+            detail=lambda: {"dirty_layers": dirty_layer_count},
+        ):
+            self._pending_dirty_layers = self.resources.generate_all_dirty_mips(
+                command_buffer, dirty_layers, time_budget_ms=MIPS_CASCADE_TIME_BUDGET_MS
+            )
         mips_cascade_ms = (time.monotonic() - mips_cascade_start) * 1000.0
         if dirty_layer_count:
             deferred_count = sum(
@@ -516,4 +531,8 @@ class RhiCanvasRenderer:
             widget._glass_panel_images = self.glass_panel_renderer.ready_images
 
         snapshot_last_frame(self.frame_context)
+        # Perf trace dump (gated inside): serializes the span ring every
+        # Nth frame so IMGSLI_PERF_TRACE=1 runs leave a Perfetto-openable
+        # trace behind. Off means no file, return 0 — zero prod impact.
+        maybe_dump_trace(self.frame_context)
         return True

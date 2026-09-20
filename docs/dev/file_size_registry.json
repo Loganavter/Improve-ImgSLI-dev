@@ -39,7 +39,7 @@
     },
     {
       "path": "src/engine/frame/context.py",
-      "lines": 289,
+      "lines": 506,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=leaf-collector reason=\"P1A render-core consolidation scaffold: per-frame decision collector, stdlib-only leaf, no timers/threads\"",
@@ -50,7 +50,7 @@
     },
     {
       "path": "src/engine/gpu/glass_panel.py",
-      "lines": 917,
+      "lines": 937,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single GPU lifecycle crop->blur->composite + readback — splitting threads rhi/sampler/panels\"",
@@ -193,7 +193,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/features/magnifier/commands/viewport.py",
-      "lines": 480,
+      "lines": 482,
       "limit": 400,
       "marker": "File-Size-Exempt:",
       "raw": "flat per-field viewport setters sharing one guard/emit",
@@ -263,7 +263,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/interaction.py",
-      "lines": 584,
+      "lines": 622,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single canvas interaction router — gesture/drag/zoom routing\"",
@@ -296,7 +296,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/render_context.py",
-      "lines": 644,
+      "lines": 665,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single render runtime context builder for RHI\"",
@@ -318,7 +318,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/renderer.py",
-      "lines": 519,
+      "lines": 538,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"RhiCanvasRenderer thin owner delegates to use_cases/* per CODE_PATTERNS — frame sequencing only\"",
@@ -329,7 +329,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/residency.py",
-      "lines": 854,
+      "lines": 872,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=tile-residency size=exempt reason=\"viewport-driven rekey+stash/restore + residency (IC) — single TileResidencyRealizer, see docs/dev/TILED_RENDERING_DESIGN.md Phase 2\"",
@@ -353,7 +353,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/use_cases/draw.py",
-      "lines": 330,
+      "lines": 344,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner-target size=exempt reason=\"draw submit extracted from RhiCanvasRenderer — see renderer.py Audit-Meta state-machine\"",
@@ -365,7 +365,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/use_cases/fallback.py",
-      "lines": 417,
+      "lines": 441,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner-target size=exempt reason=\"fallback LOD extracted from RhiCanvasRenderer — see renderer.py Audit-Meta state-machine\"",
@@ -401,7 +401,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/use_cases/tile_residency.py",
-      "lines": 327,
+      "lines": 354,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"tile residency extracted from RhiCanvasRenderer — see renderer.py Audit-Meta state-machine\"",
@@ -425,7 +425,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/widget.py",
-      "lines": 1079,
+      "lines": 1109,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"Canvas widget thin owner — delegates to interaction/render_context/features\"",
@@ -458,7 +458,7 @@
     },
     {
       "path": "src/tabs/image_compare/plugins/video_editor/dialog/shell.py",
-      "lines": 657,
+      "lines": 663,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"video editor dialog shell — one QDialog chrome\"",
@@ -502,7 +502,7 @@
     },
     {
       "path": "src/tabs/image_compare/plugins/video_editor/services/thumbnails.py",
-      "lines": 1008,
+      "lines": 1011,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one thumbnail pipeline — queue/worker/convert/emit share one generation token + pending guard\"",
@@ -547,7 +547,7 @@
     },
     {
       "path": "src/tabs/image_compare/presenters/toolbar/connections.py",
-      "lines": 665,
+      "lines": 666,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single toolbar connections wiring — action->presenter bindings\"",
@@ -757,7 +757,7 @@
     },
     {
       "path": "src/tabs/multi_compare/canvas/interaction.py",
-      "lines": 543,
+      "lines": 633,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"Wheel/pan/key/context share Qt event-name surface delegated by canvas widget; zoom-tick fit-cache + throttles live here by necessity, divider/slot gestures already split under canvas/features\"",
@@ -779,7 +779,7 @@
     },
     {
       "path": "src/tabs/multi_compare/scene/passes/base_images.py",
-      "lines": 1031,
+      "lines": 1112,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single QRhi tile pass — one pipeline + MipCascade + host cache lifecycle\"",
@@ -790,7 +790,7 @@
     },
     {
       "path": "src/tabs/multi_compare/scene/passes/residency.py",
-      "lines": 607,
+      "lines": 691,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=tile-residency size=exempt reason=\"viewport-driven spec-build + engine-fed residency (MC) — single _SlotUploadRealizer, see docs/dev/rendering/tile-rendering-system.md\"",
@@ -798,6 +798,17 @@
         "pattern": "tile-residency",
         "size": "exempt",
         "reason": "viewport-driven spec-build + engine-fed residency (MC) — single _SlotUploadRealizer, see docs/dev/rendering/tile-rendering-system.md"
+      }
+    },
+    {
+      "path": "src/tabs/multi_compare/scene/renderer.py",
+      "lines": 504,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=thin-owner reason=\"MultiCompareRhiRenderer thin owner delegates to scene/passes/* + canvas/features/* per CODE_PATTERNS — frame sequencing only\"",
+      "parsed": {
+        "pattern": "thin-owner",
+        "reason": "MultiCompareRhiRenderer thin owner delegates to scene/passes/* + canvas/features/* per CODE_PATTERNS — frame sequencing only"
       }
     },
     {
@@ -813,7 +824,7 @@
     },
     {
       "path": "src/tabs/multi_compare/ui/canvas_widget.py",
-      "lines": 746,
+      "lines": 767,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"Canvas widget thin owner — delegates to interaction/render_context/features\"",
@@ -880,7 +891,7 @@
     },
     {
       "path": "src/tabs/session_picker/recent/panel.py",
-      "lines": 590,
+      "lines": 565,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"RecentProjectsPanel thin owner — delegates to recent/use_cases/*\"",
@@ -969,7 +980,7 @@
     },
     {
       "path": "src/ui/widgets/scroll_value_button.py",
-      "lines": 798,
+      "lines": 800,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single custom-painted control — painter pipeline owns visuals\"",

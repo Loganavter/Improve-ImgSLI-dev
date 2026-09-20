@@ -1,3 +1,4 @@
+# Audit-Meta: pattern=thin-owner reason="MultiCompareRhiRenderer thin owner delegates to scene/passes/* + canvas/features/* per CODE_PATTERNS — frame sequencing only"
 """QRhi renderer orchestration for the multi-compare scene.
 
 The widget owns interaction and state.  The renderer owns QRhi resources,
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import (
@@ -24,6 +26,14 @@ from engine.store.tiled_pixel_store import TiledPixelStore
 from engine.gpu.glass_panel import GlassPanelRenderer
 from engine.cache.tile_constants import MIPS_CASCADE_TIME_BUDGET_MS
 from engine.cache.tile_texture_service import TileTextureService
+from engine.frame.context import (
+    BudgetStats,
+    FrameContext,
+    make_ids,
+    snapshot_last_frame,
+    viewport_hash,
+)
+from engine.frame.trace_export import maybe_dump_trace
 from tabs.multi_compare.canvas.registry import registry
 from tabs.multi_compare.first_frame_debug import mc_first_frame_debug
 from tabs.multi_compare.scene.passes import RENDER_PASSES, BaseImagesPass
@@ -94,6 +104,18 @@ class MultiCompareRhiRenderer:
         # render() call (merged into that frame's own dirty_layers) --
         # mirrors image_compare's RhiCanvasRenderer._pending_dirty_layers.
         self._pending_dirty_layers: dict[int, set[int]] = {}
+        # Frame-context ownership (mirrors image_compare's RhiCanvasRenderer):
+        # one reused FrameContext per renderer, reset() per render(). Created
+        # once -- release() re-runs __init__ for resource reset (see below),
+        # which must reattach the existing context, never restart frame_ids
+        # (reset() is the only frame_id bump; neither release() nor
+        # initialize() resets). Explicit None check (not `or`): FrameContext
+        # defines __len__, so an empty context is falsy and `or` would drop
+        # it on every reinit.
+        _existing_context = getattr(self, "frame_context", None)
+        self.frame_context = (
+            _existing_context if _existing_context is not None else FrameContext()
+        )
 
     def has_slot_texture(self, slot_id: int) -> bool:
         return self.image_pass.has_slot_texture(slot_id)
@@ -218,6 +240,11 @@ class MultiCompareRhiRenderer:
         self.__init__(host)  # type: ignore[misc]  # resource-reset reinit
 
     def render(self, command_buffer) -> bool:
+        # Frame-context is born here (mirrors image_compare's
+        # RhiCanvasRenderer.render): reset the reused collector so every
+        # frame starts empty, including the early-skip paths below. Records
+        # below are additive (record-only, never instead).
+        self.frame_context.reset()
         if not self.initialized or self.rhi is None:
             if not getattr(self, "_logged_not_initialized", False):
                 self._logged_not_initialized = True
@@ -233,6 +260,19 @@ class MultiCompareRhiRenderer:
                     self.initialized,
                     self.rhi is not None,
                 )
+            # Perf spans (Wave D): the prepare hop of the wheel-to-photon
+            # chain also covers the early-skip paths (mirrors IC's
+            # skip-path ic.prepare) — span/record only.
+            with self.frame_context.span(
+                "mc.prepare", detail=lambda: {"skipped": "not-initialized"}
+            ):
+                self.frame_context.record(
+                    "prepare_frame",
+                    "skipped",
+                    "render skipped: renderer not initialized",
+                    ids=make_ids(self.frame_context.frame_id, "no-init"),
+                )
+            snapshot_last_frame(self.frame_context)
             return False
         target = self.host.renderTarget()
         if target is None:
@@ -242,6 +282,16 @@ class MultiCompareRhiRenderer:
                     self.host, "renderer.render SKIPPED: renderTarget() is None"
                 )
                 logger.warning("[mc-renderer] render() aborted: renderTarget() is None")
+            with self.frame_context.span(
+                "mc.prepare", detail=lambda: {"skipped": "no-target"}
+            ):
+                self.frame_context.record(
+                    "prepare_frame",
+                    "skipped",
+                    "render skipped: renderTarget() is None",
+                    ids=make_ids(self.frame_context.frame_id, "no-target"),
+                )
+            snapshot_last_frame(self.frame_context)
             return False
         target_size = target.pixelSize()
         fb_w = float(target_size.width())
@@ -255,19 +305,62 @@ class MultiCompareRhiRenderer:
             if callable(ensure):
                 ensure(target)
 
-        updates = self.rhi.nextResourceUpdateBatch()
-        self.host._sync_textures()
-        self.image_pass.apply_pending_texture_ops(self, updates)
+        # Perf spans (Wave D, plan-engine-perf-debugger-2026-09-20): the
+        # prepare hop of the wheel-to-photon chain (span/record only —
+        # every call below is unchanged; mirrors IC's ic.prepare).
+        with self.frame_context.span(
+            "mc.prepare",
+            detail=lambda: {"framebuffer": [fb_w, fb_h]},
+        ):
+            updates = self.rhi.nextResourceUpdateBatch()
+            self.host._sync_textures()
+            self.image_pass.apply_pending_texture_ops(self, updates)
 
-        composition = self.host._active_composition
-        ctx = build_render_context(
-            composition=composition,
-            framebuffer_size=(fb_w, fb_h),
-            clip_matrix=tuple(float(v) for v in self.rhi.clipSpaceCorrMatrix().data()),
-            available_slot_ids=set(self.image_pass.slot_texture_ids()),
-            widget=self.host,
-        )
-        self.image_pass.prepare(self.host, ctx, updates)
+            composition = self.host._active_composition
+            ctx = build_render_context(
+                composition=composition,
+                framebuffer_size=(fb_w, fb_h),
+                clip_matrix=tuple(float(v) for v in self.rhi.clipSpaceCorrMatrix().data()),
+                available_slot_ids=set(self.image_pass.slot_texture_ids()),
+                widget=self.host,
+            )
+            # Frame bus: prepare fact (record only, never instead). Canvas size
+            # comes from the composition when one is resolved, else None (which
+            # viewport_hash renders as "none" -- same as IC early-skip atoms).
+            try:
+                _canvas_size: tuple[float, float] | None = (
+                    float(composition.canvas_w),
+                    float(composition.canvas_h),
+                )
+            except (AttributeError, TypeError, ValueError):
+                _canvas_size = None
+            self.frame_context.record(
+                "prepare_frame",
+                "ran",
+                f"prepare_frame scale={ctx.scale:.6f}"
+                f" layers={len(ctx.projected_layers)}",
+                ids=make_ids(
+                    self.frame_context.frame_id,
+                    viewport_hash(
+                        (ctx.scale, ctx.scale),
+                        tuple(ctx.offset),
+                        _canvas_size,
+                    ),
+                ),
+            )
+        # NOTE: no frame_context= kwarg on image_pass calls -- BaseImagesPass
+        # keeps its exact contract shapes (test_mc_pass_contract_shape.py
+        # pins prepare/record; D2/D3 consume). Wave B reaches the context via
+        # widget._renderer (same reach-through as prepare()'s own
+        # `getattr(widget, "_renderer", widget)` line).
+        # Perf spans (Wave D): the realize hop (mirrors IC's
+        # ic.realize_main) — span/record only, the prepare call below is
+        # unchanged.
+        with self.frame_context.span(
+            "mc.realize_slots",
+            detail=lambda: {"layers": len(ctx.projected_layers)},
+        ):
+            self.image_pass.prepare(self.host, ctx, updates)
 
         # Submit this frame's tile uploads now (rather than folding them into
         # the main pass's own resourceUpdates below) so generate_all_dirty_mips
@@ -283,12 +376,59 @@ class MultiCompareRhiRenderer:
         dirty_layers = self.image_pass.take_dirty_layers()
         for array_index, layers in self._pending_dirty_layers.items():
             dirty_layers.setdefault(array_index, set()).update(layers)
+        # Frame bus: resourceUpdate fact (record only, never instead --
+        # mirrors image_compare's RhiCanvasRenderer.render). Recorded after
+        # the pending merge (not at the submit line above) so the batch
+        # count covers this frame's full cascade input, like IC's
+        # array_index_batches.
+        self.frame_context.record(
+            "resourceUpdate",
+            "ran",
+            "resourceUpdate submitted upload batch"
+            f" array_index_batches={len(dirty_layers)}",
+            ids=make_ids(self.frame_context.frame_id, len(dirty_layers)),
+        )
+        dirty_layer_count = sum(len(layers) for layers in dirty_layers.values())
         if _SKIP_MIP_CASCADE:
             self._pending_dirty_layers = {}
+            mips_cascade_ms = 0.0
         else:
-            self._pending_dirty_layers = self.image_pass.generate_all_dirty_mips(
-                self, command_buffer, dirty_layers, time_budget_ms=MIPS_CASCADE_TIME_BUDGET_MS
-            )
+            mips_cascade_start = time.monotonic()
+            # Perf spans (Wave D): the mips hop (mirrors IC's ic.mips) —
+            # span/record only, the cascade call below is unchanged.
+            with self.frame_context.span(
+                "mc.mips",
+                detail=lambda: {"dirty_layers": dirty_layer_count},
+            ):
+                self._pending_dirty_layers = self.image_pass.generate_all_dirty_mips(
+                    self, command_buffer, dirty_layers, time_budget_ms=MIPS_CASCADE_TIME_BUDGET_MS
+                )
+            mips_cascade_ms = (time.monotonic() - mips_cascade_start) * 1000.0
+        deferred_count = sum(
+            len(layers) for layers in self._pending_dirty_layers.values()
+        )
+        # Frame bus: mips cascade fact (record only, never instead --
+        # mirrors image_compare's RhiCanvasRenderer.render mips record).
+        # Timing vars only, no behavior change.
+        _mips_stats = BudgetStats(
+            budget=dirty_layer_count,
+            uploaded=dirty_layer_count - deferred_count,
+            skipped=deferred_count,
+            time_ms=mips_cascade_ms,
+            budget_ms=float(MIPS_CASCADE_TIME_BUDGET_MS),
+            more_pending=bool(self._pending_dirty_layers),
+        )
+        self.frame_context.record(
+            "mips",
+            "ran" if dirty_layer_count else "skipped",
+            f"mips dirty_layers={dirty_layer_count}"
+            f" deferred={deferred_count} {_mips_stats.describe()}",
+            ids=make_ids(
+                self.frame_context.frame_id,
+                dirty_layer_count,
+                _mips_stats.as_tuple(),
+            ),
+        )
         if self._pending_dirty_layers:
             # Both canvases are on-demand (image_compare's own render_context
             # says so explicitly: "this canvas is purely on-demand"), so a
@@ -300,24 +440,45 @@ class MultiCompareRhiRenderer:
             # layer at anything below 1:1 then trilinear-blends fresh level-0
             # content against that stale upper-level content -- visible as a
             # moire/seam grid at tile boundaries on high-frequency content.
+            self.frame_context.record_invalidation(
+                "cascade_deferred",
+                "mip cascade group deferred by time budget"
+                f" array_index_batches={len(self._pending_dirty_layers)}"
+                " -- re-kicking render for the next cascade slice",
+                ids=make_ids(
+                    self.frame_context.frame_id, len(self._pending_dirty_layers)
+                ),
+            )
             self.host.update()
 
         updates = self.rhi.nextResourceUpdateBatch()
 
         active_feature_passes = iter_active_render_passes(ctx, self.feature_passes)
         for render_pass in active_feature_passes:
-            render_pass.prepare(self.host, ctx, updates)
+            render_pass.prepare(
+                self.host, ctx, updates, frame_context=self.frame_context
+            )
 
-        command_buffer.beginPass(
-            target,
-            self.host._theme_or_palette_bg(),
-            QRhiDepthStencilClearValue(1.0, 0),
-            updates,
-        )
-        self.image_pass.record(command_buffer, self.host, ctx)
-        for render_pass in active_feature_passes:
-            render_pass.record(command_buffer, self.host, ctx)
-        command_buffer.endPass()
+        # Perf spans (Wave D): the submit hop of the wheel-to-photon chain
+        # (span/record only — every QRhi call below is unchanged; mirrors
+        # IC's ic.submit). None-safe by construction: the context is
+        # renderer-owned, never None here.
+        with self.frame_context.span(
+            "mc.submit",
+            detail=lambda: {"entries": len(ctx.projected_layers)},
+        ):
+            command_buffer.beginPass(
+                target,
+                self.host._theme_or_palette_bg(),
+                QRhiDepthStencilClearValue(1.0, 0),
+                updates,
+            )
+            self.image_pass.record(command_buffer, self.host, ctx)
+            for render_pass in active_feature_passes:
+                render_pass.record(
+                    command_buffer, self.host, ctx, frame_context=self.frame_context
+                )
+            command_buffer.endPass()
 
         # Mirrors image_compare's RhiCanvasRenderer.render() tail: draws
         # every GlassHUD (ZoomIndicator) registered on `self.host.glass_panels`
@@ -336,4 +497,8 @@ class MultiCompareRhiRenderer:
             self.host._glass_panel_sprites = self.glass_panel_renderer.ready_sprites
             self.host._glass_panel_images = self.glass_panel_renderer.ready_images
 
+        snapshot_last_frame(self.frame_context)
+        # Perf trace dump (gated inside, mirrors IC renderer): serializes
+        # the span ring every Nth frame. Off means no file — zero impact.
+        maybe_dump_trace(self.frame_context)
         return True
