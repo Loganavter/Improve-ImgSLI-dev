@@ -100,6 +100,7 @@ log lines only; `visual` = changes pixels; `dump` = writes capture files;
 |---|---|---|---|
 | `IMGSLI_TRACE`, `IMGSLI_TRACE_KINDS`, `IMGSLI_TRACE_SKIP` | trace | permissive / filter lists | `src/core/tracing/tracer.py` |
 | `IMGSLI_STARTUP_TRACE` | trace | `env_flag` | `src/core/startup_trace.py` |
+| `IMGSLI_PERF_TRACE` | trace | permissive (export gate at `write_trace`) | `src/engine/frame/trace_export.py` (spans: `src/engine/frame/context.py`; IC hooks: `src/tabs/image_compare/canvas/`) |
 | `IMGSLI_RESIZE_DEBUG` | log | `env_flag` | `src/engine/cache/render_debug.py`, `src/ui/main_window/runtime.py` |
 | `IMGSLI_RESIZE_DEBUG_VISUAL` | visual | `env_flag` | `src/ui/main_window/runtime.py` |
 | `IMGSLI_RESIZE_SHIELD` | behavior | `env_flag` | `src/ui/main_window/runtime.py` |
@@ -152,6 +153,28 @@ Cold-startup phase timing (bootstrap vs deferred plugin load):
 IMGSLI_STARTUP_TRACE=1 python src/__main__.py
 grep 'ImproveImgSLI.startup' ~/.local/share/ImproveImgSLI/log.txt
 ```
+
+## Frame perf spans (IC zoom-burst repro)
+
+CPU spans for the Image Compare wheel-to-photon chain
+(`ic.wheel_tick` → `ic.enqueue` → `ic.prepare` → `ic.realize_main` /
+`ic.realize_magnifier` → `ic.mips` → `ic.submit`, plus the enqueue-side
+`ic.present_proxy` — compositor excluded by construction, never photon
+timing). Spans are always collected into the IC `FrameContext` ring;
+`IMGSLI_PERF_TRACE=1` gates serialization at the export boundary only
+(`src/engine/frame/trace_export.py:write_trace` — callers never
+re-implement the gate):
+
+```bash
+IMGSLI_PERF_TRACE=1 python src/__main__.py   # interact, then export path writes trace.json
+python src/devtools/analyze_perf_trace.py trace.json --budget-ms 25.0
+```
+
+The analyzer prints per-stage count/total/p50/p95/max (ms) and flags
+ticks over budget with the dominant stage. Hook-point tests live in
+`src/tabs/image_compare/tests/render/test_ic_perf_spans.py`. See also
+[TRACING.md](TRACING.md) (separate causal-tracer facility) for the
+cross-link.
 
 ## Reading existing logs
 

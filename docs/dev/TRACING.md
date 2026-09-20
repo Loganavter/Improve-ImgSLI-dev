@@ -259,3 +259,17 @@ Qt event ──> patched handler ──> Tracer.begin_trace("mpress")
   calls. Use `RenderDoc` (backend-agnostic), or `apitrace`/`qt.qpa.gl=true`
   when the active QRhi backend is OpenGL (`IMPROVE_IMGSLI_RHI_BACKEND`,
   see `ui/canvas_infra/rhi/rhi_backend.py`; platform-default otherwise).
+
+## Related: frame perf spans (IC zoom timing)
+
+For "which stage costs the frame" (IC zoom stutters), use the frame perf
+spans instead of this causal tracer: `FrameContext.span()` stages
+(`ic.wheel_tick` → `ic.enqueue` → `ic.prepare` → `ic.realize_main` /
+`ic.realize_magnifier` → `ic.mips` → `ic.submit`, plus enqueue-side
+`ic.present_proxy`) exported as Chrome Trace JSON for Perfetto, gated by
+`IMGSLI_PERF_TRACE=1` at the export boundary. Owner modules:
+`src/engine/frame/trace_export.py` (writer), `src/devtools/analyze_perf_trace.py`
+(validator/pre-agg), hooks in `src/tabs/image_compare/canvas/`
+(interaction, render_context, rhi_renderer, widget). Env-flag registry
+and the zoom-burst repro live in [LOGGING.md](LOGGING.md) ("Frame perf
+spans"). Multi Compare stages (`mc.*`) are a separate wave, not covered here.
