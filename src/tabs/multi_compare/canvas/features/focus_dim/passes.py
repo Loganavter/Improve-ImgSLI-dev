@@ -30,6 +30,7 @@ from engine.overlay import (
     TexturedOverlayResolver,
     TexturedOverlayShell,
 )
+from engine.frame.context import make_ids
 from ui.canvas_infra.scene.pass_contract import CanvasRenderPass
 from ui.canvas_infra.scene.stacking_policy import CanvasStackRole
 
@@ -169,6 +170,18 @@ class FocusDimPass(CanvasRenderPass):
                 )
 
     def record(self, command_buffer, widget, ctx, frame_context=None) -> None:
+        # Frame bus: overlay fact (record only, never instead). Verdict
+        # from this pass's own should_paint gate; None-safe (unwired
+        # callers stay silent).
+        if frame_context is not None:
+            _gate = self.should_paint(ctx)
+            _count = 1 if self._shell.active else 0
+            frame_context.record(
+                "overlay.focus_dim",
+                "ran" if _gate else "skipped",
+                f"overlay.focus_dim items={_count}",
+                ids=make_ids(frame_context.frame_id, _count),
+            )
         if getattr(widget, "_mc_overlay_debug", False):
             logger.info(
                 "[mc-overlay-debug] %s.record: active=%s pipeline=%s",
