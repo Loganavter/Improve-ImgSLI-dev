@@ -144,7 +144,7 @@ class FocusDimPass(CanvasRenderPass):
     def initialize(self, rhi, target) -> None:
         self._shell.mount(rhi, target, BINDING.shader_dir, BINDING.shader_stem)
 
-    def prepare(self, widget, ctx, resource_updates) -> None:
+    def prepare(self, widget, ctx, resource_updates, frame_context=None) -> None:
         self._shell.stage_quad(resource_updates)
         self._shell.stage_clip(resource_updates, ctx.clip_matrix)
         frame = _frame_resolver()(ctx)
@@ -168,7 +168,7 @@ class FocusDimPass(CanvasRenderPass):
                     self._shell.active,
                 )
 
-    def record(self, command_buffer, widget, ctx) -> None:
+    def record(self, command_buffer, widget, ctx, frame_context=None) -> None:
         if getattr(widget, "_mc_overlay_debug", False):
             logger.info(
                 "[mc-overlay-debug] %s.record: active=%s pipeline=%s",
