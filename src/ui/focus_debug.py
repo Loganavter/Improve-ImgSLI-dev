@@ -80,16 +80,23 @@ def _on_focus_changed(old, now) -> None:
 def install_focus_tracer(app=None) -> bool:
     """Connect ``focusChanged`` logging. Idempotent; no-op when flag is off.
 
+    When the flag is on, also drops the ``ImproveImgSLI`` logger level to
+    DEBUG if something else set it higher — otherwise the tracer's own
+    ``logger.debug`` lines never reach any handler and the flag looks dead.
     Returns True when the tracer is (or already was) connected.
     Never raises — focus handling must keep working with or without tracing.
     """
     try:
+        if not focus_debug_enabled():
+            return False
         if app is None:
             from PySide6.QtWidgets import QApplication
 
             app = QApplication.instance()
         if app is None:
             return False
+        if logger.getEffectiveLevel() > logging.DEBUG:
+            logger.setLevel(logging.DEBUG)
         if id(app) in _installed_on:
             return True
         app.focusChanged.connect(_on_focus_changed)

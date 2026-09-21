@@ -61,14 +61,24 @@ def test_transition_logged_with_identity_and_window_state(qapp, _flag_on, caplog
 
 
 def test_silent_when_flag_off(qapp, _flag_off, caplog):
+    assert install_focus_tracer(qapp) is False
     first = QLineEdit()
     first.setObjectName("quiet-field")
     first.show()
     qapp.processEvents()
-    assert install_focus_tracer(qapp) is True
     with caplog.at_level(logging.DEBUG, logger="ImproveImgSLI"):
         first.setFocus()
         qapp.processEvents()
     assert not any(
         "[focus-debug]" in r.getMessage() for r in caplog.records
     )
+
+
+def test_install_drops_logger_level_to_debug(qapp, _flag_on):
+    conventional = logging.getLogger("ImproveImgSLI")
+    conventional.setLevel(logging.WARNING)
+    try:
+        assert install_focus_tracer(qapp) is True
+        assert conventional.getEffectiveLevel() <= logging.DEBUG
+    finally:
+        conventional.setLevel(logging.NOTSET)
