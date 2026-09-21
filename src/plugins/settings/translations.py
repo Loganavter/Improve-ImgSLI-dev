@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from core.constants import AppConstants
+
+logger = logging.getLogger("ImproveImgSLI")
 
 _INTERPOLATION_KEY_MAP = {
     "NEAREST": "magnifier.nearest_neighbor",
@@ -108,6 +112,28 @@ _RHI_BACKEND_KEY_MAP = {
 }
 
 
+def _restore_combo_selection(combo, current, combo_name: str) -> None:
+    """Restore ``current`` after a language rebuild, or signal the reset.
+
+    Rebuilding clears the combo, so a value with no matching entry would
+    silently reset the field to its first item. When the value survives,
+    selection is preserved; otherwise a warning names the lost value so the
+    reset is visible instead of silent.
+    """
+    if current is None:
+        return
+    idx = combo.findData(current)
+    if idx != -1:
+        combo.setCurrentIndex(idx)
+        return
+    logger.warning(
+        "settings translations: %s lost selection %r on language rebuild — "
+        "reset to first item",
+        combo_name,
+        current,
+    )
+
+
 def _rebuild_rhi_backend_combo(dialog, lang: str) -> None:
     combo = getattr(dialog, "combo_rhi_backend", None)
     if combo is None:
@@ -121,9 +147,7 @@ def _rebuild_rhi_backend_combo(dialog, lang: str) -> None:
     for value, key in items:
         text = dialog._tr(key, lang) if key else str(value)
         combo.addItem(text, userData=value)
-    idx = combo.findData(current)
-    if idx != -1:
-        combo.setCurrentIndex(idx)
+    _restore_combo_selection(combo, current, "combo_rhi_backend")
 
 
 def _rebuild_theme_combo(dialog, lang: str) -> None:
@@ -134,9 +158,7 @@ def _rebuild_theme_combo(dialog, lang: str) -> None:
     combo.clear()
     for key in _THEME_KEYS:
         combo.addItem(dialog._tr(f"settings.{key}", lang), key)
-    idx = combo.findData(current)
-    if idx != -1:
-        combo.setCurrentIndex(idx)
+    _restore_combo_selection(combo, current, "combo_theme")
 
 
 def _rebuild_font_family_combo(dialog, lang: str) -> None:
@@ -149,9 +171,7 @@ def _rebuild_font_family_combo(dialog, lang: str) -> None:
     combo.clear()
     for fam in QFontDatabase.families():
         combo.addItem(fam, fam)
-    idx = combo.findData(current or "")
-    if idx != -1:
-        combo.setCurrentIndex(idx)
+    _restore_combo_selection(combo, current or "", "combo_font_family")
 
 
 def _rebuild_interpolation_combos(dialog, lang: str) -> None:
@@ -177,11 +197,9 @@ def _rebuild_interpolation_combos(dialog, lang: str) -> None:
             dialog._tr(_INTERPOLATION_KEY_MAP[key], lang), key
         )
 
-    for combo, value in (
-        (dialog.combo_mag_interp, current_mag),
-        (dialog.combo_laser_interp, current_laser),
-        (dialog.combo_zoom_interp, current_zoom),
+    for combo, value, name in (
+        (dialog.combo_mag_interp, current_mag, "combo_mag_interp"),
+        (dialog.combo_laser_interp, current_laser, "combo_laser_interp"),
+        (dialog.combo_zoom_interp, current_zoom, "combo_zoom_interp"),
     ):
-        idx = combo.findData(value)
-        if idx != -1:
-            combo.setCurrentIndex(idx)
+        _restore_combo_selection(combo, value, name)
