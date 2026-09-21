@@ -159,8 +159,8 @@ class EventHandler(QObject):
             if watched_obj is self.presenter.main_window_app or watched_obj is active_window:
                 self._reset_keyboard_state(f"event:{int(event_type)}")
         elif event_type == QEvent.Type.FocusOut:
-            if watched_obj is self.presenter.main_window_app:
-                self._reset_keyboard_state(f"event:{int(event_type)}")
+            # Any focus loss (panel/tab-switch included) resets held keys.
+            self._reset_keyboard_state(f"event:{int(event_type)}")
 
         if event_type == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
             # Same QMouseEvent is delivered to every installEventFilter target
