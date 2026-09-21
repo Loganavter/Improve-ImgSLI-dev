@@ -192,12 +192,17 @@ class WindowEventHandler(QObject):
         # goes instant; without it the first commit races mutter's grab setup
         # and loses (~350 ms stall). A calibrated synchronous delay tests
         # whether timing alone (no logs) reproduces the instant case.
-        try:
-            import os as _os2
+        # DEBUG-ONLY: a synchronous sleep in the drag-enter path stalls the
+        # DnD handshake, so the delay is honored exclusively when
+        # IMGSLI_DND_DEBUG is set — the prod path never sleeps here.
+        _enter_delay = 0.0
+        if _env_flag("IMGSLI_DND_DEBUG"):
+            try:
+                import os as _os2
 
-            _enter_delay = float(_os2.environ.get("IMGSLI_DND_ENTER_DELAY_MS", "0") or 0)
-        except Exception:
-            _enter_delay = 0.0
+                _enter_delay = float(_os2.environ.get("IMGSLI_DND_ENTER_DELAY_MS", "0") or 0)
+            except Exception:
+                _enter_delay = 0.0
         if _enter_delay > 0:
             try:
                 import time as _time_sl
