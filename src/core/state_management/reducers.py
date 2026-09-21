@@ -341,31 +341,68 @@ class ViewportReducer:
 
 
 class SettingsReducer:
+    """Equality-guarded settings reduction.
+
+    Every branch returns the *identical* ``SettingsState`` when the incoming
+    value already equals the stored one. Without the guard each dispatch
+    allocates a fresh instance, which defeats the dispatcher's ``is``-based
+    no-op detection and emits a state change for a no-op.
+    """
+
     @staticmethod
     def reduce(settings: SettingsState, action: Action) -> SettingsState:
         if isinstance(action, SetLanguageAction):
+            if settings.current_language == action.language:
+                return settings
             return replace(settings, current_language=action.language)
         if isinstance(action, SetUIModeAction):
+            if settings.ui_mode == action.mode:
+                return settings
             return replace(settings, ui_mode=action.mode)
         if isinstance(action, SetAutoCropBlackBordersAction):
+            if settings.auto_crop_black_borders == action.enabled:
+                return settings
             return replace(settings, auto_crop_black_borders=action.enabled)
         if isinstance(action, SetThemeAction):
+            if settings.theme == action.theme:
+                return settings
             return replace(settings, theme=action.theme)
         if isinstance(action, SetUIFontModeAction):
+            if settings.ui_font_mode == action.mode:
+                return settings
             return replace(settings, ui_font_mode=action.mode)
         if isinstance(action, SetUIFontFamilyAction):
+            if settings.ui_font_family == action.family:
+                return settings
             return replace(settings, ui_font_family=action.family)
         if isinstance(action, SetUIScaleFactorAction):
+            if settings.ui_scale_factor == action.factor:
+                return settings
             return replace(settings, ui_scale_factor=action.factor)
         if isinstance(action, SetDebugModeEnabledAction):
+            if settings.debug_mode_enabled == action.enabled:
+                return settings
             return replace(settings, debug_mode_enabled=action.enabled)
         if isinstance(action, SetSystemNotificationsEnabledAction):
+            if settings.system_notifications_enabled == action.enabled:
+                return settings
             return replace(settings, system_notifications_enabled=action.enabled)
         if isinstance(action, SetVideoRecordingFpsAction):
+            if settings.video_recording_fps == action.fps:
+                return settings
             return replace(settings, video_recording_fps=action.fps)
         if isinstance(action, SetWindowWasMaximizedAction):
+            if settings.window_was_maximized == action.was_maximized:
+                return settings
             return replace(settings, window_was_maximized=action.was_maximized)
         if isinstance(action, SetWindowGeometryAction):
+            if (
+                settings.window_x == action.x
+                and settings.window_y == action.y
+                and settings.window_width == action.width
+                and settings.window_height == action.height
+            ):
+                return settings
             return replace(
                 settings,
                 window_x=action.x,
@@ -374,9 +411,14 @@ class SettingsReducer:
                 window_height=action.height,
             )
         if isinstance(action, SetExportFavoriteDirAction):
+            if settings.export_favorite_dir == action.path:
+                return settings
             return replace(settings, export_favorite_dir=action.path)
         if isinstance(action, SetKeyboardOverridesAction):
-            return replace(settings, keyboard_overrides=dict(action.overrides))
+            incoming = dict(action.overrides)
+            if dict(settings.keyboard_overrides) == incoming:
+                return settings
+            return replace(settings, keyboard_overrides=incoming)
         return settings
 
 
@@ -389,7 +431,7 @@ class RootReducer:
         """Single-action reduction without allocating Store. Returns (new_viewport, new_settings, new_slot_values, any_slot_changed, viewport_changed)."""
         new_viewport = self.viewport_reducer.reduce(store.viewport, action, session_type)
         new_render_config = reduce_render_config_extensions(
-            new_viewport.render_config, action
+            new_viewport.render_config, action, session_type
         )
         if new_render_config is not new_viewport.render_config:
             new_viewport = _build_viewport_state(
@@ -428,7 +470,7 @@ class RootReducer:
             for sub in inner:
                 # reduce viewport/settings incrementally
                 new_viewport = self.viewport_reducer.reduce(cur_viewport, sub, session_type)
-                new_render_config = reduce_render_config_extensions(new_viewport.render_config, sub)
+                new_render_config = reduce_render_config_extensions(new_viewport.render_config, sub, session_type)
                 if new_render_config is not new_viewport.render_config:
                     new_viewport = _build_viewport_state(new_viewport, render_config=new_render_config)
                 new_settings = self.settings_reducer.reduce(cur_settings, sub)
@@ -465,7 +507,7 @@ class RootReducer:
         session_type = active_session.session_type if active_session is not None else None
         new_viewport = self.viewport_reducer.reduce(store.viewport, action, session_type)
         new_render_config = reduce_render_config_extensions(
-            new_viewport.render_config, action
+            new_viewport.render_config, action, session_type
         )
         if new_render_config is not new_viewport.render_config:
             new_viewport = _build_viewport_state(
