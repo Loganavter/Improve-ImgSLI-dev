@@ -13,6 +13,9 @@ from plugins.export.services.gpu_export import GpuExportService
 from engine.cache import TargetSurfaceSpec
 from engine.store.pyramid_registry import pyramid_for
 from tabs.image_compare.plugins.video_editor.services.keyframing import KeyframedRecording
+from tabs.image_compare.plugins.video_editor.services.editor import (
+    frame_count_for_duration,
+)
 from tabs.image_compare.services.video_snapshot_rendering.geometry import (
     THUMBNAIL_TARGET_SIZE,
     thumbnail_proxy_dest_scale,
@@ -788,7 +791,10 @@ class VideoExporterService:
             font_path = window_shell.main_window_app.font_path_absolute
 
         total_duration = recording.get_duration()
-        total_frames = max(1, int(total_duration * fps))
+        # Single frame-count source (editor.frame_count_for_duration): ceil+1
+        # keeps the tail frame on non-integer duration*fps; the old floor
+        # split silently dropped it from the stream.
+        total_frames = frame_count_for_duration(total_duration, fps)
 
         fit_content = export_options.get("fit_content", False)
         fill_color = QColor(export_options.get("fit_content_fill_color", "#00000000"))
