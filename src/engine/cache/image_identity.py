@@ -63,10 +63,16 @@ def _checked_tag(stored, fingerprint):
     Legacy plain-int tags (written before fingerprints existed) carry no
     fingerprint: they match only a ``None`` fingerprint, otherwise they
     are retagged once and from then on carry one.
+
+    A ``None`` fingerprint against a fingerprinted tag means the shape is
+    currently unreadable (e.g. a closed TiledPixelStore whose ``size``
+    raises) — that is no evidence of a content change, so the tag is kept.
+    Retagging there would break identity-keyed sweeps that run exactly
+    after close (pyramid_registry).
     """
     if isinstance(stored, list | tuple) and len(stored) == 2:
         tag, saved = stored
-        if saved == fingerprint:
+        if fingerprint is None or saved == fingerprint:
             return int(tag)
         return None
     if fingerprint is None and isinstance(stored, int):

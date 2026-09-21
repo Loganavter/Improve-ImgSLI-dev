@@ -100,6 +100,21 @@ def test_legacy_plain_int_tag_migrates():
     assert image_uid(image) != 1234567
 
 
+def test_unreadable_shape_keeps_tag_for_sweep_after_close(tmp_path):
+    """A closed TiledPixelStore (``size`` raises) must keep its uid: an
+    unreadable fingerprint is no evidence of a content change. Retagging
+    there broke identity-keyed sweeps running right after close
+    (pyramid_registry sweep-on-access missed and leaked derived levels)."""
+    from engine.store.tiled_pixel_store import TiledPixelStore
+    from PIL import Image
+
+    pil = Image.new("RGBA", (16, 16), "blue")
+    store = TiledPixelStore.from_pil(pil, tmp_dir=str(tmp_path))
+    uid_open = image_uid(store)
+    store.close()
+    assert image_uid(store) == uid_open
+
+
 def test_no_id_fallback_in_source():
     import inspect
 
