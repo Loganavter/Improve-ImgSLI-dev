@@ -94,7 +94,7 @@
     },
     {
       "path": "src/plugins/export/dialog.py",
-      "lines": 733,
+      "lines": 758,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"one QDialog layout/signal wiring — size from scaled_px/QSS-free boilerplate\"",
@@ -105,7 +105,7 @@
     },
     {
       "path": "src/plugins/help/dialog.py",
-      "lines": 881,
+      "lines": 913,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"one Help QDialog — HelpDocumentView + search wiring\"",
@@ -116,7 +116,7 @@
     },
     {
       "path": "src/plugins/settings/dialog.py",
-      "lines": 649,
+      "lines": 669,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"one Settings QDialog — 6 pages + load/save\"",
