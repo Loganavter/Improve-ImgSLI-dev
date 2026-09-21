@@ -650,7 +650,7 @@
     },
     {
       "path": "src/tabs/image_gallery/controller.py",
-      "lines": 794,
+      "lines": 933,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one controller lifecycle — folder scan/thumbnail/triage/VLM sharing GenericWorker state\"",
@@ -733,7 +733,7 @@
     },
     {
       "path": "src/tabs/image_gallery/use_cases/triage.py",
-      "lines": 512,
+      "lines": 525,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner helpers — keep_best/provenance/clean wiring shares one triage lifecycle\"",
@@ -879,7 +879,7 @@
     },
     {
       "path": "src/tabs/session_picker/recent/cards.py",
-      "lines": 538,
+      "lines": 605,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=compound-widget size=exempt reason=\"grid+list card factory with hover/selection/cover handling — single widget family\"",
@@ -891,7 +891,7 @@
     },
     {
       "path": "src/tabs/session_picker/recent/items_view.py",
-      "lines": 683,
+      "lines": 738,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single virtualized grid view — grid_columns/visible_window/acquire/place pipeline\"",
