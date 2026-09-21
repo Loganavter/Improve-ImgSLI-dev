@@ -3,6 +3,17 @@
   "_policy": "docs/dev/FILE_SIZE_POLICY.md",
   "entries": [
     {
+      "path": "src/core/state_management/reducers.py",
+      "lines": 547,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=state-machine reason=\"single reducer machine — viewport/settings/slot/transaction reduction scanned by settings-scalar AST dogma, must stay one file\"",
+      "parsed": {
+        "pattern": "state-machine",
+        "reason": "single reducer machine — viewport/settings/slot/transaction reduction scanned by settings-scalar AST dogma, must stay one file"
+      }
+    },
+    {
       "path": "src/devtools/context_cloc.py",
       "lines": 786,
       "limit": 500,
@@ -947,7 +958,7 @@
     },
     {
       "path": "src/ui/main_window/menu_controller.py",
-      "lines": 504,
+      "lines": 528,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single menu controller — platform menu assembly\"",

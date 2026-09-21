@@ -1,6 +1,7 @@
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+# Audit-Meta: pattern=state-machine reason="single reducer machine — viewport/settings/slot/transaction reduction scanned by settings-scalar AST dogma, must stay one file"
 # Long-term Store lock fix (plan_image_compare_dnd_tiles.md):
 # All ViewportState / slot copies (dict shallow copies, ViewState/ViewportState
 # replacements) are prepared here inside RootReducer.reduce — which Dispatcher
@@ -347,6 +348,10 @@ class SettingsReducer:
     value already equals the stored one. Without the guard each dispatch
     allocates a fresh instance, which defeats the dispatcher's ``is``-based
     no-op detection and emits a state change for a no-op.
+
+    Branches stay explicit (one ``isinstance`` per action class) rather than
+    table-driven: ``tests/contracts/test_settings_scalar_registry.py`` scans
+    this file's AST for those branches.
     """
 
     @staticmethod
