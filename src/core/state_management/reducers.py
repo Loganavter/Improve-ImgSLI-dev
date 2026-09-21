@@ -51,6 +51,7 @@ from .actions import (
     SetIsDraggingSliderAction,
     SetLanguageAction,
     SetKeyboardOverridesAction,
+    SetRhiBackendAction,
     SetLastHorizontalMovementKeyAction,
     SetLastSpacingMovementKeyAction,
     SetLastVerticalMovementKeyAction,
@@ -396,6 +397,10 @@ class SettingsReducer:
             if settings.video_recording_fps == action.fps:
                 return settings
             return replace(settings, video_recording_fps=action.fps)
+        if isinstance(action, SetRhiBackendAction):
+            if settings.rhi_backend == action.backend:
+                return settings
+            return replace(settings, rhi_backend=action.backend)
         if isinstance(action, SetWindowWasMaximizedAction):
             if settings.window_was_maximized == action.was_maximized:
                 return settings
