@@ -182,6 +182,21 @@ class TabContract(ABC):
     def on_session_closed(self, session_id: str, context: TabContext) -> None:
         """Called when a session of this tab's type is closed."""
 
+    def can_close_session(self, session_id: str, context: TabContext) -> bool:
+        """Pre-close dirty gate: return False to veto closing *session_id*.
+
+        Verdict: this hook is the gate, but host close paths
+        (``SessionManager.close_session`` → ``Store.close_workspace_session``)
+        currently notify post-facto via ``on_session_closed`` and do not
+        consult it yet — wiring the consult through the registry is future
+        work. Rationale for adding the hook now rather than deferring it:
+        tabs already hold losable in-memory edits (video-editor keyframe
+        channels), so the contract must name the veto point before the
+        host can route through it. Default True (fail-open): tabs without
+        unsaved state close exactly as before.
+        """
+        return True
+
     def on_active_session_changed(self, session_id: str, context: TabContext) -> None:
         """Called when the active workspace session id changes while this tab's
         page is visible (same ``session_type``, different ``session_id``)."""
