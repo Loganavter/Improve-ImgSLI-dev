@@ -3,8 +3,19 @@
   "_policy": "docs/dev/FILE_SIZE_POLICY.md",
   "entries": [
     {
+      "path": "src/core/state_management/reducers.py",
+      "lines": 552,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=state-machine reason=\"single reducer machine — viewport/settings/slot/transaction reduction scanned by settings-scalar AST dogma, must stay one file\"",
+      "parsed": {
+        "pattern": "state-machine",
+        "reason": "single reducer machine — viewport/settings/slot/transaction reduction scanned by settings-scalar AST dogma, must stay one file"
+      }
+    },
+    {
       "path": "src/devtools/context_cloc.py",
-      "lines": 786,
+      "lines": 810,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single devtools report generator — cloc + shader + tests aggregation\"",
@@ -83,7 +94,7 @@
     },
     {
       "path": "src/plugins/export/dialog.py",
-      "lines": 733,
+      "lines": 758,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"one QDialog layout/signal wiring — size from scaled_px/QSS-free boilerplate\"",
@@ -94,7 +105,7 @@
     },
     {
       "path": "src/plugins/help/dialog.py",
-      "lines": 881,
+      "lines": 913,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"one Help QDialog — HelpDocumentView + search wiring\"",
@@ -105,7 +116,7 @@
     },
     {
       "path": "src/plugins/settings/dialog.py",
-      "lines": 649,
+      "lines": 669,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=qdialog-wiring reason=\"one Settings QDialog — 6 pages + load/save\"",
@@ -947,7 +958,7 @@
     },
     {
       "path": "src/ui/main_window/menu_controller.py",
-      "lines": 504,
+      "lines": 528,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single menu controller — platform menu assembly\"",
