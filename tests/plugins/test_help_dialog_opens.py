@@ -21,8 +21,8 @@ def test_help_plugin_show_dialog_opens(qtbot):
     assert plugin._dialog._nav.current_id == "platform.hotkeys"
 
 
-def test_help_dialog_stays_parentless_when_main_window_passed(qtbot):
-    """Help must not be transient-for MainWindow (buries Video Editor / Export)."""
+def test_help_dialog_parents_to_main_window(qtbot):
+    """Help is transient-for the calling window (xdg-activation exemption)."""
     from PySide6.QtWidgets import QWidget
 
     host = QWidget()
@@ -31,4 +31,4 @@ def test_help_dialog_stays_parentless_when_main_window_passed(qtbot):
     plugin.show_dialog(parent=host, language="en")
     assert plugin._dialog is not None
     qtbot.addWidget(plugin._dialog)
-    assert plugin._dialog.parent() is None
+    assert plugin._dialog.parent() is host
