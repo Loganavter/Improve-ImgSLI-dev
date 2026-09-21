@@ -27,7 +27,7 @@
     },
     {
       "path": "src/engine/cache/tile_texture_service.py",
-      "lines": 640,
+      "lines": 679,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one residency bookkeeping lifecycle — grids/residency/slots/interest share one (source_id, index) key space; request_level/interest are additive methods on it, not new concerns\"",
