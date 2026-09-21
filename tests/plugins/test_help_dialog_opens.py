@@ -30,5 +30,7 @@ def test_help_dialog_parents_to_main_window(qtbot):
     plugin = HelpPlugin()
     plugin.show_dialog(parent=host, language="en")
     assert plugin._dialog is not None
-    qtbot.addWidget(plugin._dialog)
+    # NOTE: only the host is qtbot-owned — the parented dialog is destroyed
+    # with it at teardown (a second explicit close would double-free).
+    assert plugin._dialog.isVisible()
     assert plugin._dialog.parent() is host
