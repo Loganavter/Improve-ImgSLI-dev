@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QWidget
@@ -31,6 +31,11 @@ class TabTransitionHint:
 
 
 _DEFAULT_TRANSITION_HINT = TabTransitionHint()
+
+StartupTier = Literal["bootstrap", "deferred"]
+"""Valid ``TabContract.startup_tier`` values (mirrors discovery_scan.StartupTier)."""
+
+_VALID_STARTUP_TIERS = frozenset({"bootstrap", "deferred"})
 
 
 class TabContract(ABC):
@@ -90,8 +95,21 @@ class TabContract(ABC):
         """
         return False
 
-    startup_tier: str = "deferred"
+    startup_tier: StartupTier = "deferred"
     """When ``TabRegistry.discover(tier=...)`` imports this tab: ``bootstrap`` or ``deferred``."""
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        # Contract-level validation: a typo ("bootstarp") must fail loud at
+        # import time, not silently degrade to deferred discovery. Only the
+        # subclass's own assignment is checked — inheriting the default or a
+        # parent's valid tier is always fine.
+        tier = cls.__dict__.get("startup_tier", "deferred")
+        if tier not in _VALID_STARTUP_TIERS:
+            raise TypeError(
+                f"{cls.__name__}.startup_tier={tier!r} is invalid: "
+                "expected 'bootstrap' or 'deferred'"
+            )
 
     @property
     def resources_dir(self) -> Path | None:
