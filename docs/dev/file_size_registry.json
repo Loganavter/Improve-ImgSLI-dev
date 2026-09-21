@@ -914,7 +914,7 @@
     },
     {
       "path": "src/tabs/session_picker/recent/panel.py",
-      "lines": 565,
+      "lines": 567,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"RecentProjectsPanel thin owner — delegates to recent/use_cases/*\"",
@@ -925,7 +925,7 @@
     },
     {
       "path": "src/tabs/session_picker/widget.py",
-      "lines": 566,
+      "lines": 554,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"session_picker page — thin owner delegating to SessionPickerWidget + RecentProjectsPanel\"",
