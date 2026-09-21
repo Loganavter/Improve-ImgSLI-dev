@@ -15,7 +15,7 @@
     },
     {
       "path": "src/devtools/context_cloc.py",
-      "lines": 786,
+      "lines": 810,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single devtools report generator — cloc + shader + tests aggregation\"",
