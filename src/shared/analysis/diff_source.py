@@ -12,10 +12,10 @@ from PIL import Image
 from shared.analysis.channel_analyzer import extract_channel
 from shared.analysis.differ import (
     _build_diff_tile_jobs,
-    _compute_grayscale_tile,
     _compute_rgb_diff_gray_tile,
     _emit_tiled_progress,
     _resolve_ssim_workers,
+    resample_second_to_first,
 )
 from shared.analysis.edge_detector import (
     EDGE_TILE_MAX_EXTENT,
@@ -23,7 +23,7 @@ from shared.analysis.edge_detector import (
     _emit_edge_progress,
     _resolve_edge_workers,
 )
-from shared.analysis.output import finalize_diff_output
+from shared.analysis.output import open_streaming_output, to_u8_rgb
 from shared.image_processing.store_lease import StoreLease
 from engine.store.tiled_pixel_store import TiledPixelStore
 from engine.store.regions import build_uniform_tile_grid
@@ -38,7 +38,8 @@ def _crop_source(source, box: tuple[int, int, int, int]) -> Image.Image:
 
 
 def _rgb_array_from_source(source, box: tuple[int, int, int, int]) -> np.ndarray:
-    return np.asarray(_crop_source(source, box).convert("RGB"))
+    # 16-bit PIL sources scale //257 here, never clip/truncate.
+    return np.asarray(to_u8_rgb(_crop_source(source, box)))
 
 
 def _rgba_from_source(source, box: tuple[int, int, int, int], channel_mode: str) -> Image.Image:
@@ -56,8 +57,15 @@ def _align_source2(source1, source2):
     if isinstance(source2, TiledPixelStore):
         from engine.store.pixel_ops.downscale import downscale_source_to_pil
 
+        logger.debug(
+            "[ANALYSIS_ALIGN] resampled store source2 %s -> %s (downscale; map+scalar policy)",
+            source2.size,
+            source1.size,
+        )
         return downscale_source_to_pil(source2, source1.size)
-    return source2.resize(source1.size, Image.Resampling.LANCZOS)
+    # PIL leg shares the ONE map+scalar policy (resample-and-record).
+    _, aligned, _ = resample_second_to_first(source1, source2)
+    return aligned
 
 
 def create_highlight_diff_from_sources(
@@ -82,7 +90,9 @@ def create_highlight_diff_from_sources(
     tile_grid, tile_jobs = _build_diff_tile_jobs(width, height)
     total_tiles = len(tile_jobs)
     workers = _resolve_ssim_workers(total_tiles)
-    result = np.empty((height, width, 3), dtype=np.uint8)
+    # Tile-streamed output (no full-frame result): patches land in the
+    # writer as they complete, RAM or spill store as decided by size.
+    writer = open_streaming_output(width, height, channels=3)
 
     def _process_tile(tile_index: int, region):
         if lease1 is not None and not lease1.valid:
@@ -91,10 +101,10 @@ def create_highlight_diff_from_sources(
             return None
         left, top, right, bottom = region.left, region.top, region.right, region.bottom
         arr1_tile = np.asarray(
-            _rgba_from_source(source1, (left, top, right, bottom), channel_mode).convert("RGB")
+            to_u8_rgb(_rgba_from_source(source1, (left, top, right, bottom), channel_mode))
         )
         arr2_tile = np.asarray(
-            _rgba_from_source(source2, (left, top, right, bottom), channel_mode).convert("RGB")
+            to_u8_rgb(_rgba_from_source(source2, (left, top, right, bottom), channel_mode))
         )
         gray_tile = _compute_rgb_diff_gray_tile(arr1_tile, arr2_tile)
         mask = gray_tile > threshold
@@ -109,7 +119,9 @@ def create_highlight_diff_from_sources(
             if patch is None:
                 return None
             region, out_tile = patch
-            result[region.top : region.bottom, region.left : region.right] = out_tile
+            writer.write_tile(
+                (region.left, region.top, region.right, region.bottom), out_tile
+            )
             completed += 1
             _emit_tiled_progress(progress_callback, "highlight_tiles", completed, total_tiles)
     else:
@@ -123,12 +135,14 @@ def create_highlight_diff_from_sources(
                 if patch is None:
                     return None
                 region, out_tile = patch
-                result[region.top : region.bottom, region.left : region.right] = out_tile
+                writer.write_tile(
+                    (region.left, region.top, region.right, region.bottom), out_tile
+                )
                 completed += 1
                 _emit_tiled_progress(progress_callback, "highlight_tiles", completed, total_tiles)
 
     _ = tile_grid
-    return finalize_diff_output(result, channels=3)
+    return writer.finalize()
 
 
 def create_grayscale_diff_from_sources(
@@ -152,19 +166,27 @@ def create_grayscale_diff_from_sources(
     _, tile_jobs = _build_diff_tile_jobs(width, height)
     total_tiles = len(tile_jobs)
     workers = _resolve_ssim_workers(total_tiles)
-    gray_tiles: dict[int, tuple] = {}
+    # Pass 1 scans tile extrema only (tiles discarded, never stored): the
+    # global linear normalize needs min/max first, and a per-tile dict is
+    # a full frame in RAM.
     global_min = 255
     global_max = 0
 
     def _gray_tile_arrays(region):
         left, top, right, bottom = region.left, region.top, region.right, region.bottom
         arr1 = np.asarray(
-            _rgba_from_source(source1, (left, top, right, bottom), channel_mode).convert("RGB")
+            to_u8_rgb(_rgba_from_source(source1, (left, top, right, bottom), channel_mode))
         )
         arr2 = np.asarray(
-            _rgba_from_source(source2, (left, top, right, bottom), channel_mode).convert("RGB")
+            to_u8_rgb(_rgba_from_source(source2, (left, top, right, bottom), channel_mode))
         )
         return arr1, arr2
+
+    def _gray_extrema(arr1, arr2):
+        # Tile-local kernel (no full-image region slicing: inputs here are
+        # already per-tile crops, unlike differ's full-array path).
+        gray_tile = _compute_rgb_diff_gray_tile(arr1, arr2)
+        return gray_tile, int(gray_tile.min()), int(gray_tile.max())
 
     completed = 0
     if workers <= 1:
@@ -174,10 +196,9 @@ def create_grayscale_diff_from_sources(
             if lease2 is not None and not lease2.valid:
                 return None
             arr1, arr2 = _gray_tile_arrays(region)
-            entry = _compute_grayscale_tile(tile_index, total_tiles, region, arr1, arr2)
-            gray_tiles[tile_index] = entry
-            global_min = min(global_min, entry[4])
-            global_max = max(global_max, entry[5])
+            _, tile_min, tile_max = _gray_extrema(arr1, arr2)
+            global_min = min(global_min, tile_min)
+            global_max = max(global_max, tile_max)
             completed += 1
             _emit_tiled_progress(progress_callback, "grayscale_tiles", completed, total_tiles)
     else:
@@ -193,25 +214,34 @@ def create_grayscale_diff_from_sources(
                     return None
                 tile_index, region = futures[future]
                 arr1, arr2 = future.result()
-                entry = _compute_grayscale_tile(tile_index, total_tiles, region, arr1, arr2)
-                gray_tiles[tile_index] = entry
-                global_min = min(global_min, entry[4])
-                global_max = max(global_max, entry[5])
+                _, tile_min, tile_max = _gray_extrema(arr1, arr2)
+                global_min = min(global_min, tile_min)
+                global_max = max(global_max, tile_max)
                 completed += 1
                 _emit_tiled_progress(progress_callback, "grayscale_tiles", completed, total_tiles)
 
-    result = np.empty((height, width), dtype=np.uint8)
+    # Pass 2 recomputes each tile (cheap re-crop + numpy kernels) and
+    # streams it scaled into the output writer: peak RAM stays at tile
+    # scale instead of holding every tile plus the full result.
     scale = None if global_max <= global_min else 255.0 / float(global_max - global_min)
+    writer = open_streaming_output(width, height, channels=1)
     for tile_index, region in tile_jobs:
-        _, _, _, gray_tile, _, _, _ = gray_tiles[tile_index]
+        if lease1 is not None and not lease1.valid:
+            return None
+        if lease2 is not None and not lease2.valid:
+            return None
+        arr1, arr2 = _gray_tile_arrays(region)
+        gray_tile, _, _ = _gray_extrema(arr1, arr2)
         if scale is not None:
             tile_out = np.clip((gray_tile.astype(np.float32) - global_min) * scale, 0.0, 255.0)
             tile_out = tile_out.astype(np.uint8, copy=False)
         else:
             tile_out = gray_tile
-        result[region.top : region.bottom, region.left : region.right] = tile_out
+        writer.write_tile(
+            (region.left, region.top, region.right, region.bottom), tile_out
+        )
 
-    return finalize_diff_output(result, channels=1)
+    return writer.finalize()
 
 
 def create_edge_map_from_sources(
@@ -241,11 +271,13 @@ def create_edge_map_from_sources(
     ]
     total_tiles = len(tile_jobs)
     workers = _resolve_edge_workers(total_tiles)
-    result = np.empty((height, width), dtype=np.uint8)
+    # Tile-streamed output (no full-frame result): patches land in the
+    # writer as they complete, RAM or spill store as decided by size.
+    writer = open_streaming_output(width, height, channels=1)
 
     def _gray_crop(box):
         pil = _rgba_from_source(source1, box, channel_mode)
-        return np.array(pil.convert("L"))
+        return np.array(to_u8_rgb(pil).convert("L"))
 
     def _process_tile(tile_index: int, region):
         if lease1 is not None and not lease1.valid:
@@ -270,7 +302,10 @@ def create_edge_map_from_sources(
             tile_result = _process_tile(tile_index, region)
             if tile_result is None:
                 return None
-            result[region.top : region.bottom, region.left : region.right] = tile_result[3]
+            region = tile_result[2]
+            writer.write_tile(
+                (region.left, region.top, region.right, region.bottom), tile_result[3]
+            )
             completed += 1
             _emit_edge_progress(progress_callback, completed, total_tiles)
     else:
@@ -284,8 +319,10 @@ def create_edge_map_from_sources(
                 if tile_result is None:
                     return None
                 region = tile_result[2]
-                result[region.top : region.bottom, region.left : region.right] = tile_result[3]
+                writer.write_tile(
+                    (region.left, region.top, region.right, region.bottom), tile_result[3]
+                )
                 completed += 1
                 _emit_edge_progress(progress_callback, completed, total_tiles)
 
-    return finalize_diff_output(result, channels=1)
+    return writer.finalize()

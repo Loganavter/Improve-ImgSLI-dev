@@ -138,7 +138,7 @@
     },
     {
       "path": "src/shared/analysis/differ.py",
-      "lines": 584,
+      "lines": 626,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=tiled-pipeline reason=\"stateless tiled diff kernels highlight/grayscale/ssim sharing workers\"",
