@@ -350,9 +350,16 @@ class Dispatcher:
                 except Exception as e:
                     logger.error(f"Error emitting state change {emit_scope}: {e}", exc_info=True)
             return
-        # Optimistic retries exhausted — extremely rare; give up (single-threaded
-        # callers already succeeded on first attempt, so this path is never hit
-        # in tests).
+        # Optimistic retries exhausted — extremely rare; log loudly instead
+        # of silently dropping the update (a dropped dispatch with zero log
+        # lines leaves Store and UI diverged invisibly).
+        logger.error(
+            "Dispatcher.dispatch exhausted 5 optimistic retries for action "
+            "%r (scope=%r) — update dropped, store left at pre-dispatch state",
+            getattr(action, "type", action),
+            scope,
+        )
+        return
 
     def subscribe(self, callback: Callable[[Action], None]) -> None:
         with self._lock:
