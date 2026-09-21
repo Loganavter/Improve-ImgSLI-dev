@@ -547,7 +547,7 @@
     },
     {
       "path": "src/tabs/image_compare/presenters/toolbar/connections.py",
-      "lines": 666,
+      "lines": 735,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single toolbar connections wiring — action->presenter bindings\"",
@@ -580,8 +580,20 @@
       }
     },
     {
+      "path": "src/tabs/image_compare/state/reducers.py",
+      "lines": 512,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=reducer-bundle size=exempt reason=\"four cohesive session/render/pipeline/cache reducers share ImageSession/RenderCache/PipelineCache shapes — splitting per class triples cross-imports for no isolation gain\"",
+      "parsed": {
+        "pattern": "reducer-bundle",
+        "size": "exempt",
+        "reason": "four cohesive session/render/pipeline/cache reducers share ImageSession/RenderCache/PipelineCache shapes — splitting per class triples cross-imports for no isolation gain"
+      }
+    },
+    {
       "path": "src/tabs/image_compare/ui/context_menu.py",
-      "lines": 599,
+      "lines": 610,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"single menu-surface aggregator — slot/list menus share entry/execute shape; per-action sections stay co-located\"",
