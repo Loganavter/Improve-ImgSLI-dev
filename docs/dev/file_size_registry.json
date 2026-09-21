@@ -365,7 +365,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/use_cases/fallback.py",
-      "lines": 475,
+      "lines": 464,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner-target size=exempt reason=\"fallback LOD extracted from RhiCanvasRenderer — see renderer.py Audit-Meta state-machine\"",
@@ -377,7 +377,7 @@
     },
     {
       "path": "src/tabs/image_compare/canvas/rhi_renderer/use_cases/frame_setup.py",
-      "lines": 300,
+      "lines": 323,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner-target size=exempt reason=\"frame setup extracted from RhiCanvasRenderer — see renderer.py Audit-Meta thin-owner\"",
