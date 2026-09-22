@@ -130,3 +130,32 @@ Status: `Audited → фиксы применены` (см. «Статус пра
 76 passed. `tests/contracts` не собирается из-за ПРЕДСУЩЕСТВУЮЩИХ конфликт-маркеров
 merge в `src/__main__.py`, `src/ui/main_window/startup.py`,
 `src/ui/canvas_infra/scene/pass_contract.py` и i18n JSON — вне скоупа вкладки.
+
+## Статус правок — parity close-out 2026-09-22/23 ([plan](plan_mockup_parity_2026-09-22.md))
+
+Ветка `int/gallery-parity-2026-09`, 4 волны, merged без конфликтов.
+Полный сьют на merged tree: **1893 passed, 66 skipped**
+(baseline 1870 + 23 новых регрессионных теста).
+
+- **Волна A (triage-core):** P0-1 `_series_of` читает `series` на owner и
+  `owner.state` (порядок `_triage_series, triage_series, _series, series`);
+  P0-2 live `set_rejected_count` из `_refresh_owner_grid`; strip Keep best →
+  `keep_best_of_series` (rejects rest — spec mockup); stale "(stub)" убраны.
+- **Волна B (fidelity+S4):** P0-3 новый `services/fidelity_metrics.py`
+  (`compute/apply/run_fidelity_sync`, identity fail-closed по `item.path`);
+  P0-4 маркер `frac = 0.5 − clamp(hf)·0.5` (+0.18 → 0.41);
+  P0-5 multi-compare merge вместо clobber; P0-6 set-source переключает режим
+  (chip FIDELITY); P0-8 убран фейковый "sky region"; P0-9 гистограммы 36→56px;
+  S4-визуал (meta-порядок, `Series 1 · hub`, chip-pill, dividers, min 1040×620,
+  зелёные значения, vs-#2 fallback из локальных метрик).
+- **Волна C (S2):** P0-7 импорт `Qt` в toolbar; fill-chip view-toggle;
+  AI tie-break — in-thumbnail pill; хедеры uppercase + токены
+  (`rg '#9a9a9a' grid_view.py` → 0); rank `#dfdfdf`; 6 raw-hex → токены;
+  легенда dots в design.md исправлена на artifact-каталог (код dots не тронут).
+  Честные partial: letter-spacing нет в ButtonRow API; "!" остался текстом
+  региона; тинт иконок капсулы требует поддержки toolkit.
+- **Волна D (S3+veil):** provenance `from: ` под filmstrip (svg:100);
+  горизонтальный скролл past cap 8; тост `Moved N files`, `success=True`, без MB;
+  primary-комментарий приведён к коду. **P0-10 вердикт: `TopLevelInWindowOverlay`
+  НЕ диммит (нет paintEvent) — app-side veil 0.45 (`DIM_VEIL_ALPHA=115`) в scope
+  галереи; правка toolkit — отдельная задача в другом репо.**
