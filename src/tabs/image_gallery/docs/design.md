@@ -107,7 +107,9 @@ singles collect under a plain `UNGROUPED` tail.
 ### Card anatomy
 
 Cover region + name row; rank badge (`★ BEST` accent pill or `#N` gray);
-three quality dots (mode-dependent metrics; outlier shown warm/red); rejected =
+three quality dots (artifact-based per the Artifact catalog above — the three
+mode-relevant artifacts, e.g. fidelity: banding/halo/blocking; a `flagged`
+severity shows its dot warm/red); rejected =
 opacity 0.38 + struck name + ✕ corner badge; unreadable file = error placeholder,
 excluded from triage but visible.
 
