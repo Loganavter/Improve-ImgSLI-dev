@@ -157,6 +157,8 @@ resync registries if touched; remove cells same turn.
 
 - 2026-09-22: plan drafted from 4-agent audit + supervisor verification;
   decisions: dots stay artifacts, orchestration = plan + queue.yaml.
+- 2026-09-22 23:15: supervisor baseline green (1870 passed, 66 skipped);
+  int/gallery-parity-2026-09 cut; waves A|B|C|D provisioning started.
 
 ## Catalog update
 
