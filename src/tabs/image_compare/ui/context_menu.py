@@ -608,3 +608,45 @@ class ImageCompareContextMenuProvider:
     def _tr(self, key: str, default: str) -> str:
         text = tr(key, get_current_language() or "en")
         return default if text == key else text
+
+
+def ensure_image_compare_context_menu(
+    canvas, store, *, sessions=None, ui_manager=None, flyout=None
+):
+    """Find-or-create the canvas slot context menu provider (single per canvas).
+
+    The provider used to be installed only by ``FlyoutController`` (a lazy
+    transient service): sessions that never opened the list flyout never
+    constructed it, so the global manager held zero providers and RMB on the
+    canvas silently did nothing. Install here instead, where store + sessions
+    + canvas are always in hand (both canvas-wiring paths call this); the
+    flyout controller reuses the instance and only attaches its flyout.
+    Mutable wiring (store/sessions/flyout) is refreshed on every call.
+    Returns the provider, or None when canvas or store is missing.
+    """
+    if canvas is None or store is None:
+        return None
+    from ui.context_menu.manager import (
+        find_context_menu_provider,
+        install_context_menu_provider,
+    )
+
+    existing = getattr(canvas, "_context_menu_provider", None)
+    if not isinstance(existing, ImageCompareContextMenuProvider):
+        existing = find_context_menu_provider(
+            lambda p: isinstance(p, ImageCompareContextMenuProvider)
+            and getattr(p, "canvas", None) is canvas
+        )
+    if existing is None:
+        existing = ImageCompareContextMenuProvider(
+            canvas, store, ui_manager=ui_manager
+        )
+        install_context_menu_provider(existing)
+    existing.store = store
+    if sessions is not None:
+        existing.attach_session_controller(sessions)
+    if flyout is not None:
+        existing.flyout = flyout
+    if hasattr(canvas, "set_context_menu_provider"):
+        canvas.set_context_menu_provider(existing)
+    return existing
