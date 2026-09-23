@@ -229,3 +229,33 @@ Phasing:
    becomes functional (filter by VLM tags stored alongside analysis cache).
 4. **Stage 4 — hooks for future workspaces**: video-compare intake follows the
    same triage contract.
+
+## Light-theme contrast norm
+
+WCAG ratios (`ratio = (L1 + 0.05) / (L2 + 0.05)`) over the W1 light palette
+(`src/resources/themes.json`), enforced by
+`tests/test_light_contrast.py` against the live file (no duplicated hexes):
+
+| Pair | Threshold | Current |
+|---|---|---|
+| card (`gallery.card.background`) vs `Window` | ≥ 1.5 | 1.57 |
+| card vs `surface.background` | ≥ 1.5 | 1.57 |
+| hover (`gallery.card.hover`) vs card | ≥ 1.3 | 1.37 |
+| `separator.color` vs card / `Window` / `surface.background` | ≥ 3.0 | 4.95 / 3.15 / 3.15 |
+| stats bg (`gallery.stats.background`) vs card | ≥ 3.0 | 3.45 |
+| header / footer / stats texts vs their backgrounds | ≥ 4.5 | 6.3–11.7 / 4.78 (stats) |
+
+**Substrate-darker-than-cards principle.** Cards are white (`#ffffff`); the
+substrate they sit on (`Window` / `surface.background`) must be darker, or
+cards dissolve into the background (the old `#f5f5f5`-on-`#f5f5f5` 1:1 bug).
+
+**Why `Window` is `#cecece`.** White cards need a gray substrate to read as
+objects at all. The card border (`button.dialog.default.border`, alpha hairline)
+is decoration only — fill contrast carries the separation, so the substrate
+stays mid-gray rather than near-white.
+
+**Visual gate.** Before any PR to `main` touching gallery tokens: run the app
+with `./launcher.sh run --ui-inspector` and confirm cards, hover, stats strip,
+separators, and quick look still separate in BOTH themes
+(`tests/test_light_dark_flip.py` covers the flip headlessly, but it cannot
+judge beauty — eyes still required).
