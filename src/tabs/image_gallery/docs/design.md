@@ -122,7 +122,7 @@ series strip (SOURCE / viewing / pending / rejected thumbs, click to switch),
 and — only if pass 2 ran for this pair — a one-line compare brief. Bottom bar:
 `Compare →`, `Add to Multi Compare`, `✕ Reject`, `Set as source` (fidelity only).
 
-Keyboard: `←→↑↓` navigate · `Space` reject toggle · `B` make best · `Enter`
+Keyboard: click opens quick look · `Ctrl+click` toggles selection · `←→↑↓` navigate · `Space` reject toggle · `B` make best · `Enter`
 compare selected · dbl-click quick look · `Esc` close/back.
 Find Action ids: `gallery.keep-best-of-series`, `gallery.clean-rejected`,
 `gallery.run-triage`, `gallery.set-as-source`.
