@@ -250,6 +250,38 @@ Verify: press-drag starting on arrow walks series and resizes nothing;
 glyph pixel size larger than before (grab assert); synthetic deactivate /
 minimize / Esc do NOT close; X closes; full suites green.
 
+## Wave W12 — close semantics + resize re-layout + DnD zone (4 writers)
+
+Base `2ca0d288`. User reports; frozen decisions:
+- **W-A close semantics** (`@ql-w12a`: `ui/quick_look.py`, `ui/quick_look_hooks.py`,
+  `tests/test_quick_look_parity.py`): pinned-X-only was too literal — action
+  buttons that navigate away must dismiss the overlay. `Compare →` closes
+  (leaves for compare); `Add to Multi Compare` closes iff it carries into the
+  compare flow (verify in code, else ask supervisor via mail); `Reject` and
+  `Set as source` stay open (triage continues). Tests per button.
+- **W-B resize re-layout** (`@ql-w12b`: `ui/quick_look/helpers.py`,
+  `tests/test_quick_look_resize.py` NEW): recompose like the image-save
+  (export) window — study its expanding layout first (read-only), then: preview
+  stretches with aspect, right column fixed 296, footer reflows, all hooks
+  re-run on resize. No new close paths.
+- **W-C double folder picker** (`@ql-w12c`: `ui/states.py`,
+  `tests/test_gallery_empty_state.py` NEW): LMB on the DnD zone opens TWO
+  folder pickers sequentially. Suspect: `_open_button.clicked` + zone
+  `mousePressEvent` both emit `openRequested` for one click (button inside
+  label). Single-flight the emit; one click = one dialog. Same worker also
+  owns zone geometry: fixed height → expanding (fill available space).
+- **W-D drop routing** (`@ql-w12d`: `ui/drag_drop.py`, `widget.py`,
+  `tests/test_gallery_drop_routing.py` NEW): zone accepts exactly ONE image via
+  DnD, but drops outside its visual box accept folders/batches. Unify: one
+  accept rule everywhere (shared `image_drop` check already exists — wire it
+  consistently), folders + batches handled uniformly whether dropped on the
+  zone or the widget; single-image special case preserved intentionally only
+  where specified + tested.
+
+Seams: W-A ↔ W-B share the overlay only via existing hooks (`refresh_metrics`,
+reposition fns) — no new shared symbols; W-C ↔ W-D meet at `openRequested` /
+`fileDropped` signals (existing, unchanged). Each worker echoes INTERFACE.
+
 ## Claimed-vs-real close-out
 
 
