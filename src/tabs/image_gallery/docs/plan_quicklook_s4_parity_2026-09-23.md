@@ -282,6 +282,26 @@ Seams: W-A ↔ W-B share the overlay only via existing hooks (`refresh_metrics`,
 reposition fns) — no new shared symbols; W-C ↔ W-D meet at `openRequested` /
 `fileDropped` signals (existing, unchanged). Each worker echoes INTERFACE.
 
+## Wave W13 — stretching right column (export-dialog idiom)
+
+Single writer `@ql-s13`, base `3d3fa78`. Live report: the right column is
+pinned to 296px while the export dialog form stretches with the window.
+Frozen decisions:
+1. Right column: minimum 296px, stretches with the card (mid-layout stretch
+   on the right side; scroll area + host expanding, not fixed). Preview keeps
+   stretch priority (left=1); right gets stretch too (e.g. 0 with expanding,
+   or proportional) — column grows, never shrinks below 296.
+2. Contents fill the column width: metric `_BarWidget` / dual bar fill
+   available width (replace fixed 296 preferred widths with expanding);
+   banding histogram container stretches (bar count fixed, gaps absorb);
+   value labels right-aligned + elided as now; strip row keeps 4-thumb fit
+   at 296 (thumbs do NOT grow — only spacing/bars/text stretch).
+3. No scrollbars appear on grow (only easier); shrink floors at 1040×620
+   card min as W8. No new close paths, no themes.json.
+
+Verify: grow card → column wider than 296, bars span full column, no
+scrollbars, min-size floor intact; full suites green.
+
 ## Claimed-vs-real close-out
 
 
