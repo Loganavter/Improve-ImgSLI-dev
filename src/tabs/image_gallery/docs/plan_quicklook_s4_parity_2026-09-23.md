@@ -101,6 +101,10 @@ suites on the merged tree, greps INTERFACE symbols for duplicates/divergence.
 ## Progress log
 
 - 2026-09-23: plan written, queue tasks `gallery-ql-s4-w1/w2` filed as `todo`.
+- 2026-09-23: W2 DONE — `3089ab82` pushed, 1917 passed (fidelity refresh + set-source re-run).
+- 2026-09-23: W1 attempts 1–2 died with zero edits (supervisor prompt bug: required doc
+  outside the jail). W1 narrowed to S (quick_look.py + helpers.py + parity tests);
+  strip pixmap + histogram base split to `gallery-ql-s4-w3` (todo). Attempt 3 live.
 
 ## Catalog update
 
