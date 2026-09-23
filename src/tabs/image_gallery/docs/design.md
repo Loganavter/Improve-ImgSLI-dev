@@ -238,21 +238,27 @@ WCAG ratios (`ratio = (L1 + 0.05) / (L2 + 0.05)`) over the W1 light palette
 
 | Pair | Threshold | Current |
 |---|---|---|
-| card (`gallery.card.background`) vs `Window` | ≥ 1.5 | 1.57 |
-| card vs `surface.background` | ≥ 1.5 | 1.57 |
+| card (`gallery.card.background`) vs grid (`gallery.grid.background`) | ≥ 1.5 | 1.57 |
 | hover (`gallery.card.hover`) vs card | ≥ 1.3 | 1.37 |
-| `separator.color` vs card / `Window` / `surface.background` | ≥ 3.0 | 4.95 / 3.15 / 3.15 |
 | stats bg (`gallery.stats.background`) vs card | ≥ 3.0 | 3.45 |
 | header / footer / stats texts vs their backgrounds | ≥ 4.5 | 6.3–11.7 / 4.78 (stats) |
+| globals unleaked: `Window` / `surface.background` / `separator.color` | exact `#f5f5f5` / `#ffffff` / `#e5e5e5` | locked by test |
 
 **Substrate-darker-than-cards principle.** Cards are white (`#ffffff`); the
-substrate they sit on (`Window` / `surface.background`) must be darker, or
-cards dissolve into the background (the old `#f5f5f5`-on-`#f5f5f5` 1:1 bug).
+substrate they sit on must be darker, or cards dissolve into the background
+(the old `#f5f5f5`-on-`#f5f5f5` 1:1 bug).
 
-**Why `Window` is `#cecece`.** White cards need a gray substrate to read as
-objects at all. The card border (`button.dialog.default.border`, alpha hairline)
-is decoration only — fill contrast carries the separation, so the substrate
-stays mid-gray rather than near-white.
+**Why the grid has its own substrate token.** The gray substrate lives in
+`gallery.grid.background` (light `#cecece`, dark `#2b2b2b`), painted by
+`GalleryGridView` via `set_fill_color`, — NOT in the global `Window` /
+`surface.background`. Tinting the globals gray leaked app-wide: the toolkit
+maps token `Window` → `QPalette.ColorRole.Window`, so every
+`autoFillBackground(True)` widget (session picker page, dialogs, shields)
+turned gray, and `separator.color` has zero gallery readers yet darkened all
+separators. Globals are regression-locked to their pre-epic values
+(`test_light_globals_unleaked`). The card border
+(`button.dialog.default.border`, alpha hairline) is decoration only — fill
+contrast against the grid substrate carries the separation.
 
 **Visual gate.** Before any PR to `main` touching gallery tokens: run the app
 with `./launcher.sh run --ui-inspector` and confirm cards, hover, stats strip,

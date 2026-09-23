@@ -109,3 +109,10 @@ Per-phase verify — та же команда для всех:
 
 - 2026-09-23: разведка (4 research-сабагента) — причины неконтраста зафиксированы выше.
 - 2026-09-23: план создан, ветка интеграции `int/gallery-light` — следующий шаг (супервизор).
+- 2026-09-23: W1 (палитра `f52aab82`), W2 (карточки `df4f8f22`), W3 (тулбар+QL `c18d0a66`),
+  W4 (тесты+Rule A `29480856`) влиты; claimed-vs-real по диффам + сьютам на merged tree.
+- 2026-09-23: RESCOPE субстрата (супервизор, напрямую): `Window`/`surface.background`/
+  `separator.color` возвращены к доэпическим значениям — серый субстрат живёт только
+  в новом `gallery.grid.background` (light `#cecece` / dark `#2b2b2b`), грид красится
+  через `set_fill_color`. Причина: токен `Window` → `QPalette.Window`, серость текла
+  во все `autoFillBackground`-виджеты аппы; `separator.color` вообще не читается галереей.
