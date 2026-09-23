@@ -93,7 +93,50 @@ plate pixels), not presence.
   survive a turn.
 - Store/event guards unchanged (no store shape change; metrics write path untouched).
 
+## Wave W4 — render fidelity (fonts + chrome + data rows)
+
+Single writer `@ql-s4-w4`, base `9954160e`. Recon 2026-09-23 (3 agents) root-caused
+9 divergences; supervisor design decisions frozen below (verbatim in worker prompt).
+
+1. **Fonts:** mockup numbers are logical pt, not physical px. Convert every
+   `Label(pixel_size=N)` in `ui/quick_look/` to the point path with the mockup
+   number as pt (11.5, 9.5, 13, 12, 10, 9) via `UiFont` point support
+   (`ui_font(point_size=)` / `setPointSizeF`; verify Label accepts it, else set
+   after construction). No `UiScale` change, no settings change.
+2. **Scroll frame:** `QScrollArea` default `StyledPanel` paints the bogus box —
+   set frameless (`NoFrame`). Mockup has section dividers only.
+3. **Dividers:** `Divider` is a button-region dataclass, not a widget
+   (`TypeError` on `parent=`, swallowed) — `_div_series/_div_brief/_div_bar`
+   never existed at runtime. Replace with a real 1px widget divider (toolkit
+   divider widget if one exists, else the file's own painted pattern). No QSS.
+4. **Hint:** move `Esc closes · ←→ walk series` to the right end of the button
+   bar row (after stretch), out of the left preview column.
+5. **Inset caption:** restructure to an overlaid strip — amber text on a dark
+   translucent bar pinned to the inset bottom (per svg:53-64), not a VBox label
+   above the pixmap. `SOURCE · name · WxH`, elided to inset width.
+6. **Prev/next:** 36px circles overlapping the card edge (half-outside, like
+   svg:67-70) via absolute positioning (same idiom as `reposition_source_inset`),
+   vertically centered glyph, fixed `#23262b`-token color, keep border when
+   disabled (flat disabled look is the current paleness).
+7. **Meta ×N:** diagnose the live `n==1` first (log `iw,sw` at read site):
+   factor by LONG side (portrait-safe), not width-only; explicit same-size text
+   when truly 1 (no silent fallback). Test both `factor=4` (exists) and `1`.
+8. **Artifacts:** show ALL rows incl. `clean` (mockup shows `clean edges`); map
+   `halo` to a horizontal `_BarWidget` like metrics; banding keeps histogram +
+   base + caption. Ensure the artifact channel reaches the open overlay
+   (diagnose banding-empty: detector clean vs delivery race; fix whichever).
+9. **Strip badges:** move `SOURCE/#N/✕` from `Button(text=)` into badge overlay
+   (`ButtonRegion(badge=)` or `setBadge`), keep text-under-button only for
+   `tie-break pending`/hint; update parity test that asserts `_text`.
+10. **Brief:** numeric fallback stays (VLM non-goal, inherited).
+
 ## Claimed-vs-real close-out
+
+Verify: extended `test_quick_look_parity.py` (pt sizes applied, frameless scroll,
+dividers exist, hint in bar row, inset overlay strip, arrows overlap card edge,
+×1 text, clean rows visible, halo bar, badge overlay); full
+`src/tabs/image_gallery/tests + tests/contracts` green.
+
 
 Supervisor reads each claimed file at cited line in the worker clone, re-runs the named
 suites on the merged tree, greps INTERFACE symbols for duplicates/divergence.
