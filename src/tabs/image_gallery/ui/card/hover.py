@@ -14,14 +14,19 @@ GALLERY_CARD_FLYOUT_GROUP = "gallery_card"
 
 
 def _card_idle_bg():
-    """Idle card surface via theme token (RGB fallback == #383838)."""
+    """Idle card surface via theme token (RGB fallback == #383838).
+
+    NOTE: ``gallery.card.background`` is not a registered token — resolve
+    via ``surface.list`` (contrasts with the substrate in both themes)
+    instead of ``surface.background`` (== substrate, invisible cards).
+    """
     try:
         from PySide6.QtGui import QColor
 
         from sli_ui_toolkit.managers import ThemeManager
         from ui.theming import try_resolve_theme_color
 
-        for token in ("gallery.card.background", "surface.background"):
+        for token in ("gallery.card.background", "surface.list", "surface.background"):
             c = try_resolve_theme_color(ThemeManager.get_instance(), token)
             if c is not None:
                 return c if isinstance(c, QColor) else QColor(c)

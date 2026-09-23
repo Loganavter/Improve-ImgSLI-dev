@@ -35,15 +35,19 @@ _GALLERY_CONTENT_PADDING: tuple[float, float, float, float] = (8.0, 8.0, 8.0, 8.
 def _gallery_card_bg() -> QColor:
     """Card surface via theme token, hex fallback (S2 token hygiene).
 
-    Fallback is RGB-constructed (56,56,56 == #383838) so no raw-hex
-    literal lives in this module.
+    NOTE: ``gallery.card.background`` is NOT a registered token anywhere —
+    chaining straight to ``surface.background`` painted cards the exact
+    substrate color (white on light theme, invisible). ``surface.list``
+    (#f0f0f0 light / #3c3c3c dark) is the toolkit's list-item surface and
+    contrasts with the substrate in both themes. Fallback is RGB-constructed
+    (56,56,56 == #383838) so no raw-hex literal lives in this module.
     """
     try:
         from sli_ui_toolkit.managers import ThemeManager
 
         from ui.theming import try_resolve_theme_color
 
-        for token in ("gallery.card.background", "surface.background"):
+        for token in ("gallery.card.background", "surface.list", "surface.background"):
             c = try_resolve_theme_color(ThemeManager.get_instance(), token)
             if c is not None:
                 return c if isinstance(c, QColor) else QColor(c)
