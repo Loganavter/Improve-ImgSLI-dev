@@ -191,6 +191,25 @@ Frozen decisions:
 
 Verify: full `src/tabs/image_gallery/tests + tests/contracts` green.
 
+## Wave W9 — full-border resize + nav arrows (user reports)
+
+Single writer `@ql-s4-w9`, base `46459ae4`. Live reports: (1) only the bottom-right
+grip grabs — resize must work along the WHOLE border; (2) prev/next still pale.
+Frozen decisions:
+1. Resize zone: 8px hit strip along all 4 edges + corners (8 directions),
+   hover cursors (H/V/diagonal), drag clamps to min 1040×620 and to parent
+   minus margin, session-only. Keep the painted corner grip as a visual affordance
+   (it stays one of the 8 handles). No QSS; painter/eventFilter idiom as W8.
+2. Arrows: diagnose paleness by execution (offscreen grab: glyph/fill/border
+   pixel colors vs mockup `#23262b` glyph on surface circle). Supervisor
+   hypothesis: veil paints over them (z-order) — verify or refute; fix the real
+   cause (stacking / disabled-look-despite-enabled / glyph color / border loss).
+   Mockup: solid 36px circles, centered chevron, half-outside card edge.
+
+Verify: drag each edge/corner (synthetic press-move-release) resizes correctly
+with clamp+floor; hover cursors set; arrows pixel-assert (glyph dark, border
+present when enabled); full `src/tabs/image_gallery/tests + tests/contracts` green.
+
 ## Claimed-vs-real close-out
 
 
