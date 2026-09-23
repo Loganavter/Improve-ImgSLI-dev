@@ -230,6 +230,26 @@ Verify: synthetic drags starting OUTSIDE the card (veil ring) resize; veil
 click (not drag) still does nothing; arrows grab-assert (full 36px visible,
 dark centered glyph, ring present); full suites green.
 
+## Wave W11 — arrows exempt + pinned close policy (user requests)
+
+Single writer `@ql-s4-w11`, base `413ddf0a`. User overrides mockup `Esc closes`:
+1. Nav arrows sit in the resize ring zone — pressing/dragging an arrow must
+   NAVIGATE, never start a card drag. Exclude both nav buttons from ring +
+   plate drag hit-testing (press target inside arrow rect → walk, consume,
+   no drag). Keep 36px circles, enlarge ‹ › glyphs (rows size up, stay
+   centered, ring intact).
+2. Pinned close policy (InfoHUD analog: `pinned=True` flyouts ignore outside
+   clicks/deactivation — see `src/ui/managers/transient_ui_parts/closing.py`
+   + FLYOUT_SYSTEM.md "Pinned flyouts"): quick look closes ONLY via the X
+   button. Set `close_on_escape=False`, `close_on_deactivate=False`
+   (background already False since W6); verify no other hide path fires on
+   window minimize/restore/focus loss (overlay state survives, still open
+   after restore). Update tests that asserted Esc-close.
+
+Verify: press-drag starting on arrow walks series and resizes nothing;
+glyph pixel size larger than before (grab assert); synthetic deactivate /
+minimize / Esc do NOT close; X closes; full suites green.
+
 ## Claimed-vs-real close-out
 
 
