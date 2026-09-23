@@ -176,6 +176,21 @@ Verify: strip fits 296px with 4 thumbs + hint below (no h-scroll, scrollbar
 hidden test), background click does not close (offscreen mouse test), X + Esc
 still close; full `src/tabs/image_gallery/tests + tests/contracts` green.
 
+## Wave W8 — resizable card (user request)
+
+Single writer `@ql-s4-w8`. Card is currently fixed 1040×620 (min=max).
+Frozen decisions:
+1. Minimum 1040×620, NO maximum — user drag-resizes via a corner handle
+   (bottom-right grip, painter-painted, no QSS); preview pane stretches,
+   right column stays fixed 296px; existing reposition hooks (nav, inset)
+   already run on resize — reuse, verify.
+2. Base overlay centering unchanged (slot CENTER); clamp user size to
+   parent/window minus margin; persist nothing (session-only size).
+3. Update the 1040×620 geometry test to min-size + resize smoke
+   (grow → preview grows, column stays 296, no scrollbars, hooks re-run).
+
+Verify: full `src/tabs/image_gallery/tests + tests/contracts` green.
+
 ## Claimed-vs-real close-out
 
 
