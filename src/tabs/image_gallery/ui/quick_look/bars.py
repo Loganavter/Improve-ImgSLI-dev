@@ -58,7 +58,8 @@ def _token_rgba_qcolor(token: str, fallback_rgba: tuple[int, int, int, int]) -> 
     return QColor(*fallback_rgba)
 
 
-def _connect_theme_refresh(slot) -> None:    """Subscribe *slot* to ThemeManager.theme_changed (best effort)."""
+def _connect_theme_refresh(slot) -> None:
+    """Subscribe *slot* to ThemeManager.theme_changed (best effort)."""
     try:
         from sli_ui_toolkit.managers import ThemeManager
 

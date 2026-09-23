@@ -659,6 +659,50 @@ def resize_cursor_for(zone: str | None):
         return None
 
 
+def _distribute_column_floors(overlay) -> None:
+    """Pin left/right minimums from the LIVE card width (65/35 split).
+
+    QBoxLayout hands all undistributed extra space to a single side, so
+    stretch factors alone cannot hold mockup proportions AND share growth:
+    the column ended stranded at ~496px after shrink-back (clipped preview).
+    Instead the floors consume the width exactly — left (preview priority)
+    takes 65% of the extra, right 35% — leaving no remainder to misdeal.
+    Floors derive from the card width only (never from grown children), so
+    nothing ratchets: shrink restores 640/296.
+    """
+    try:
+        from sli_ui_toolkit.managers import scaled_px
+
+        content = getattr(overlay, "_content", None)
+        host = getattr(overlay, "_preview_host", None)
+        if content is None or host is None:
+            return
+        left = host.parentWidget()
+        scroll = content.findChild(QWidget, "quicklook_right_scroll")
+        if left is None or scroll is None:
+            return
+        outer = content.layout()
+        mid = left.parentWidget().layout()
+        try:
+            om = outer.contentsMargins()
+            mm = mid.contentsMargins()
+            avail = (
+                content.width()
+                - om.left() - om.right()
+                - mm.left() - mm.right()
+                - mid.spacing()
+            )
+        except Exception:
+            avail = content.width() - scaled_px(40)
+        base_l, base_r = scaled_px(640), scaled_px(296)
+        extra = max(0, int(avail) - base_l - base_r)
+        left_extra = int(round(extra * 0.65))
+        left.setMinimumWidth(base_l + left_extra)
+        scroll.setMinimumWidth(base_r + (extra - left_extra))
+    except Exception:
+        pass
+
+
 def _repin_after_card_resize(overlay) -> None:
     """Re-run the absolute-child pin hooks after a card resize step.
 
@@ -773,6 +817,7 @@ def _relayout_on_card_resize(overlay) -> None:
     also reachable directly. No close paths, no size-policy changes (W8
     min-only stays: minimum 1040×620, no maximum).
     """
+    _distribute_column_floors(overlay)
     _rescale_preview_to_host(overlay)
     _reflow_footer(overlay)
 
@@ -1399,6 +1444,10 @@ def build_overlay_ui(overlay) -> None:
     mid.setSpacing(scaled_px(16))
     left = QWidget(overlay._content)
     left.setObjectName("QuickLookLeft")
+    # Expanding (not Preferred): a Preferred pane caps at its sizeHint, so it
+    # would never take layout growth (sticky 640/496 split). Expanding shares
+    # extra space by stretch; minimums still floor the shrink-back.
+    left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     left_lay = QVBoxLayout(left)
     left_lay.setContentsMargins(0, 0, 0, 0)
     left_lay.setSpacing(scaled_px(8))
@@ -1436,6 +1485,7 @@ def build_overlay_ui(overlay) -> None:
         pass
     overlay._prev_btn.clicked.connect(lambda: overlay._walk(-1))
     preview_host = QWidget(left)
+    preview_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     preview_host.setObjectName("QuickLookPreviewHost")
     overlay._preview_host = preview_host
     preview_host_lay = QVBoxLayout(preview_host)
