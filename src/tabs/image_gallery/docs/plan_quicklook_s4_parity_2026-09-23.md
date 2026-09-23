@@ -156,7 +156,28 @@ Verify: `src/tabs/image_gallery/tests + tests/contracts` green + new tests
 (xN pre-cap sizes incl. portrait, overlay row set == {banding, halo},
 scrollbars hidden, no clipped value text via elide).
 
+## Wave W6 — strip fit + background-close (follow-up, live screenshot)
+
+Single writer `@ql-s4-w6`, base `fbc6490e`. Leftovers from W5 residuals + user report:
+1. Strip hint `click thumb = switch preview` sits INSIDE the strip HBox (175px min)
+   and forces h-scroll — mockup svg:170 shows it BELOW thumbs. Move out of row.
+2. Thumb pitch 4×74px = 314px > 296px column (mockup pitch 76) — fit thumbs/row
+   into 296px (smaller thumbs or tighter spacing, keep badge/click/opacity).
+3. Overlay closes on click anywhere; must close only via X button (and Esc —
+   keep `close_on_escape=True`). Find the background-close path
+   (`TopLevelInWindowOverlay` close_on_background / mouse handler) and disable
+   for quick look; verify dbl-click/grid tests don't depend on it.
+
+DEFERRED (user, later wave): prev/next paleness — hypothesis: arrows are painted
+before the dim veil around the window (z-order), so the veil mutes them. Verify
+paint/stack order when taken up.
+
+Verify: strip fits 296px with 4 thumbs + hint below (no h-scroll, scrollbar
+hidden test), background click does not close (offscreen mouse test), X + Esc
+still close; full `src/tabs/image_gallery/tests + tests/contracts` green.
+
 ## Claimed-vs-real close-out
+
 
 
 Verify: extended `test_quick_look_parity.py` (pt sizes applied, frameless scroll,
