@@ -105,6 +105,11 @@ suites on the merged tree, greps INTERFACE symbols for duplicates/divergence.
 - 2026-09-23: W1 attempts 1–2 died with zero edits (supervisor prompt bug: required doc
   outside the jail). W1 narrowed to S (quick_look.py + helpers.py + parity tests);
   strip pixmap + histogram base split to `gallery-ql-s4-w3` (todo). Attempt 3 live.
+- 2026-09-23: W1 DONE — `f80baf39` (veil, plate, nav, crop gate, refresh_metrics,
+  11 new tests). Merged W1 → int/gallery-light (`8b266a8d`), then W2 (`256b5e58`).
+  Merged-tree suites: 1929 passed. Pushed to private; rides PR #87 (open).
+  Remaining: `gallery-ql-s4-w3` (strip thumbs, banding base) + tab.py Find-Action
+  set-source path (noted by W2, out of scope).
 
 ## Catalog update
 
