@@ -342,3 +342,43 @@ def test_min_only_no_max_regression(qtbot):
     assert ov._content.maximumSize() == QSize(16777215, 16777215)
     assert ov.sizeHint() == QSize(scaled_px(1040), scaled_px(620))
     ov.hide()
+
+
+def test_grow_shrink_roundtrip_restores_proportions(qtbot, tmp_path):
+    """Sticky-width regression: grow->shrink must settle back (no ratchet).
+
+    Root causes fixed: bar fill segments baked grown widths into the layout
+    minimum via setFixedWidth (now paint-only via _set_painted_width), and the
+    preview label floor (320px) let the 1:1 stretch split strand ~496px on the
+    scroll (now 640px mockup floor).
+    """
+    from sli_ui_toolkit.managers import scaled_px
+
+    src = _item("src.png")
+    item = _item(
+        "view.png",
+        metrics={"ssim": 0.93, "hf_ratio": 0.08, "delta_e": 8.3, "upscale_factor": 5},
+        artifacts={"banding": "mild", "halo": "flagged"},
+    )
+    ov = _make_overlay(qtbot)
+    _show(ov, item, [src, item], source=src.path)
+    content = ov._content
+    scroll = ov.findChild(QScrollArea, "quicklook_right_scroll")
+    _grow(qtbot, ov, dw=400, dh=200)
+    assert content.width() == scaled_px(1040) + scaled_px(400)
+    content.resize(scaled_px(1040), scaled_px(620))
+    QApplication.processEvents()
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert content.width() == scaled_px(1040)
+    assert ov._preview_host.width() >= scaled_px(640)
+    assert scroll.width() < scaled_px(500)
+    assert scroll.viewport().width() >= scaled_px(296)
+    assert scroll.horizontalScrollBar().maximum() == 0
+    assert scroll.verticalScrollBar().maximum() == 0
+    assert sa_min_hint(scroll) <= scaled_px(296)
+    ov.hide()
+
+
+def sa_min_hint(scroll):
+    return scroll.widget().minimumSizeHint().width()

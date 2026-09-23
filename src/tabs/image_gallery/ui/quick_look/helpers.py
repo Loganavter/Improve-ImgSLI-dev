@@ -1445,7 +1445,12 @@ def build_overlay_ui(overlay) -> None:
     overlay._preview_label.setObjectName("quicklook_preview")
     overlay._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     overlay._preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    overlay._preview_label.setMinimumSize(scaled_px(320), scaled_px(260))
+    # Mockup preview is 640x456 (svg): the label floor holds the min-card
+    # proportions (640 preview + 296 column) so grow->shrink settles back
+    # instead of splitting the leftover 1:1 (which stranded ~496px on the
+    # scroll and clipped the preview). The pixmap itself stays aspect-kept
+    # (W-B reflow); this floor is layout geometry only.
+    overlay._preview_label.setMinimumSize(scaled_px(640), scaled_px(456))
     try:
         overlay._preview_label.setScaledContents(False)
     except Exception:
