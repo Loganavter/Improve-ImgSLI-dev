@@ -210,6 +210,26 @@ Verify: drag each edge/corner (synthetic press-move-release) resizes correctly
 with clamp+floor; hover cursors set; arrows pixel-assert (glyph dark, border
 present when enabled); full `src/tabs/image_gallery/tests + tests/contracts` green.
 
+## Wave W10 — outer resize ring + arrows live (user live reports)
+
+Single writer `@ql-s4-w10`, base `4b2a9723`. Live screenshot findings:
+1. Resize grabs work on the INNER card edge only; the OUTER 8px ring (on the
+   dim veil, outside the card) does nothing. Cause: hit-testing lives on card
+   children, nothing owns the outside ring. Fix: own the outer ring — e.g. an
+   invisible 8px grab frame around the card (child of the overlay, behind the
+   card) or overlay-level mouse handling in the ring zone; all 8 directions +
+   hover cursors as W9; must NOT resurrect background-click close (W6:
+   veil clicks do nothing, only the ring drags); must not swallow X/Esc/clicks.
+2. Arrows still wrong live: half-outside circles look clipped/pale, glyph
+   unreadable (live shot shows a stub, not ‹/›). Diagnose by execution
+   (offscreen grab at real geometry incl. the outside half): clipping by
+   parent/viewport? glyph font/size? ring paint under veil? Fix real cause;
+   mockup: solid 36px, centered chevron, half-outside edge.
+
+Verify: synthetic drags starting OUTSIDE the card (veil ring) resize; veil
+click (not drag) still does nothing; arrows grab-assert (full 36px visible,
+dark centered glyph, ring present); full suites green.
+
 ## Claimed-vs-real close-out
 
 
