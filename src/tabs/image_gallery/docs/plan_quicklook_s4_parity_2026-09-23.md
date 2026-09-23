@@ -130,7 +130,34 @@ Single writer `@ql-s4-w4`, base `9954160e`. Recon 2026-09-23 (3 agents) root-cau
    `tie-break pending`/hint; update parity test that asserts `_text`.
 10. **Brief:** numeric fallback stays (VLM non-goal, inherited).
 
+## Wave W5 — fit + live ×N (follow-up, live screenshot 2026-09-23)
+
+Single writer `@ql-s4-w5`, base `9cfbc1a3`. Live screenshot after W4 shows:
+right-column vertical + horizontal scrollbars (mockup: none, all fits 1040×620),
+values clipped (`#2 of`, `plausib…`, `stron…`), `same size as source` for a
+5760×4320 item vs a ~1100×432 source, 7 artifact rows (mockup: Banding + Halo).
+
+Frozen decisions:
+1. **×N root fix:** W4 long-side ratio still reads ~1 because both images are
+   capped to 1024 BEFORE the ratio is taken (capped-long vs capped-long ≈ 1
+   always). Compute the factor from PRE-CAP original dimensions (read sizes
+   before `_cap_edge`, or from file metadata), keep W4 debug log. Unit test:
+   5760×4320 vs 1100×432 → 5. Portrait/landscape mixed pairs included.
+2. **Overlay artifact set = mockup set:** Banding + Halo only. W4 show-all
+   overflowed the 620px column (7 rows → scrollbar). Full 7-key set stays in
+   card dots/tooltip (unchanged); overlay renders the two mockup rows.
+3. **No scrollbars, no clipping:** value + subline labels elide to column width;
+   paddings keep 296px right column; offscreen test asserts both scrollbars
+   hidden with full content (metrics + 2 artifact rows + series + brief).
+4. **Arrows:** verify 36px circles overlap the card edge in offscreen geometry
+   (grab or geometry assert); fix if regressed.
+
+Verify: `src/tabs/image_gallery/tests + tests/contracts` green + new tests
+(xN pre-cap sizes incl. portrait, overlay row set == {banding, halo},
+scrollbars hidden, no clipped value text via elide).
+
 ## Claimed-vs-real close-out
+
 
 Verify: extended `test_quick_look_parity.py` (pt sizes applied, frameless scroll,
 dividers exist, hint in bar row, inset overlay strip, arrows overlap card edge,
