@@ -107,7 +107,9 @@ singles collect under a plain `UNGROUPED` tail.
 ### Card anatomy
 
 Cover region + name row; rank badge (`★ BEST` accent pill or `#N` gray);
-three quality dots (mode-dependent metrics; outlier shown warm/red); rejected =
+three quality dots (artifact-based per the Artifact catalog above — the three
+mode-relevant artifacts, e.g. fidelity: banding/halo/blocking; a `flagged`
+severity shows its dot warm/red); rejected =
 opacity 0.38 + struck name + ✕ corner badge; unreadable file = error placeholder,
 excluded from triage but visible.
 
@@ -120,7 +122,7 @@ series strip (SOURCE / viewing / pending / rejected thumbs, click to switch),
 and — only if pass 2 ran for this pair — a one-line compare brief. Bottom bar:
 `Compare →`, `Add to Multi Compare`, `✕ Reject`, `Set as source` (fidelity only).
 
-Keyboard: `←→↑↓` navigate · `Space` reject toggle · `B` make best · `Enter`
+Keyboard: click opens quick look · `Ctrl+click` toggles selection · `←→↑↓` navigate · `Space` reject toggle · `B` make best · `Enter`
 compare selected · dbl-click quick look · `Esc` close/back.
 Find Action ids: `gallery.keep-best-of-series`, `gallery.clean-rejected`,
 `gallery.run-triage`, `gallery.set-as-source`.
@@ -227,3 +229,66 @@ Phasing:
    becomes functional (filter by VLM tags stored alongside analysis cache).
 4. **Stage 4 — hooks for future workspaces**: video-compare intake follows the
    same triage contract.
+
+## Light-theme contrast norm
+
+White cards + visible borders (mockups
+[ui-mockup-v2-triage-light.svg](design/ui-mockup-v2-triage-light.svg),
+[ui-mockup-v3-clean-review-light.svg](design/ui-mockup-v3-clean-review-light.svg),
+[ui-mockup-v4-quicklook-light.svg](design/ui-mockup-v4-quicklook-light.svg)).
+Cards, grid substrate, and the stats strip are all `#ffffff`; separation is
+carried by 1px `gallery.card.border` hairlines (`#e2e4e8` light,
+white@0.12 dark) — never by fill contrast. The gray substrate is dead.
+WCAG ratios (`ratio = (L1 + 0.05) / (L2 + 0.05)`) over the light palette
+(`src/resources/themes.json`), enforced by
+`tests/test_light_contrast.py` against the live file (no duplicated hexes):
+
+| Pair | Threshold | Current |
+|---|---|---|
+| card (`gallery.card.background`) vs grid (`gallery.grid.background`) | both `#ffffff` — border exception, not a ratio | `#e2e4e8` edge ≠ fill |
+| hover (`gallery.card.hover` `#f5f8fc`) vs card | fill differs + border step (exception, not a ratio) | ≈ 1.06, edge `#e2e4e8`→`#c9ccd1` |
+| stats bg (`gallery.stats.background` `#ffffff`) vs card | border exception, not a ratio | strip paints the border |
+| header (`#6b7078`) / stats (`#23262b`) texts vs card/Window | ≥ 4.5 | 5.0–15.2 |
+| footer (`#767a80`) vs card/Window | ≥ 3.0 (supplement exception) | ≈ 4.3 |
+| accent text (`gallery.accent.text` `#0077cc`) vs card | ≥ 4.5 | ≈ 4.7 |
+| globals unleaked: `Window` / `surface.background` / `separator.color` | exact `#f5f5f5` / `#ffffff` / `#e5e5e5` | locked by test |
+
+**White-cards + visible-borders principle.** The substrate is white, so fills
+alone never separate: every card and the stats strip must paint its 1px
+`gallery.card.border` edge (`visuals._card_border_color`,
+`StatsStrip.paintEvent`). A white surface *without* a border is the bug (the
+old `#f5f5f5`-on-`#f5f5f5` 1:1 dissolve, and the `#cecece` gray-substrate
+detour that preceded this norm).
+
+**Two documented WCAG exceptions (mockup-fidelity, not sloppiness):**
+
+1. *Hairline decoration* — card/grid, hover, and stats-vs-card fill pairs sit
+   at ~1.0–1.3:1 by design (v2/v3/v4-light all show `#ffffff` surfaces with
+   `#e2e4e8` edges). WCAG non-text 3:1 does not apply to 1px hairline
+   decoration: the edge pixel differs from the fill (asserted by offscreen
+   grabs in `tests/test_light_dark_flip.py`), and that 1px boundary is the
+   separation. Hover additionally switches its edge (`#e2e4e8`→`#c9ccd1`).
+2. *Decorative supplement* — footer text (`#767a80`, ≈ 4.3:1) carries keyboard
+   hints and other non-essential supplements; the same information always
+   exists in the primary UI, so it clears 3.0 instead of 4.5.
+
+Small accent text uses its own token: `gallery.accent.text` (`#0077cc`
+light / `#7fc4ff` dark) for the Clean-rejected link, AI tie-break pill,
+Compare action, and mode chip — fills stay `gallery.accent.bar` (`#0096FF`
+both themes).
+
+**Why the grid has its own substrate token.** The substrate lives in
+`gallery.grid.background` (light `#ffffff`, dark `#2b2b2b`), painted by
+`GalleryGridView` via `set_fill_color`, — NOT in the global `Window` /
+`surface.background`. Tinting the globals gray leaked app-wide: the toolkit
+maps token `Window` → `QPalette.ColorRole.Window`, so every
+`autoFillBackground(True)` widget (session picker page, dialogs, shields)
+turned gray, and `separator.color` has zero gallery readers yet darkened all
+separators. Globals are regression-locked to their pre-epic values
+(`test_light_globals_unleaked`).
+
+**Visual gate.** Before any PR to `main` touching gallery tokens: run the app
+with `./launcher.sh run --ui-inspector` and confirm cards, hover, stats strip,
+separators, and quick look still separate in BOTH themes
+(`tests/test_light_dark_flip.py` covers the flip headlessly, but it cannot
+judge beauty — eyes still required).
