@@ -71,6 +71,38 @@ def test_right_click_does_not_request_open(qtbot) -> None:
     assert count == []
 
 
+def test_emptied_by_removals_shows_empty_view_text(qtbot) -> None:
+    """Grid emptied by removals must not claim no folder is picked.
+
+    Regression: reject on the last card showed S0 "Pick a folder…"
+    although files stay on disk — the view just has nothing to show.
+    """
+    from pathlib import Path
+
+    from tabs.image_gallery.models import GalleryItem
+    from tabs.image_gallery.widget import ImageGalleryWidget
+
+    w = ImageGalleryWidget()
+    qtbot.addWidget(w)
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    w.rebuild_grid([item])
+    w.rebuild_grid([])
+    assert w._empty_state._drop_label.get_original_text() == "No images in view."
+    assert w._empty_label.get_original_text() == "No images in view."
+
+
+def test_pristine_empty_shows_pick_folder_text(qtbot) -> None:
+    """Never-opened grid keeps the default pick-a-folder message."""
+    from tabs.image_gallery.widget import ImageGalleryWidget
+
+    w = ImageGalleryWidget()
+    qtbot.addWidget(w)
+    w.rebuild_grid([])
+    # Drop zone keeps its construction default (no translate in this context).
+    assert w._empty_state._drop_label.get_original_text() == "Drop folder or images here"
+    assert w._empty_label.get_original_text() == "Pick a folder to see images here."
+
+
 def test_drop_zone_expands_to_fill(qtbot) -> None:
     """Zone fills available space: expanding policy, no fixed height."""
     state = GalleryEmptyState()

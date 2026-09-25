@@ -159,6 +159,9 @@ class ImageGalleryWidget(QWidget):
         except Exception:
             pass
         self._empty_text = _tr("image_gallery.empty_state", "Pick a folder to see images here.")
+        # Shown when the grid is emptied by removals (reject/Space/Delete) —
+        # files stay on disk, so "pick a folder" would mislead.
+        self._empty_view_text = _tr("image_gallery.empty_view", "No images in view.")
         # Not added to layout to match svg (no extra label row) — kept as hidden compat shim
         # root.addWidget(self._folder_label)  # svg v2 has no folder label, only stats
 
@@ -515,6 +518,7 @@ class ImageGalleryWidget(QWidget):
             return
         if slot_paths == cur_paths:
             return
+        _dbg("_render_gallery_pool reconcile slot=%d local=%d", len(slot_paths), len(cur_paths))
         try:
             from tabs.image_gallery.state import selectors as _sel3
 
@@ -857,8 +861,24 @@ class ImageGalleryWidget(QWidget):
         self._folder_label.setText(str(folder))
 
     def rebuild_grid(self, items: list[GalleryItem]) -> None:
+        had_items = bool(self._items)
         self._items = list(items)
+        _dbg("rebuild_grid n=%d branch=%s", len(self._items), "empty" if not items else "grid")
         if not items:
+            if had_items:
+                # Emptied by removals (reject/Space/Delete) — files stay on
+                # disk, so the pick-a-folder message would mislead.
+                try:
+                    self._empty_state.set_empty_message(self._empty_view_text)
+                except Exception:
+                    pass
+                empty_text = self._empty_view_text
+            else:
+                try:
+                    self._empty_state.restore_empty_message()
+                except Exception:
+                    pass
+                empty_text = self._empty_text
             self._empty_state.set_state("empty")
             try:
                 if hasattr(self, "_content_stack"):
@@ -868,7 +888,7 @@ class ImageGalleryWidget(QWidget):
                     self._grid_view.hide()
             except Exception:
                 pass
-            self._empty_label.setText(self._empty_text)
+            self._empty_label.setText(empty_text)
             self._empty_label.show()
             # Clear grid
             try:

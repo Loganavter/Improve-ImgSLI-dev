@@ -581,7 +581,11 @@ def remove_from_grid(owner, path: Path) -> bool:
         _emit_gallery(owner, GalleryItemsRemoved(paths=[target_s]))
     except Exception:
         pass
-    _dbg("remove_from_grid applied path=%s pool=%d", target_s, before)
+    try:
+        remaining = len(list(getattr(st, "items", []) or []))
+    except Exception:
+        remaining = -1
+    _dbg("remove_from_grid applied path=%s pool=%d remaining=%d", target_s, before, remaining)
     _refresh_owner_grid(owner)
     return True
 
@@ -736,11 +740,14 @@ def compare_finalists(owner) -> bool:
 
 
 def _refresh_owner_grid(owner) -> None:
+    from tabs.image_gallery.debug import gallery_debug as _dbg
+
     w = getattr(owner, "widget", None) or getattr(owner, "_widget", None)
     if w is None:
         # owner may be widget itself
         w = owner if hasattr(owner, "rebuild_grid") else None
     if w is None:
+        _dbg("_refresh_owner_grid NOWIDGET owner=%s", type(owner).__name__)
         return
     try:
         st = getattr(owner, "state", None)
@@ -748,6 +755,7 @@ def _refresh_owner_grid(owner) -> None:
             st = getattr(w, "_state", None)
         if st is not None and hasattr(st, "items"):
             items = list(getattr(st, "items", []) or [])
+            _dbg("_refresh_owner_grid n=%d widget=%s", len(items), type(w).__name__)
             if hasattr(w, "rebuild_grid"):
                 w.rebuild_grid(items)
             # Notify card refresh for rejected/badge
