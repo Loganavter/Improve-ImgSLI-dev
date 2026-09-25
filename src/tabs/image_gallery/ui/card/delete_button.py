@@ -17,10 +17,41 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QEvent, QTimer
+from PySide6.QtCore import QObject, QEvent
 
-#: Hide delay after leaving the card/button (hover-intent window, ms).
-_DELETE_HIDE_DELAY_MS = 200
+
+def widget_contains_cursor(widget) -> bool:
+    """True when the live cursor sits over *widget* (fail-open False)."""
+    try:
+        if widget is None:
+            return False
+        import shiboken6
+
+        if not shiboken6.isValid(widget):
+            return False
+        from PySide6.QtGui import QCursor
+
+        return bool(widget.geometry().contains(widget.mapFromGlobal(QCursor.pos())))
+    except Exception:
+        return False
+
+
+def card_delete_contains_cursor(card) -> bool:
+    """True when the cursor sits over the card's delete ✕ (fail-open False)."""
+    try:
+        return widget_contains_cursor(getattr(card, "_gallery_delete_btn", None))
+    except Exception:
+        return False
+
+
+def hide_card_delete_button(card) -> None:
+    """Hide the card's delete ✕ immediately (fail-open)."""
+    try:
+        btn = getattr(card, "_gallery_delete_btn", None)
+        if btn is not None:
+            btn.hide()
+    except Exception:
+        pass
 
 
 class _CardDeletePin(QObject):
@@ -48,7 +79,12 @@ class _CardDeletePin(QObject):
 
 
 class _DeleteHoverFilter(QObject):
-    """Hover-intent for the delete ✕ itself (cancels the card-leave hide)."""
+    """Hover for the delete ✕ itself.
+
+    Hover counts over "card OR badge" (CSS :hover semantics): leaving the
+    badge toward the card keeps it (the card Enter is imminent); leaving
+    anywhere else hides immediately — same tick as the capsule.
+    """
 
     def __init__(self, card, btn) -> None:
         super().__init__(btn)
@@ -63,49 +99,17 @@ class _DeleteHoverFilter(QObject):
                         self._card._gallery_delete_hovered = True  # type: ignore[attr-defined]
                     except Exception:
                         pass
-                    cancel_delete_hide(self._card)
                     sync_card_delete_button(self._card)
                 elif event.type() == QEvent.Type.Leave:
                     try:
                         self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
                     except Exception:
                         pass
-                    schedule_delete_hide(self._card)
+                    if not widget_contains_cursor(self._card):
+                        hide_card_delete_button(self._card)
         except Exception:
             pass
         return False
-
-
-def cancel_delete_hide(card) -> None:
-    """Invalidate a pending hover-intent hide (fail-open)."""
-    try:
-        card._gallery_delete_hide_token = int(getattr(card, "_gallery_delete_hide_token", 0) or 0) + 1  # type: ignore[attr-defined]
-    except Exception:
-        pass
-
-
-def schedule_delete_hide(card, ms: int = _DELETE_HIDE_DELAY_MS) -> None:
-    """Hide the delete ✕ after *ms* unless cancelled (fail-open)."""
-    try:
-        tok = int(getattr(card, "_gallery_delete_hide_token", 0) or 0) + 1
-        card._gallery_delete_hide_token = tok  # type: ignore[attr-defined]
-    except Exception:
-        return
-
-    def _fire(t=tok) -> None:
-        try:
-            if int(getattr(card, "_gallery_delete_hide_token", 0) or 0) != t:
-                return
-            btn = getattr(card, "_gallery_delete_btn", None)
-            if btn is not None:
-                btn.hide()
-        except Exception:
-            pass
-
-    try:
-        QTimer.singleShot(int(ms), _fire)
-    except Exception:
-        pass
 
 
 def sync_card_delete_button(card) -> None:
@@ -199,9 +203,8 @@ def wire_card_delete_button(card, owner) -> None:  # type: ignore[no-untyped-def
         except Exception:
             return
     try:
-        # Round badge: radius = half of the 20px design size; solid white
-        # fill always (ghost alone is transparent idle and unreadable over
-        # photos) + hairline border + red ✕.
+        # Round badge: radius = half of the 20px design size (solid fill +
+        # border applied below; ghost alone is transparent idle).
         btn = Button(text="✕", variant="ghost", corner_radius=10, parent=host)
     except Exception:
         return
@@ -210,23 +213,33 @@ def wire_card_delete_button(card, owner) -> None:  # type: ignore[no-untyped-def
         btn.setFixedSize(size, size)
     except Exception:
         pass
+    # Inverted badge style (mirrors the toolkit rejected ✕ badge): filled
+    # danger circle + white ✕. Reads on any photo; ghost alone is
+    # transparent idle and unreadable.
     try:
-        btn.set_override_bg_color(QColor("#ffffff"))
+        color = _capsule_icon_color("reject")
+    except Exception:
+        color = None
+    try:
+        from PySide6.QtGui import QColor as _QC
+
+        danger = color if color is not None else _QC(217, 48, 37)
+    except Exception:
+        danger = None
+    try:
+        if danger is not None:
+            btn.set_override_bg_color(danger)
+        else:
+            btn.set_override_bg_color(QColor("#d93025"))
     except Exception:
         pass
     try:
-        from tabs.image_gallery.ui.card.visuals import _card_border_color
-
-        btn.setBorderColor(_card_border_color())
+        if danger is not None:
+            btn.setBorderColor(danger)
     except Exception:
-        try:
-            btn.setBorderColor(QColor("#e2e4e8"))
-        except Exception:
-            pass
+        pass
     try:
-        color = _capsule_icon_color("reject")
-        if color is not None:
-            btn.setForegroundColor(color)
+        btn.setForegroundColor(QColor("#ffffff"))
     except Exception:
         pass
     try:

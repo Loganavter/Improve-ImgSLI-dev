@@ -9,7 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QPoint, QEvent
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QWidget
 
 from tabs.image_gallery.models import GalleryItem
@@ -36,7 +37,26 @@ def _card(qtbot, item: GalleryItem, owner: SimpleNamespace):
     parent.show()
     card.move(0, 0)
     card.show()
+    # Park the cursor outside the card: Qt synthesizes real Enter/Leave for
+    # whatever sits under it, which would fight the fake hover events below.
+    # Showing the card under the static cursor synthesizes an Enter, so drain
+    # one event round for a deterministic idle state.
+    try:
+        QCursor.setPos(parent.mapToGlobal(QPoint(390, 290)))
+        QApplication.processEvents()
+    except Exception:
+        pass
     return card
+
+
+def _park_over(btn, card) -> None:
+    """Move the virtual cursor onto the badge WITHOUT delivering events."""
+    try:
+        host = btn.parent()
+        center = btn.pos() + QPoint(btn.width() // 2, btn.height() // 2)
+        QCursor.setPos(host.mapToGlobal(center))
+    except Exception:
+        pass
 
 
 def _delete_button(card):
@@ -74,30 +94,70 @@ def test_delete_button_hover_only(qtbot) -> None:
 
 
 def test_delete_button_hides_after_leave(qtbot) -> None:
-    """Leave schedules the hide (~200 ms hover-intent, not instant)."""
+    """Leave hides on the same tick as the capsule (no linger)."""
     item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
     card = _card(qtbot, item, _owner([item]))
     btn = _delete_button(card)
     _hover(card, enter=True)
     assert btn.isVisible()
     _hover(card, enter=False)
-    assert btn.isVisible()  # pending, cursor may be travelling to the badge
-    qtbot.wait(300)
     assert not btn.isVisible()
 
 
-def test_delete_button_hover_keeps_visible(qtbot) -> None:
-    """Hovering the badge itself cancels the card-leave hide."""
+def test_delete_button_hover_shows(qtbot) -> None:
+    """Hovering the badge itself shows it (card-or-badge hover)."""
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    btn = _delete_button(card)
+    assert not btn.isVisible()
+    filt = getattr(card, "_gallery_delete_hover_filter", None)
+    assert filt is not None
+    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Enter))
+    assert btn.isVisible()
+
+
+def test_card_leave_toward_badge_keeps_visible(qtbot) -> None:
+    """Leaving the card onto the overhang half keeps the badge (no flicker)."""
     item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
     card = _card(qtbot, item, _owner([item]))
     btn = _delete_button(card)
     _hover(card, enter=True)
     assert btn.isVisible()
+    _park_over(btn, card)
     _hover(card, enter=False)
+    assert btn.isVisible()
+
+
+def test_badge_leave_outside_hides(qtbot) -> None:
+    """Leaving the badge anywhere but the card hides immediately."""
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    btn = _delete_button(card)
+    _hover(card, enter=True)
+    assert btn.isVisible()
+    filt = getattr(card, "_gallery_delete_hover_filter", None)
+    assert filt is not None
+    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Enter))
+    assert btn.isVisible()
+    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Leave))
+    assert not btn.isVisible()
+
+
+def test_hover_x_then_card_keeps_visible(qtbot) -> None:
+    """Card Enter cancels the hide scheduled by the badge Leave.
+
+    Regression: hover ✕ → move onto card → ✕ vanished after ~200 ms (the
+    X-Leave hide was never cancelled by the card Enter).
+    """
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    btn = _delete_button(card)
+    _hover(card, enter=True)
+    assert btn.isVisible()
     filt = getattr(card, "_gallery_delete_hover_filter", None)
     assert filt is not None
     filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Leave))
-    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Enter))
+    _hover(card, enter=True)
     qtbot.wait(300)
     assert btn.isVisible()
 

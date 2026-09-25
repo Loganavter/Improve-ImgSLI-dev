@@ -133,6 +133,16 @@ class _CardHoverFilter(QObject):
         if watched is self._card:
             if event.type() == QEvent.Type.Enter:
                 try:
+                    from tabs.image_gallery.debug import gallery_debug as _dbg
+
+                    _dbg(
+                        "card hover enter card=%s suppressed=%s",
+                        getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
+                        _capsule_suppressed(self._owner, self._card),
+                    )
+                except Exception:
+                    pass
+                try:
                     # Hover FX is the translucent shelf-style wash
                     # (overlay painter) — no opaque bg swap. Underline only.
                     _show_card_hover_underline(self._card)
@@ -168,15 +178,21 @@ class _CardHoverFilter(QObject):
                     hide_gallery_card_flyout(self._card)
                 except Exception:
                     pass
-                # Hover-intent hide for the delete ✕: delayed so the cursor
-                # can travel onto its overhang half (outside the card rect).
+                # Card-or-badge hover semantics: leaving toward the delete ✕
+                # (which overhangs outside the card rect) keeps it — its own
+                # Enter is imminent. Anything else hides it on the same tick
+                # as the capsule.
                 try:
                     from tabs.image_gallery.ui.card.delete_button import (
-                        schedule_delete_hide as _sched_del,
+                        card_delete_contains_cursor as _over_del,
+                    )
+                    from tabs.image_gallery.ui.card.delete_button import (
+                        hide_card_delete_button as _hide_del,
                     )
 
                     self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
-                    _sched_del(self._card)
+                    if not _over_del(self._card):
+                        _hide_del(self._card)
                 except Exception:
                     pass
         return False
@@ -404,8 +420,6 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
         # Show inside card top-right per svg x1022 y198 (6px from preview top, 8px from right).
         # Outer widget width = visible pill + 2×SHADOW_RADIUS(8) — position from the
         # live sizeHint (set_actions→update_state→adjustSize), never a hardcoded 88.
-        # The persistent red delete ✕ owns the top-right corner (y 6..26), so the
-        # capsule docks below it instead of overlapping.
         try:
             flyout.setParent(card)
             try:
@@ -413,8 +427,10 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
             except Exception:
                 pass
             try:
-                # Card 250 wide, right margin 8, top 30 (below the delete ✕)
-                flyout.move(card.width() - flyout.width() - scaled_px(8), scaled_px(30))
+                # Card 250 wide, right margin 8, top 14 (preview 8,8 +6).
+                # The delete ✕ overhangs the same corner; the capsule's outer
+                # edge is transparent shadow there, so the mockup margin holds.
+                flyout.move(card.width() - flyout.width() - scaled_px(8), scaled_px(14))
             except Exception:
                 pass
             flyout.show()
