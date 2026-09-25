@@ -384,12 +384,11 @@ def update_gallery_card(card: Button, item: GalleryItem, mode: object = None) ->
             pass
     rows = _text_rows(item, translate=None, mode=_mode)
     card.update_region("text", rows=rows)
-    # One cross per corner: the toolkit rejected ✕ badge owns top-right on
-    # rejected cards, so the delete ✕ hides there (and returns on restore).
+    # Re-pin the delete ✕ (visibility incl. rejected rule lives in sync).
     try:
-        db = getattr(card, "_gallery_delete_btn", None)
-        if db is not None:
-            db.setVisible(not bool(getattr(item, "rejected", False)))
+        from tabs.image_gallery.ui.card.delete_button import sync_card_delete_button
+
+        sync_card_delete_button(card)
     except Exception:
         pass
     try:

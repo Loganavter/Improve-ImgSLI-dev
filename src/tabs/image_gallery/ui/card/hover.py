@@ -139,6 +139,15 @@ class _CardHoverFilter(QObject):
                 except Exception:
                     pass
                 try:
+                    from tabs.image_gallery.ui.card.delete_button import (
+                        sync_card_delete_button as _sync_del,
+                    )
+
+                    self._card._gallery_delete_hovered = True  # type: ignore[attr-defined]
+                    _sync_del(self._card)
+                except Exception:
+                    pass
+                try:
                     if _capsule_suppressed(self._owner, self._card):
                         try:
                             from tabs.image_gallery.debug import gallery_debug as _dbg
@@ -157,6 +166,17 @@ class _CardHoverFilter(QObject):
                     pass
                 try:
                     hide_gallery_card_flyout(self._card)
+                except Exception:
+                    pass
+                # Hover-intent hide for the delete ✕: delayed so the cursor
+                # can travel onto its overhang half (outside the card rect).
+                try:
+                    from tabs.image_gallery.ui.card.delete_button import (
+                        schedule_delete_hide as _sched_del,
+                    )
+
+                    self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
+                    _sched_del(self._card)
                 except Exception:
                     pass
         return False

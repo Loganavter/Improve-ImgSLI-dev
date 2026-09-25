@@ -1,4 +1,4 @@
-"""Card delete ✕ button: persistent red cross removes the card from the grid.
+"""Card delete ✕ button: round hover-only badge overhanging the corner.
 
 Reject (capsule ✕) only toggles the rejected flag; the top-right ✕ deletes
 the card via ``remove_from_grid`` (file on disk stays) + HUD notice.
@@ -9,7 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QApplication, QWidget
 
 from tabs.image_gallery.models import GalleryItem
 from tabs.image_gallery.ui.card import build_gallery_card
@@ -33,14 +34,23 @@ def _card(qtbot, item: GalleryItem, owner: SimpleNamespace):
     card._test_parent = parent  # strong ref: qtbot tracks via weakref only
     parent.resize(400, 300)
     parent.show()
+    card.move(0, 0)
     card.show()
     return card
 
 
 def _delete_button(card):
-    btn = card.findChild(QWidget, "gallery_card_delete")
+    # Host-level button (card clips children to its rect — no overhang there).
+    btn = getattr(card, "_gallery_delete_btn", None)
     assert btn is not None
     return btn
+
+
+def _hover(card, enter: bool = True) -> None:
+    filt = getattr(card, "_gallery_hover_filter", None)
+    assert filt is not None
+    kind = QEvent.Type.Enter if enter else QEvent.Type.Leave
+    filt.eventFilter(card, SimpleNamespace(type=lambda kind=kind: kind))
 
 
 def _click(btn) -> None:
@@ -50,15 +60,46 @@ def _click(btn) -> None:
         btn.clicked.emit()
 
 
-def test_delete_button_present_top_right(qtbot) -> None:
-    """Every card carries the persistent delete ✕ at its top-right corner."""
+def test_delete_button_hover_only(qtbot) -> None:
+    """Hidden idle; real card-hover shows it (round badge, overhang corner)."""
     item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
     card = _card(qtbot, item, _owner([item]))
     btn = _delete_button(card)
+    assert not btn.isVisible()
+    _hover(card, enter=True)
     assert btn.isVisible()
     pos = btn.pos()
-    assert pos.x() + btn.width() <= card.width()
-    assert pos.y() < card.height() // 2
+    assert pos.x() + btn.width() // 2 == card.pos().x() + card.width()
+    assert pos.y() + btn.height() // 2 == card.pos().y()
+
+
+def test_delete_button_hides_after_leave(qtbot) -> None:
+    """Leave schedules the hide (~200 ms hover-intent, not instant)."""
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    btn = _delete_button(card)
+    _hover(card, enter=True)
+    assert btn.isVisible()
+    _hover(card, enter=False)
+    assert btn.isVisible()  # pending, cursor may be travelling to the badge
+    qtbot.wait(300)
+    assert not btn.isVisible()
+
+
+def test_delete_button_hover_keeps_visible(qtbot) -> None:
+    """Hovering the badge itself cancels the card-leave hide."""
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    btn = _delete_button(card)
+    _hover(card, enter=True)
+    assert btn.isVisible()
+    _hover(card, enter=False)
+    filt = getattr(card, "_gallery_delete_hover_filter", None)
+    assert filt is not None
+    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Leave))
+    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Enter))
+    qtbot.wait(300)
+    assert btn.isVisible()
 
 
 def test_delete_button_hidden_while_rejected(qtbot) -> None:
@@ -68,8 +109,11 @@ def test_delete_button_hidden_while_rejected(qtbot) -> None:
     item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1, rejected=True)
     card = _card(qtbot, item, _owner([item]))
     assert not _delete_button(card).isVisible()
+    _hover(card, enter=True)
+    assert not _delete_button(card).isVisible()
     item.rejected = False
     update_gallery_card(card, item)
+    _hover(card, enter=True)
     assert _delete_button(card).isVisible()
 
 
@@ -79,6 +123,26 @@ def test_delete_button_removes_card_and_notifies(qtbot) -> None:
     b = GalleryItem(path=Path("/gallery/b.png"), mtime_ns=2)
     owner = _owner([a, b])
     card = _card(qtbot, a, owner)
+    _hover(card, enter=True)
     _click(_delete_button(card))
     assert [str(it.path) for it in owner.state.items] == [str(b.path)]
     assert owner.notes == ["Removed a.png"]
+
+
+def test_delete_button_paints_outside_card(qtbot) -> None:
+    """Pixel witness: red glyph pixels exist beyond the card rect."""
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    _hover(card, enter=True)
+    btn = _delete_button(card)
+    assert btn.isVisible()
+    QApplication.processEvents()
+    QApplication.processEvents()
+    px = card._test_parent.grab().toImage()
+    n = 0
+    for x in range(card.width() + 1, card.width() + 12):
+        for y in range(0, 12):
+            c = px.pixelColor(x, y)
+            if c.red() > 120 and c.red() > c.green() + 40 and c.red() > c.blue() + 40:
+                n += 1
+    assert n > 0
