@@ -31,7 +31,8 @@ def widget_contains_cursor(widget) -> bool:
             return False
         from PySide6.QtGui import QCursor
 
-        return bool(widget.geometry().contains(widget.mapFromGlobal(QCursor.pos())))
+        # rect() is widget-local — the matching frame for mapFromGlobal.
+        return bool(widget.rect().contains(widget.mapFromGlobal(QCursor.pos())))
     except Exception:
         return False
 
