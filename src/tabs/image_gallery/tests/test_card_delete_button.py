@@ -61,6 +61,18 @@ def test_delete_button_present_top_right(qtbot) -> None:
     assert pos.y() < card.height() // 2
 
 
+def test_delete_button_hidden_while_rejected(qtbot) -> None:
+    """One cross per corner: rejected cards show the toolkit ✕ badge instead."""
+    from tabs.image_gallery.ui.card import update_gallery_card
+
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1, rejected=True)
+    card = _card(qtbot, item, _owner([item]))
+    assert not _delete_button(card).isVisible()
+    item.rejected = False
+    update_gallery_card(card, item)
+    assert _delete_button(card).isVisible()
+
+
 def test_delete_button_removes_card_and_notifies(qtbot) -> None:
     """Clicking ✕ removes the card from state and names it in the HUD."""
     a = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)

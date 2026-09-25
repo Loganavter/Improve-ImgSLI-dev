@@ -91,3 +91,14 @@ def wire_card_delete_button(card, owner) -> None:  # type: ignore[no-untyped-def
         btn.raise_()
     except Exception:
         pass
+    try:
+        card._gallery_delete_btn = btn  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    # The toolkit rejected ✕ badge owns this corner on rejected cards —
+    # never show both crosses at once.
+    try:
+        item0 = getattr(card, "_gallery_item", None)
+        btn.setVisible(not bool(getattr(item0, "rejected", False)))
+    except Exception:
+        pass

@@ -384,6 +384,14 @@ def update_gallery_card(card: Button, item: GalleryItem, mode: object = None) ->
             pass
     rows = _text_rows(item, translate=None, mode=_mode)
     card.update_region("text", rows=rows)
+    # One cross per corner: the toolkit rejected ✕ badge owns top-right on
+    # rejected cards, so the delete ✕ hides there (and returns on restore).
+    try:
+        db = getattr(card, "_gallery_delete_btn", None)
+        if db is not None:
+            db.setVisible(not bool(getattr(item, "rejected", False)))
+    except Exception:
+        pass
     try:
         parts = [item.name]
         analysis = getattr(item, "analysis", None)
