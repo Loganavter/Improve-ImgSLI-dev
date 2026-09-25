@@ -239,7 +239,14 @@ def on_quick_reject(owner, path) -> None:
         from tabs.image_gallery.use_cases import triage as _triage
 
         triage_owner = owner_for_triage(owner)
-        _triage.remove_from_grid(triage_owner, Path(path))
+        removed = bool(_triage.remove_from_grid(triage_owner, Path(path)))
+        if removed:
+            try:
+                from tabs.image_gallery.ui.card.hover import _notify_owner_hud
+
+                _notify_owner_hud(triage_owner, f"Removed {Path(path).name}")
+            except Exception:
+                pass
         try:
             overlay = owner._quick_look_overlay  # type: ignore[attr-defined]
             if overlay is not None and overlay.isVisible():

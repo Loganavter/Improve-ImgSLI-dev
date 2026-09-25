@@ -888,8 +888,10 @@ class ImageGalleryWidget(QWidget):
                     self._grid_view.hide()
             except Exception:
                 pass
+            # Compat shim only (never in a layout — show() would pin it at
+            # (0,0) over the corner). S0 visuals belong to _empty_state.
             self._empty_label.setText(empty_text)
-            self._empty_label.show()
+            self._empty_label.hide()
             # Clear grid
             try:
                 self._grid_view.rebuild_grid([])

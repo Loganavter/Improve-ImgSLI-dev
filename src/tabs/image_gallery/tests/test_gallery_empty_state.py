@@ -89,6 +89,8 @@ def test_emptied_by_removals_shows_empty_view_text(qtbot) -> None:
     w.rebuild_grid([])
     assert w._empty_state._drop_label.get_original_text() == "No images in view."
     assert w._empty_label.get_original_text() == "No images in view."
+    # Compat shim is never shown: it has no layout slot and would pin at (0,0).
+    assert not w._empty_label.isVisible()
 
 
 def test_pristine_empty_shows_pick_folder_text(qtbot) -> None:
@@ -101,6 +103,7 @@ def test_pristine_empty_shows_pick_folder_text(qtbot) -> None:
     # Drop zone keeps its construction default (no translate in this context).
     assert w._empty_state._drop_label.get_original_text() == "Drop folder or images here"
     assert w._empty_label.get_original_text() == "Pick a folder to see images here."
+    assert not w._empty_label.isVisible()
 
 
 def test_drop_zone_expands_to_fill(qtbot) -> None:

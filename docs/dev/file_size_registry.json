@@ -733,7 +733,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/quick_look.py",
-      "lines": 853,
+      "lines": 863,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"thin owner delegating to ui/quick_look/* helpers,bars,histograms,source_inset,metrics,artifacts,strip\"",
@@ -792,7 +792,7 @@
     },
     {
       "path": "src/tabs/image_gallery/widget.py",
-      "lines": 1185,
+      "lines": 1187,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner delegating to use_cases/triage+carry+quick look; splitting would create helpers bag\"",

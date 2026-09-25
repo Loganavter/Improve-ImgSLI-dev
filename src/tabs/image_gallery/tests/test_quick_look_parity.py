@@ -2317,6 +2317,68 @@ def test_reject_button_removes_once_with_production_wiring(qtbot):
     ov.hide()
 
 
+def test_reject_last_card_notifies_hud(qtbot):
+    """Quick look names the removed card like the grid capsule does.
+
+    Regression: `_on_reject` removed silently while the capsule path showed
+    "Removed …" — same action, different feedback.
+    """
+    a = _item("a.png")
+    ov = _make_overlay(qtbot)
+    notes: list = []
+    hud = SimpleNamespace(notify=lambda text, timeout_ms=2500: notes.append(text))
+    owner = SimpleNamespace(
+        state=SimpleNamespace(items=[a], selected_paths=set(), selected_order=[]),
+        _selection_hud=hud,
+    )
+    ov._owner = owner
+    ov._series_items = [a]
+    ov._current_idx = 0
+    ov._current_item = a
+    ov._on_reject()
+    QApplication.processEvents()
+    assert notes == ["Removed a.png"]
+    assert ov.isHidden()
+
+
+def test_reject_advance_stays_silent(qtbot):
+    """Advancing to the next card is its own feedback — no toast needed."""
+    a = _item("a.png")
+    b = _item("b.png")
+    ov = _make_overlay(qtbot)
+    notes: list = []
+    hud = SimpleNamespace(notify=lambda text, timeout_ms=2500: notes.append(text))
+    owner = SimpleNamespace(
+        state=SimpleNamespace(items=[a, b], selected_paths=set(), selected_order=[]),
+        _selection_hud=hud,
+    )
+    ov._owner = owner
+    ov._series_items = [a, b]
+    ov._current_idx = 0
+    ov._current_item = a
+    ov._on_reject()
+    QApplication.processEvents()
+    assert notes == []
+    assert ov._current_item is not None
+    assert str(ov._current_item.path) == str(b.path)
+
+
+def test_on_quick_reject_notifies(qtbot):
+    """External reject (card menu / strip) via hooks also names the card."""
+    from tabs.image_gallery.ui import quick_look_hooks as _qlh
+
+    a = _item("a.png")
+    notes: list = []
+    hud = SimpleNamespace(notify=lambda text, timeout_ms=2500: notes.append(text))
+    owner = SimpleNamespace(
+        state=SimpleNamespace(items=[a], selected_paths=set(), selected_order=[]),
+        _selection_hud=hud,
+    )
+    _qlh.on_quick_reject(owner, a.path)
+    assert notes == ["Removed a.png"]
+    assert list(owner.state.items) == []
+
+
 def test_compare_button_carries_once_with_production_wiring(qtbot, monkeypatch):
     """Single-fire guard: one `_on_compare` runs `carry_selected` exactly
     once even with production `compareRequested -> on_quick_compare` connected.

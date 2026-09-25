@@ -753,12 +753,13 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
         try:
             p = Path(getattr(self._current_item, "path", ""))
             owner = self._owner
+            removed = False
             if owner is not None:
                 try:
                     from tabs.image_gallery.use_cases import triage as _triage
-                    _triage.remove_from_grid(owner, p)
+                    removed = bool(_triage.remove_from_grid(owner, p))
                 except Exception:
-                    pass
+                    removed = False
             # No rejectToggled.emit here: _on_reject already removed the card
             # above, and the only subscriber (on_quick_reject, wired in
             # quick_look_hooks.show_quick_look) would try to remove it AGAIN.
@@ -772,6 +773,15 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
             except Exception:
                 series = []
             if not series:
+                # Last card gone with the overlay: name it via the HUD toast
+                # (same "Removed …" as the grid capsule path).
+                if removed:
+                    try:
+                        from tabs.image_gallery.ui.card.hover import _notify_owner_hud
+
+                        _notify_owner_hud(owner, f"Removed {p.name}")
+                    except Exception:
+                        pass
                 try:
                     self.hide()
                 except Exception:
