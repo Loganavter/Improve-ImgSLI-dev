@@ -673,7 +673,7 @@
     },
     {
       "path": "src/tabs/image_gallery/controller.py",
-      "lines": 1495,
+      "lines": 1500,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one controller lifecycle — folder scan/thumbnail/triage/VLM sharing GenericWorker state\"",
@@ -733,7 +733,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/quick_look.py",
-      "lines": 849,
+      "lines": 853,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"thin owner delegating to ui/quick_look/* helpers,bars,histograms,source_inset,metrics,artifacts,strip\"",
@@ -780,7 +780,7 @@
     },
     {
       "path": "src/tabs/image_gallery/use_cases/triage.py",
-      "lines": 738,
+      "lines": 888,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner helpers — keep_best/provenance/clean wiring shares one triage lifecycle\"",

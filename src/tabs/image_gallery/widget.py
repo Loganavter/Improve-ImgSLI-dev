@@ -206,7 +206,7 @@ class ImageGalleryWidget(QWidget):
 
         # Footer — SVG y822 10.5px italic #8a8a8a
         self._footer = Label(
-            "keys: Space reject · B best · Enter compare selected · dbl-click quick look (TopLevelInWindowOverlay) · quality dots: ● sharpness ● exposure ● noise (outlier shown warm/red)",
+            "keys: Space/Delete remove · B best · Enter compare selected · dbl-click quick look (TopLevelInWindowOverlay) · quality dots: ● sharpness ● exposure ● noise (outlier shown warm/red)",
             pixel_size=10,
             parent=self,
         )
@@ -769,7 +769,7 @@ class ImageGalleryWidget(QWidget):
         except Exception:
             pass
 
-    # -- keyboard: Space reject toggle, B make best, Enter compare, Esc close/back, arrows navigate
+    # -- keyboard: Space/Delete remove card, B make best, Enter compare, Esc close/back, arrows navigate
     # widget keyPressEvent -> triage functions (design.md:129) ----------------
 
     def _owner_for_triage(self):
