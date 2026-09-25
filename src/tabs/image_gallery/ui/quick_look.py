@@ -753,51 +753,37 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
         try:
             p = Path(getattr(self._current_item, "path", ""))
             owner = self._owner
-            removed = False
             if owner is not None:
                 try:
                     from tabs.image_gallery.use_cases import triage as _triage
-                    removed = bool(_triage.remove_from_grid(owner, p))
+                    _triage.toggle_reject(owner, p)
                 except Exception:
-                    removed = False
-            # No rejectToggled.emit here: _on_reject already removed the card
-            # above, and the only subscriber (on_quick_reject, wired in
-            # quick_look_hooks.show_quick_look) would try to remove it AGAIN.
-            # External reject triggers (card menu, hover capsule) still reach
-            # the open overlay via on_quick_reject — that path is untouched.
-            # Reject removes the card: advance to the next surviving item,
-            # hide when the series is exhausted.
-            try:
-                series = [it for it in list(getattr(self, "_series_items", []) or []) if Path(getattr(it, "path")) != p]
-                self._series_items = series
-            except Exception:
-                series = []
-            if not series:
-                # Last card gone with the overlay: name it via the HUD toast
-                # (same "Removed …" as the grid capsule path).
-                if removed:
                     try:
-                        from tabs.image_gallery.ui.card.hover import _notify_owner_hud
-
-                        _notify_owner_hud(owner, f"Removed {p.name}")
+                        cur = bool(getattr(self._current_item, "rejected", False))
+                        self._current_item.rejected = not cur
                     except Exception:
                         pass
                 try:
-                    self.hide()
+                    w = getattr(owner, "widget", None) or owner
+                    if hasattr(w, "refresh_card"):
+                        w.refresh_card(self._current_item)
+                    if hasattr(w, "set_triage"):
+                        st = getattr(owner, "state", None)
+                        if st is not None:
+                            rejected_n = sum(1 for it in getattr(st, "items", []) if bool(getattr(it, "rejected", False)))
+                            try:
+                                w.stats_strip.set_rejected_count(rejected_n)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
-                return
-            try:
-                idx = int(getattr(self, "_current_idx", 0) or 0)
-            except Exception:
-                idx = 0
-            idx = min(idx, len(series) - 1)
-            self._current_idx = idx
-            try:
-                self._current_item = series[idx]
-            except Exception:
-                return
-            self._populate()
+            # No rejectToggled.emit here: _on_reject already flipped the flag
+            # above, and the only subscriber (on_quick_reject, wired in
+            # quick_look_hooks.show_quick_look) would flip it BACK plus run a
+            # second full show_for (~300ms of redundant re-populate). External
+            # reject triggers (card menu, hover capsule) still reach the open
+            # overlay via on_quick_reject — that path is untouched.
+            self._populate()  # W12-A: Reject stays open — triage continues.
         except Exception:
             pass
 

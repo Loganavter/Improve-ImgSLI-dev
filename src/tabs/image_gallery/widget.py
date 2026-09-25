@@ -862,6 +862,21 @@ class ImageGalleryWidget(QWidget):
 
     def rebuild_grid(self, items: list[GalleryItem]) -> None:
         had_items = bool(self._items)
+        # Snapshot the active series view — the flat rebuild below clears
+        # grid_view._series (headers). Every triage action funnels through
+        # here (toggle/make-best/keep-best/remove), so without a re-apply
+        # any of them flattens the SERIES grouping.
+        saved_series = None
+        try:
+            gv = getattr(self, "_grid_view", None)
+            if gv is not None and getattr(gv, "_series", None) is not None:
+                saved_series = (
+                    list(gv._series),
+                    list(getattr(gv, "_hub_names", []) or []),
+                    dict(getattr(gv, "_collapsed", {}) or {}),
+                )
+        except Exception:
+            saved_series = None
         self._items = list(items)
         _dbg("rebuild_grid n=%d branch=%s", len(self._items), "empty" if not items else "grid")
         if not items:
@@ -926,6 +941,81 @@ class ImageGalleryWidget(QWidget):
             self.refresh_card(item)
 
         # Hook double-click → quick look
+        try:
+            self._install_quick_look_hooks()
+        except Exception:
+            pass
+
+        # Re-apply the series view snapshotted above (if clusters survive).
+        if saved_series is not None:
+            try:
+                self._restore_series_view(saved_series)
+            except Exception:
+                pass
+
+    def _restore_series_view(self, saved) -> None:
+        """Re-apply a series view snapshot taken before the flat rebuild.
+
+        Clusters are pruned to current membership (removals); clusters
+        shrinking below 2 members fall out — ``set_series`` lands their
+        survivors in the UNGROUPED tail. Nothing surviving → stay flat
+        (e.g. folder switch keeps its current flat behavior).
+        """
+        try:
+            series, hub_names, collapsed = saved
+        except Exception:
+            return
+        alive: set[str] = set()
+        for it in (self._items or []):
+            try:
+                alive.add(str(it.path))
+            except Exception:
+                continue
+        kept: list = []
+        kept_hubs: list = []
+        for idx, cl in enumerate(list(series or [])):
+            try:
+                members = [m for m in list(cl) if str(getattr(m, "path", None)) in alive]
+            except Exception:
+                continue
+            if len(members) >= 2:
+                kept.append(members)
+                try:
+                    if idx < len(hub_names):
+                        kept_hubs.append(hub_names[idx])
+                except Exception:
+                    pass
+        if not kept:
+            return
+        try:
+            collapsed = {int(k): bool(v) for k, v in dict(collapsed or {}).items() if 0 <= int(k) < len(kept)}
+        except Exception:
+            collapsed = {}
+        _dbg("rebuild_grid restore series clusters=%d", len(kept))
+        try:
+            self._grid_view.set_series(kept, hub_names=kept_hubs, collapsed=collapsed)
+        except Exception:
+            return
+        try:
+            self._collapsed = dict(getattr(self._grid_view, "_collapsed", {}) or collapsed)
+        except Exception:
+            pass
+        # set_series recycled cards again — re-sync compat dicts (mirrors set_triage).
+        try:
+            self._cards.clear()
+            self._card_labels.clear()
+            for it in (self._items or []):
+                card = self._grid_view.card_for(it.path)
+                if card is not None:
+                    self._cards[it.path] = card
+                    self._card_labels[it.path] = card  # type: ignore[assignment]
+        except Exception:
+            pass
+        try:
+            for item in (self._items or []):
+                self.refresh_card(item)
+        except Exception:
+            pass
         try:
             self._install_quick_look_hooks()
         except Exception:

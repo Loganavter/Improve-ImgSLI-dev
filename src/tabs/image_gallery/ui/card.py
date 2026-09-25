@@ -301,6 +301,12 @@ def build_gallery_card(*args, **kwargs) -> Button:  # type: ignore[no-untyped-de
         card._gallery_hover_filter = filt  # type: ignore[attr-defined]
     except Exception:
         pass
+    try:
+        from tabs.image_gallery.ui.card.delete_button import wire_card_delete_button
+
+        wire_card_delete_button(card, owner)
+    except Exception:
+        pass
     if on_activate is not None or on_context_menu is not None:
         _bind_gallery_card(card, on_activate=on_activate, on_context_menu=on_context_menu)
     if on_context_menu is None:

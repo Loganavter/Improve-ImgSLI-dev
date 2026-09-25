@@ -343,14 +343,14 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                     from tabs.image_gallery.use_cases import triage as _triage
 
                     try:
-                        ok = bool(_triage.remove_from_grid(actual_owner, path))
+                        rejected = bool(_triage.toggle_reject(actual_owner, path))
                     except Exception:
                         _log("capsule reject raised path=%s", path, exc_info=True)
                         return
-                    if not ok:
-                        return
                     name = Path(path).name
-                    _after_card_action(c, actual_owner, f"Removed {name}")
+                    _after_card_action(
+                        c, actual_owner, f"Rejected {name}" if rejected else f"Restored {name}"
+                    )
                 elif action_id == "compare":
                     # Dispatch to carry/compare — reuse selection/carry flow.
                     from tabs.image_gallery.use_cases import carry as _carry
@@ -384,6 +384,8 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
         # Show inside card top-right per svg x1022 y198 (6px from preview top, 8px from right).
         # Outer widget width = visible pill + 2×SHADOW_RADIUS(8) — position from the
         # live sizeHint (set_actions→update_state→adjustSize), never a hardcoded 88.
+        # The persistent red delete ✕ owns the top-right corner (y 6..26), so the
+        # capsule docks below it instead of overlapping.
         try:
             flyout.setParent(card)
             try:
@@ -391,8 +393,8 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
             except Exception:
                 pass
             try:
-                # Card 250 wide, right margin 8, top 14 (preview 8,8 +6)
-                flyout.move(card.width() - flyout.width() - scaled_px(8), scaled_px(14))
+                # Card 250 wide, right margin 8, top 30 (below the delete ✕)
+                flyout.move(card.width() - flyout.width() - scaled_px(8), scaled_px(30))
             except Exception:
                 pass
             flyout.show()
