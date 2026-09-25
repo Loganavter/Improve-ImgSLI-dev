@@ -1375,6 +1375,11 @@ class GalleryController:
 
         return bool(_toggle(self, path))
 
+    def remove_from_grid(self, path: Path) -> bool:
+        from tabs.image_gallery.use_cases.triage import remove_from_grid as _remove
+
+        return bool(_remove(self, path))
+
     def keep_best_of_series(self) -> dict:
         from tabs.image_gallery.use_cases.triage import keep_best_of_series as _keep
 

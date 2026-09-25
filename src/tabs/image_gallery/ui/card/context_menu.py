@@ -174,11 +174,11 @@ def _ctx_toggle_reject(owner, path: Path) -> None:
 
         _dbg("reject clicked path=%s owner=%s", path, type(owner).__name__)
         try:
-            result = _triage.toggle_reject(owner, path)
+            result = _triage.remove_from_grid(owner, path)
         except Exception:
-            _dbg("reject toggle_reject raised path=%s", path, exc_info=True)
+            _dbg("reject remove_from_grid raised path=%s", path, exc_info=True)
             return
-        _dbg("reject toggle_reject returned %r path=%s", result, path)
+        _dbg("reject remove_from_grid returned %r path=%s", result, path)
     except Exception:
         pass
 

@@ -2268,38 +2268,52 @@ def test_multi_compare_button_closes_overlay(qtbot):
     assert ov.isHidden()
 
 
-def test_reject_button_stays_open(qtbot):
-    """W12-A: `Reject` keeps triaging — overlay stays open."""
+def test_reject_button_removes_card(qtbot):
+    """Reject removes the card: single-item series hides, multi-item advances."""
     a = _item("a.png")
     ov = _make_overlay(qtbot)
     _show(ov, a, [a])
     assert ov.isVisible()
     ov._on_reject()
     QApplication.processEvents()
-    assert ov.isVisible()
+    assert ov.isHidden()
+    assert all(str(it.path) != str(a.path) for it in list(ov._owner.state.items))
     ov.hide()
 
+    a2 = _item("a.png")
+    b2 = _item("b.png")
+    ov2 = _make_overlay(qtbot)
+    _show(ov2, a2, [a2, b2])
+    assert ov2.isVisible()
+    ov2._on_reject()
+    QApplication.processEvents()
+    assert ov2.isVisible()
+    assert ov2._current_item is not None
+    assert str(ov2._current_item.path) == str(b2.path)
+    assert all(str(it.path) != str(a2.path) for it in list(ov2._owner.state.items))
+    ov2.hide()
 
-def test_reject_button_toggles_once_with_production_wiring(qtbot):
-    """Double-fire guard: one `_on_reject` flips rejected exactly once even
+
+def test_reject_button_removes_once_with_production_wiring(qtbot):
+    """Double-fire guard: one `_on_reject` removes the card exactly once even
     with the production `rejectToggled -> on_quick_reject` wiring connected.
 
     Regression: `_on_reject` used to emit `rejectToggled` after toggling, and
     the only subscriber (`on_quick_reject`) toggled BACK plus ran a second
     full `show_for` (~300ms redundant re-populate) — net zero + prolagg.
+    Now both paths remove; the second must be a harmless no-op.
     """
     from tabs.image_gallery.ui import quick_look_hooks as _qlh
 
     a = _item("a.png")
-    assert a.rejected is False
     ov = _make_overlay(qtbot)
     _show(ov, a, [a])
     assert ov.isVisible()
     ov.rejectToggled.connect(lambda p: _qlh.on_quick_reject(ov._owner, p))
     ov._on_reject()
     QApplication.processEvents()
-    assert a.rejected is True
-    assert ov.isVisible()
+    assert all(str(it.path) != str(a.path) for it in list(ov._owner.state.items))
+    assert ov.isHidden()
     ov.hide()
 
 

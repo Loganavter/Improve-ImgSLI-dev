@@ -436,6 +436,156 @@ def toggle_reject(owner, path: Path) -> bool:
     return False
 
 
+def remove_from_grid(owner, path: Path) -> bool:
+    """Remove *path* from the gallery grid (Reject-button behavior).
+
+    File on disk is untouched — only the grid mirror + slot membership
+    change. Mirrors the controller write path: mutate the local
+    ``state.items`` mirror first, prune selection/order + series clusters,
+    emit ``GalleryItemsRemoved`` so the slot stays in sync, then refresh
+    the grid. Returns True when a card was removed.
+    """
+    from tabs.image_gallery.debug import gallery_debug as _dbg
+
+    try:
+        target = Path(path) if not isinstance(path, Path) else path
+    except Exception:
+        return False
+    target_s = str(target)
+    _dbg(
+        "remove_from_grid ENTER path=%s owner=%s",
+        target_s,
+        type(owner).__name__,
+    )
+    # Resolve the state holder that owns .items (controller.state,
+    # widget._state fallback inside _items_of).
+    st = getattr(owner, "state", None)
+    if st is None or not hasattr(st, "items"):
+        w = getattr(owner, "widget", None) or getattr(owner, "_widget", None)
+        if w is not None:
+            st = getattr(w, "_state", None) or getattr(getattr(w, "_controller", None), "state", None)
+        if st is None and hasattr(owner, "_state"):
+            st = getattr(owner, "_state", None)
+    if st is None or not hasattr(st, "items"):
+        _dbg("remove_from_grid MISS-NOSTATE path=%s", target_s)
+        return False
+    try:
+        before = len(list(getattr(st, "items", []) or []))
+    except Exception:
+        before = -1
+    removed = False
+    try:
+        kept = []
+        for it in list(getattr(st, "items", []) or []):
+            try:
+                if Path(getattr(it, "path")) == target:
+                    removed = True
+                    continue
+            except Exception:
+                pass
+            kept.append(it)
+        if removed:
+            try:
+                st.items[:] = kept
+            except Exception:
+                try:
+                    st.items = kept
+                except Exception:
+                    return False
+    except Exception:
+        return False
+    if not removed:
+        _dbg("remove_from_grid MISS path=%s pool=%d", target_s, before)
+        return False
+    # Prune selection / order.
+    for attr in ("selected_paths", "selected_order"):
+        try:
+            cur = getattr(st, attr, None)
+            if cur is None:
+                continue
+            if isinstance(cur, set):
+                cur.discard(target)
+                try:
+                    cur.discard(Path(target_s))
+                except Exception:
+                    pass
+                for cand in list(cur):
+                    try:
+                        if Path(cand) == target:
+                            cur.discard(cand)
+                    except Exception:
+                        continue
+            elif isinstance(cur, list):
+                kept_sel = []
+                for cand in cur:
+                    try:
+                        if Path(cand) == target:
+                            continue
+                    except Exception:
+                        pass
+                    kept_sel.append(cand)
+                try:
+                    cur[:] = kept_sel
+                except Exception:
+                    setattr(st, attr, kept_sel)
+        except Exception:
+            pass
+    # Prune series clusters holding the same item objects (owner + state).
+    for holder in (owner, st):
+        for attr in ("_triage_series", "triage_series", "_series", "series"):
+            try:
+                clusters = getattr(holder, attr, None)
+                if not clusters:
+                    continue
+                pruned_clusters = []
+                changed = False
+                for cl in list(clusters):
+                    try:
+                        if hasattr(cl, "members"):
+                            members = [m for m in list(getattr(cl, "members", []) or []) if Path(getattr(m, "path")) != target]
+                            if len(members) != len(list(getattr(cl, "members", []) or [])):
+                                changed = True
+                                try:
+                                    cl.members[:] = members
+                                except Exception:
+                                    try:
+                                        cl.members = members
+                                    except Exception:
+                                        pass
+                            pruned_clusters.append(cl)
+                        elif isinstance(cl, (list, tuple)):
+                            members = [m for m in list(cl) if Path(getattr(m, "path")) != target]
+                            if len(members) != len(list(cl)):
+                                changed = True
+                            if members:
+                                pruned_clusters.append(members)
+                            # Empty clusters drop out.
+                        else:
+                            pruned_clusters.append(cl)
+                    except Exception:
+                        try:
+                            pruned_clusters.append(cl)
+                        except Exception:
+                            pass
+                if changed:
+                    try:
+                        if isinstance(clusters, list):
+                            clusters[:] = pruned_clusters
+                        else:
+                            setattr(holder, attr, pruned_clusters)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    try:
+        _emit_gallery(owner, GalleryItemsRemoved(paths=[target_s]))
+    except Exception:
+        pass
+    _dbg("remove_from_grid applied path=%s pool=%d", target_s, before)
+    _refresh_owner_grid(owner)
+    return True
+
+
 def clean_rejected(owner) -> list[dict]:
     """Move rejected files to <folder>/_rejected/ (move-only, never delete).
 

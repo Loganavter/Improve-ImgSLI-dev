@@ -239,14 +239,14 @@ def on_quick_reject(owner, path) -> None:
         from tabs.image_gallery.use_cases import triage as _triage
 
         triage_owner = owner_for_triage(owner)
-        _triage.toggle_reject(triage_owner, Path(path))
+        _triage.remove_from_grid(triage_owner, Path(path))
         try:
             overlay = owner._quick_look_overlay  # type: ignore[attr-defined]
             if overlay is not None and overlay.isVisible():
-                for it in list(owner._items or []):  # type: ignore[attr-defined]
-                    if Path(it.path) == Path(path):
-                        overlay.show_for(it, triage_owner)
-                        break
+                try:
+                    overlay.hide()
+                except Exception:
+                    pass
         except Exception:
             pass
     except Exception:

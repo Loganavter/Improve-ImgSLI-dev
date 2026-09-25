@@ -343,14 +343,14 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                     from tabs.image_gallery.use_cases import triage as _triage
 
                     try:
-                        rejected = bool(_triage.toggle_reject(actual_owner, path))
+                        ok = bool(_triage.remove_from_grid(actual_owner, path))
                     except Exception:
                         _log("capsule reject raised path=%s", path, exc_info=True)
                         return
+                    if not ok:
+                        return
                     name = Path(path).name
-                    _after_card_action(
-                        c, actual_owner, f"Rejected {name}" if rejected else f"Restored {name}"
-                    )
+                    _after_card_action(c, actual_owner, f"Removed {name}")
                 elif action_id == "compare":
                     # Dispatch to carry/compare — reuse selection/carry flow.
                     from tabs.image_gallery.use_cases import carry as _carry
