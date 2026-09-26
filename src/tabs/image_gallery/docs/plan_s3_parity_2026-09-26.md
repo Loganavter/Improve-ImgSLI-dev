@@ -84,3 +84,25 @@ fixtures like `_production_dark_palettes`).
 
 - 2026-09-26: G0 fixed (`show_overlay()` in `show_for` + regression test).
   294/294 gallery tests green. Plan filed.
+- 2026-09-26: Phases 1-5 merged (plate, header, strip top-align, footer
+  rule, theme asserts). Live screenshot still far from mockup: series
+  section boxes, scroll frames, hollow Move button. New phases below.
+
+## Phase 6 — flat strip (drop series boxes)
+
+Live S3 groups thumbs into bordered per-series sections with headers +
+`Restore SERIES N` buttons; mockup v3 shows ONE flat borderless strip
+(series live only in the provenance line). Remove section containers +
+headers; single flat strip over ALL rejected (cap + more-tile + per-thumb
+Restore stay). Scroll areas frameless (`NoFrame`), vertical scrollbar off.
+Per-series Restore buttons go away (mockup has none; Restore all +
+per-thumb Restore remain). No test pins the boxes (provenance SERIES text
+stays — different asserts).
+
+## Phase 7 — solid primary Move + bar polish
+
+Mockup Move: solid `#0096FF` fill + white text. Live: hollow light-blue.
+Probe variant semantics offscreen (surface + `set_background_color` vs
+alternatives); white text via `setForegroundColor`; toolkit Button has NO
+bold API — non-bold white is the accepted deviation (note in DONE).
+Bar spacing/centering to mockup on the plate.
