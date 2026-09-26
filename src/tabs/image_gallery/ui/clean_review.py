@@ -392,10 +392,19 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         self._move_btn.setObjectName("clean_review_move")
         self._move_btn.clicked.connect(self._on_move)
         try:
+            # Solid primary look (mockup v3): set_background_color() on
+            # surface only yields a tint fill (derive_custom_palette) —
+            # override_bg paints exact. Same idiom as the gallery delete ✕.
+            # NOTE: toolkit Button has no bold API — white non-bold text is
+            # the accepted mockup deviation (plan Phase 7).
+            from PySide6.QtGui import QColor as _QC
+
             from tabs.image_gallery.ui.quick_look import _token_color
 
             accent = _token_color("accent", "#0096FF")
-            self._move_btn.set_background_color(accent)
+            self._move_btn.set_override_bg_color(accent)
+            self._move_btn.setBorderColor(accent)
+            self._move_btn.setForegroundColor(_QC("#ffffff"))
         except Exception:
             pass
         bar_layout.addWidget(self._move_btn)

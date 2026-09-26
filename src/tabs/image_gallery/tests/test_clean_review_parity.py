@@ -657,14 +657,25 @@ def test_bottom_bar_stats_centered_text(qtbot, tmp_path):
 
 
 def test_bottom_bar_move_accent_background(qtbot, tmp_path):
-    """Move stays surface + set_background_color(accent) (toolkit
-    ``primary`` variant is deprecated) — accent bg is actually set."""
+    """Move is SOLID accent (override_bg exact) + white text.
+
+    ``set_background_color`` on surface only yields a tint fill
+    (derive_custom_palette) — the hollow light-blue look. Override paints
+    exact; toolkit ``primary`` variant is deprecated. No bold API on
+    Button — white non-bold is the accepted mockup deviation.
+    """
+    from PySide6.QtGui import QColor as _QC
+
     from tabs.image_gallery.ui.quick_look import _token_color
 
     owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
     overlay = _make_overlay(qtbot, owner)
 
-    assert overlay._move_btn.getBackgroundColor() == _token_color("accent", "#0096FF")
+    assert overlay._move_btn._custom_bg_color is None  # tint path unused
+    override = getattr(overlay._move_btn, "_override_bg_color", None)
+    assert override is not None
+    assert _QC(override).name().lower() == _token_color("accent", "#0096FF").name().lower()
+    assert overlay._move_btn.property("foregroundColor") == _QC("#ffffff")
 
 
 # -- Phase 5: theme parity (mockup light + dark via tokens only) ---------
@@ -770,8 +781,8 @@ def test_review_plate_tracks_light_dark_flip(qtbot, qapp, _production_palettes):
 
 
 def test_move_accent_matches_theme_at_construction(qtbot, qapp, _production_palettes, tmp_path):
-    """Move button accent bg is the construction theme's ``accent`` token
-    (surface + set_background_color idiom), hex-exact per theme."""
+    """Move button accent is the construction theme's ``accent`` token
+    (surface + set_override_bg_color exact-fill idiom), hex-exact per theme."""
     tm = _production_palettes
     data = _themes_data()
 
@@ -780,6 +791,25 @@ def test_move_accent_matches_theme_at_construction(qtbot, qapp, _production_pale
         owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
         overlay = _make_overlay(qtbot, owner)
         expected = QColor(data[theme]["accent"]).name().lower()
-        got = overlay._move_btn.getBackgroundColor()
+        got = getattr(overlay._move_btn, "_override_bg_color", None)
         got = (got if isinstance(got, QColor) else QColor(got)).name().lower()
         assert got == expected, f"accent under {theme}: {got} != themes.json {expected}"
+
+
+def test_move_button_paints_solid_accent(qtbot, tmp_path):
+    """Pixel witness: Move fill is solid accent, not a hollow tint."""
+    from tabs.image_gallery.ui.quick_look import _token_color
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+
+    btn = overlay._move_btn
+    img = btn.grab().toImage()
+    center = img.pixelColor(img.width() // 2, img.height() // 2)
+    accent = _token_color("accent", "#0096FF")
+    assert abs(center.red() - accent.red()) <= 12
+    assert abs(center.green() - accent.green()) <= 12
+    assert abs(center.blue() - accent.blue()) <= 12
+    overlay.hide()
