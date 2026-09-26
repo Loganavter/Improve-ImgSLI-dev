@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
 )
 
 from sli_ui_toolkit.widgets import ComboBox, RadioButton, RadioButtonGroup, SpinBox
-from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.managers import scaled_px
 from ui.icon_manager import AppIcon
 from ui.widgets.slider_hint import ValueSlider, ValueSliderRow
@@ -18,6 +17,7 @@ from ui.widgets.slider_hint import ValueSlider, ValueSliderRow
 from plugins.settings.nav_rows import page_nav_builder, register_page_navigation
 from plugins.settings.registry import SettingsSection
 from plugins.settings.search import SearchIndex, group
+from plugins.settings.typography import apply_settings_body, settings_group
 
 UI_MODE = group(
     "settings.ui_mode",
@@ -65,7 +65,7 @@ def _restore_scrollbar_policy(area):
 def build(dialog, p):
     dialog.page_interface, layout = dialog._create_scrollable_page()
     builder = page_nav_builder(dialog, tag="settings-interface")
-    dialog.ui_mode_group = UI_MODE.widget(dialog)
+    dialog.ui_mode_group = settings_group(dialog, UI_MODE)
     row = QHBoxLayout()
     row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
     dialog.radio_ui_mode_beginner = RadioButton(
@@ -82,7 +82,7 @@ def build(dialog, p):
     UI_MODE.tag_member(dialog.radio_ui_mode_expert, "settings.ui_mode_expert")
     dialog._ui_mode_group = RadioButtonGroup()
     for rb in (dialog.radio_ui_mode_beginner, dialog.radio_ui_mode_advanced, dialog.radio_ui_mode_expert):
-        apply_ui_font(rb, pixel_size=14)
+        apply_settings_body(rb)
         dialog._ui_mode_group.addButton(rb)
         row.addWidget(rb)
     ui_mode_row = builder.row(row)
@@ -92,7 +92,7 @@ def build(dialog, p):
         p.current_ui_mode, dialog.radio_ui_mode_beginner
     ).setChecked(True)
 
-    dialog.font_group = UI_FONT.widget(dialog)
+    dialog.font_group = settings_group(dialog, UI_FONT)
     dialog.radio_font_builtin = RadioButton(
         UI_FONT.text(dialog, "settings.builtin_font")
     )
@@ -116,7 +116,7 @@ def build(dialog, p):
     # behavior, so this group is now required explicitly.
     dialog._font_group_buttons = RadioButtonGroup()
     for rb in font_radios:
-        apply_ui_font(rb, pixel_size=14)
+        apply_settings_body(rb)
         dialog._font_group_buttons.addButton(rb)
     # Stacked vertically (unlike ui_mode_row's side-by-side radios above), so
     # each radio is its own nav row -- one shared row would let Left/Right
@@ -134,7 +134,7 @@ def build(dialog, p):
         dialog.font_group.add_widget(row_widget)
 
     dialog.combo_font_family = ComboBox()
-    apply_ui_font(dialog.combo_font_family, pixel_size=14)
+    apply_settings_body(dialog.combo_font_family)
     UI_FONT.tag_combo(dialog.combo_font_family, "settings.custom")
     dialog.combo_font_family.setFixedWidth(scaled_px(320))
     dialog.combo_font_family.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -181,12 +181,12 @@ def build(dialog, p):
         rb.toggled.connect(sync_font_ui)
     sync_font_ui()
 
-    dialog.other_ui_group = MAX_NAME.widget(dialog)
+    dialog.other_ui_group = settings_group(dialog, MAX_NAME)
     len_layout = QHBoxLayout()
     len_layout.setContentsMargins(scaled_px(12), scaled_px(5), scaled_px(12), scaled_px(5))
     value = max(p.min_limit, min(p.max_limit, p.current_max_length))
     dialog.spin_max_length = SpinBox(default_value=value)
-    apply_ui_font(dialog.spin_max_length, pixel_size=14)
+    apply_settings_body(dialog.spin_max_length)
     MAX_NAME.tag_member(dialog.spin_max_length, "settings.maximum_name_length_ui")
     dialog.spin_max_length.setRange(p.min_limit, p.max_limit)
     dialog.spin_max_length.setValue(value)
@@ -198,7 +198,7 @@ def build(dialog, p):
     dialog.other_ui_group.add_widget(len_row)
     layout.addWidget(dialog.other_ui_group)
 
-    dialog.ui_scale_group = UI_SCALE.widget(dialog)
+    dialog.ui_scale_group = settings_group(dialog, UI_SCALE)
     scale_layout = QHBoxLayout()
     scale_layout.setContentsMargins(scaled_px(12), scaled_px(5), scaled_px(12), scaled_px(5))
     # Free (continuous) slider: value = factor * 100 (range 50..250 →

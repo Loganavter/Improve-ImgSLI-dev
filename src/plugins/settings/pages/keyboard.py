@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (
 from plugins.settings.nav_rows import page_nav_builder, register_page_navigation
 from plugins.settings.registry import SettingsSection
 from plugins.settings.search import SearchIndex, group
-from sli_ui_toolkit.widgets import Button, CustomGroupWidget, CustomLineEdit, Label
+from plugins.settings.typography import apply_settings_title, settings_body_label
+from sli_ui_toolkit.widgets import Button, CustomGroupWidget, CustomLineEdit
 from ui.actions.keymap import (
     KeymapDefaultsRegistry,
     effective_shortcut_for_id,
@@ -245,6 +246,7 @@ def build(dialog, p):
     for owner, entries in by_owner.items():
         group_title = owner_titles.get(owner, owner or "Platform")
         group = CustomGroupWidget(group_title)
+        apply_settings_title(group)
         group_key = owner_group_keys.get(owner)
         if group_key:
             group.setProperty(PROP_GROUP, group_key)
@@ -260,7 +262,7 @@ def build(dialog, p):
             row_layout.setSpacing(8)
 
             label_text = _tr(dialog, entry.label_key, entry.label_key)
-            name = Label(label_text, pixel_size=14)
+            name = settings_body_label(label_text)
             name.setWordWrap(True)
             row_layout.addWidget(name, 1)
             dialog._keyboard_action_labels.append((name, entry.label_key))
