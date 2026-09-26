@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from sli_ui_toolkit.widgets import ComboBox, RadioButton, RadioButtonGroup, SpinBox
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.managers import scaled_px
 from ui.icon_manager import AppIcon
 from ui.widgets.slider_hint import ValueSlider, ValueSliderRow
@@ -81,6 +82,7 @@ def build(dialog, p):
     UI_MODE.tag_member(dialog.radio_ui_mode_expert, "settings.ui_mode_expert")
     dialog._ui_mode_group = RadioButtonGroup()
     for rb in (dialog.radio_ui_mode_beginner, dialog.radio_ui_mode_advanced, dialog.radio_ui_mode_expert):
+        apply_ui_font(rb, pixel_size=14)
         dialog._ui_mode_group.addButton(rb)
         row.addWidget(rb)
     ui_mode_row = builder.row(row)
@@ -114,6 +116,7 @@ def build(dialog, p):
     # behavior, so this group is now required explicitly.
     dialog._font_group_buttons = RadioButtonGroup()
     for rb in font_radios:
+        apply_ui_font(rb, pixel_size=14)
         dialog._font_group_buttons.addButton(rb)
     # Stacked vertically (unlike ui_mode_row's side-by-side radios above), so
     # each radio is its own nav row -- one shared row would let Left/Right
@@ -131,6 +134,7 @@ def build(dialog, p):
         dialog.font_group.add_widget(row_widget)
 
     dialog.combo_font_family = ComboBox()
+    apply_ui_font(dialog.combo_font_family, pixel_size=14)
     UI_FONT.tag_combo(dialog.combo_font_family, "settings.custom")
     dialog.combo_font_family.setFixedWidth(scaled_px(320))
     dialog.combo_font_family.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -182,6 +186,7 @@ def build(dialog, p):
     len_layout.setContentsMargins(scaled_px(12), scaled_px(5), scaled_px(12), scaled_px(5))
     value = max(p.min_limit, min(p.max_limit, p.current_max_length))
     dialog.spin_max_length = SpinBox(default_value=value)
+    apply_ui_font(dialog.spin_max_length, pixel_size=14)
     MAX_NAME.tag_member(dialog.spin_max_length, "settings.maximum_name_length_ui")
     dialog.spin_max_length.setRange(p.min_limit, p.max_limit)
     dialog.spin_max_length.setValue(value)

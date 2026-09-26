@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QHBoxLayout
 
 from sli_ui_toolkit.managers import scaled_px
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.widgets import CheckBox, ComboBox, RadioButton, RadioButtonGroup
 from ui.icon_manager import AppIcon
 
@@ -60,6 +61,8 @@ def build(dialog, p):
     dialog.radio_ru = RadioButton(LANGUAGE.text(dialog, "settings.language_ru"))
     dialog.radio_zh = RadioButton(LANGUAGE.text(dialog, "settings.language_zh"))
     dialog.radio_pt_br = RadioButton(LANGUAGE.text(dialog, "settings.language_pt_br"))
+    for _rb in (dialog.radio_en, dialog.radio_ru, dialog.radio_zh, dialog.radio_pt_br):
+        apply_ui_font(_rb, pixel_size=14)
     LANGUAGE.tag_member(dialog.radio_en, "settings.language_en")
     LANGUAGE.tag_member(dialog.radio_ru, "settings.language_ru")
     LANGUAGE.tag_member(dialog.radio_zh, "settings.language_zh")
@@ -79,6 +82,7 @@ def build(dialog, p):
     theme_row = QHBoxLayout()
     theme_row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
     dialog.combo_theme = ComboBox()
+    apply_ui_font(dialog.combo_theme, pixel_size=14)
     APPEARANCE.tag_combo(dialog.combo_theme, "label.theme")
     dialog.combo_theme.setFixedWidth(scaled_px(140))
     for key in ("auto", "light", "dark"):
@@ -97,6 +101,7 @@ def build(dialog, p):
     dialog.system_notifications_checkbox = CheckBox(
         APPEARANCE.text(dialog, "settings.system_notifications")
     )
+    apply_ui_font(dialog.system_notifications_checkbox, pixel_size=14)
     dialog.system_notifications_checkbox.setChecked(p.system_notifications_enabled)
     APPEARANCE.tag_member(
         dialog.system_notifications_checkbox, "settings.system_notifications"
@@ -106,6 +111,7 @@ def build(dialog, p):
     dialog.debug_checkbox = CheckBox(
         APPEARANCE.text(dialog, "settings.enable_debug_logging")
     )
+    apply_ui_font(dialog.debug_checkbox, pixel_size=14)
     dialog.debug_checkbox.setChecked(p.debug_mode_enabled)
     APPEARANCE.tag_member(dialog.debug_checkbox, "settings.enable_debug_logging")
     debug_row = builder.row(dialog.debug_checkbox)

@@ -260,7 +260,7 @@ def build(dialog, p):
             row_layout.setSpacing(8)
 
             label_text = _tr(dialog, entry.label_key, entry.label_key)
-            name = Label(label_text)
+            name = Label(label_text, pixel_size=14)
             name.setWordWrap(True)
             row_layout.addWidget(name, 1)
             dialog._keyboard_action_labels.append((name, entry.label_key))

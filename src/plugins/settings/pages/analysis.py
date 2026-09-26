@@ -11,6 +11,7 @@ in by the registering tab, so this platform module stays tab-agnostic.
 from __future__ import annotations
 
 from PySide6.QtWidgets import QSizePolicy
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.widgets import CheckBox
 
 from plugins.settings.nav_rows import page_nav_builder, register_page_navigation
@@ -56,6 +57,7 @@ def _build_auto_crop_group(dialog, layout, p, builder):
     dialog.crop_checkbox = CheckBox(
         AUTO.text(dialog, "settings.autocrop_black_borders_on_load")
     )
+    apply_ui_font(dialog.crop_checkbox, pixel_size=14)
     dialog.crop_checkbox.setChecked(p.auto_crop_black_borders)
     AUTO.tag_member(dialog.crop_checkbox, "settings.autocrop_black_borders_on_load")
     dialog.crop_checkbox.setSizePolicy(
@@ -71,6 +73,7 @@ def _build_metrics_group(dialog, layout, p, builder):
     dialog.auto_psnr_checkbox = CheckBox(
         METRICS.text(dialog, "settings.autocalculate_psnr")
     )
+    apply_ui_font(dialog.auto_psnr_checkbox, pixel_size=14)
     dialog.auto_psnr_checkbox.setChecked(p.auto_calculate_psnr)
     METRICS.tag_member(dialog.auto_psnr_checkbox, "settings.autocalculate_psnr")
     psnr_row = builder.row(dialog.auto_psnr_checkbox)
@@ -78,6 +81,7 @@ def _build_metrics_group(dialog, layout, p, builder):
     dialog.auto_ssim_checkbox = CheckBox(
         METRICS.text(dialog, "settings.autocalculate_ssim")
     )
+    apply_ui_font(dialog.auto_ssim_checkbox, pixel_size=14)
     dialog.auto_ssim_checkbox.setChecked(p.auto_calculate_ssim)
     METRICS.tag_member(dialog.auto_ssim_checkbox, "settings.autocalculate_ssim")
     ssim_row = builder.row(dialog.auto_ssim_checkbox)

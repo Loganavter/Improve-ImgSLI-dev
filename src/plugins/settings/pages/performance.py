@@ -10,6 +10,7 @@ import sys
 
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy
 from sli_ui_toolkit.managers import scaled_px
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.widgets import ComboBox, Label
 
 from plugins.settings.nav_rows import page_nav_builder, register_page_navigation
@@ -56,12 +57,14 @@ def _build_render_backend_group(dialog, layout, p, builder):
     row = QHBoxLayout()
     row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
     dialog.lbl_rhi_backend = Label(
-        RENDER_BACKEND.text(dialog, "settings.render_backend_label") + ":"
+        RENDER_BACKEND.text(dialog, "settings.render_backend_label") + ":",
+        pixel_size=14,
     )
     RENDER_BACKEND.tag_member(
         dialog.lbl_rhi_backend, "settings.render_backend_label"
     )
     dialog.combo_rhi_backend = ComboBox()
+    apply_ui_font(dialog.combo_rhi_backend, pixel_size=14)
     RENDER_BACKEND.tag_combo(dialog.combo_rhi_backend)
     dialog.combo_rhi_backend.setMinimumWidth(scaled_px(180))
     dialog.combo_rhi_backend.setSizePolicy(
