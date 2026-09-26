@@ -146,6 +146,28 @@ class _EventsFirehose(QObject):
                     top = f" top={hit}" if hit else ""
                 except Exception:
                     pass
+                # Window-level hit-test verdict next to the host-level one:
+                # delivery uses widgetAt's descent; childAt is the host's.
+                # top=Button + wat=host pinpoints the descent level that
+                # drops the card (same moment, same point — no cross-time).
+                try:
+                    from PySide6.QtWidgets import QApplication as _QA
+
+                    gp = None
+                    try:
+                        _gv = event.globalPosition()
+                        gp = _gv() if callable(_gv) else _gv
+                    except Exception:
+                        gp = None
+                    if gp is not None:
+                        try:
+                            _w = _QA.widgetAt(gp.toPoint())
+                        except Exception:
+                            _w = None
+                        if _w is not None and _w is not watched:
+                            top += f" wat={_describe(_w)}"
+                except Exception:
+                    pass
                 # A stuck mouse grab reroutes ALL mouse delivery to the
                 # grabber — log it when present (empty normally).
                 try:
