@@ -708,6 +708,18 @@
       }
     },
     {
+      "path": "src/tabs/image_gallery/ui/card/hover.py",
+      "lines": 829,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=thin-owner size=exempt reason=\"single card-hover lifecycle — hover filter, capsule show/hide, post-action suppression and tri-color icons share one owner-resolution path; splitting spreads suppression windows across modules\"",
+      "parsed": {
+        "pattern": "thin-owner",
+        "size": "exempt",
+        "reason": "single card-hover lifecycle — hover filter, capsule show/hide, post-action suppression and tri-color icons share one owner-resolution path; splitting spreads suppression windows across modules"
+      }
+    },
+    {
       "path": "src/tabs/image_gallery/ui/clean_review.py",
       "lines": 1812,
       "limit": 500,

@@ -1,4 +1,6 @@
-"""Hover helpers — underline + flyout capsule (painter pipeline only)."""
+"""Hover helpers — underline + flyout capsule (painter pipeline only).
+Audit-Meta: pattern=thin-owner size=exempt reason="single card-hover lifecycle — hover filter, capsule show/hide, post-action suppression and tri-color icons share one owner-resolution path; splitting spreads suppression windows across modules"
+"""
 
 from __future__ import annotations
 
