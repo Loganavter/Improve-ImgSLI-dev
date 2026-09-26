@@ -673,7 +673,7 @@
     },
     {
       "path": "src/tabs/image_gallery/controller.py",
-      "lines": 1500,
+      "lines": 1505,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one controller lifecycle — folder scan/thumbnail/triage/VLM sharing GenericWorker state\"",
@@ -709,7 +709,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/clean_review.py",
-      "lines": 926,
+      "lines": 1812,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one overlay lifecycle — provenance+filmstrip+toasts share TopLevelInWindowOverlay state\"",
@@ -744,7 +744,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/quick_look/overlay_build.py",
-      "lines": 861,
+      "lines": 902,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner-target size=exempt reason=\"one overlay-build concern: painted chrome widgets + build_overlay_ui share one card layout\"",
@@ -780,7 +780,7 @@
     },
     {
       "path": "src/tabs/image_gallery/use_cases/triage.py",
-      "lines": 896,
+      "lines": 1016,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner helpers — keep_best/provenance/clean wiring shares one triage lifecycle\"",
@@ -792,7 +792,7 @@
     },
     {
       "path": "src/tabs/image_gallery/widget.py",
-      "lines": 1286,
+      "lines": 1312,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner delegating to use_cases/triage+carry+quick look; splitting would create helpers bag\"",

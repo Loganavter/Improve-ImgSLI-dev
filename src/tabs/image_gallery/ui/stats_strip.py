@@ -187,20 +187,16 @@ class StatsStrip(QWidget):
     """Top strip: stats label + actions + mode chip."""
 
     keepBestClicked = Signal()
-    showAllClicked = Signal()
+    showAllClicked = Signal()  # Keep best ↔ Show all (mode via set_keep_mode)
     cleanClicked = Signal()
     compareClicked = Signal()
-
-    #: Keep-button modes: "keep" (Keep best) ↔ "show" (Show all).
-    KEEP_MODE_KEEP = "keep"
-    KEEP_MODE_SHOW = "show"
 
     def __init__(self, parent: QWidget | None = None, *, translate=None) -> None:
         super().__init__(parent)
         self.setObjectName("GalleryStatsStrip")
         self._tr = translate
         self._rejected = 0
-        self._keep_mode = self.KEEP_MODE_KEEP
+        self._keep_mode = "keep"
         # Cached surface color; repainted explicitly in paintEvent (never via
         # palette/auto-fill — see THEMING.md warm-up quirk).
         self._stats_bg = _stats_bg_color()
@@ -331,29 +327,19 @@ class StatsStrip(QWidget):
     def _on_keep_btn_clicked(self) -> None:
         """Route the keep-button click by mode (Keep best ↔ Show all)."""
         try:
-            if self._keep_mode == self.KEEP_MODE_SHOW:
-                self.showAllClicked.emit()
-            else:
-                self.keepBestClicked.emit()
+            sig = self.showAllClicked if self._keep_mode == "show" else self.keepBestClicked
+            sig.emit()
         except Exception:
-            try:
-                self.keepBestClicked.emit()
-            except Exception:
-                pass
+            pass
 
     def set_keep_mode(self, mode: str) -> None:
         """Flip the keep button between "Keep best" and "Show all"."""
-        m = str(mode or self.KEEP_MODE_KEEP).strip().lower()
-        show = m in ("show", "show_all", "show-all", "show all")
-        self._keep_mode = self.KEEP_MODE_SHOW if show else self.KEEP_MODE_KEEP
+        show = str(mode or "keep").strip().lower().startswith("show")
+        self._keep_mode = "show" if show else "keep"
         try:
             self._keep_btn.setText("Show all" if show else "Keep best")
         except Exception:
             pass
-
-    @property
-    def keep_mode(self) -> str:
-        return self._keep_mode
 
     def _on_gallery_theme_changed(self) -> None:
         """Refresh cached surface + token-driven foregrounds on theme flip."""
