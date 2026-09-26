@@ -58,6 +58,72 @@ def _pos_of(event) -> str:
     return "?"
 
 
+def _top_child_at(watched, event) -> str:
+    """Qt's own hit-test answer at the event point (boundary witness).
+
+    App logs prove what the app *decided*; this asks the compositor-side
+    question with Qt's own `childAt`: which child does Qt itself consider
+    topmost under this move. Empty when unresolvable (non-widget receiver,
+    no local position) — never fails the filter.
+    """
+    try:
+        from PySide6.QtWidgets import QWidget
+
+        if not isinstance(watched, QWidget):
+            return ""
+        local = None
+        for attr in ("position", "pos"):
+            try:
+                v = getattr(event, attr, None)
+                v = v() if callable(v) else v
+                if v is not None:
+                    try:
+                        local = v.toPoint()
+                    except Exception:
+                        local = v
+                    break
+            except Exception:
+                continue
+        if local is None:
+            return ""
+        try:
+            child = watched.childAt(local)
+        except Exception:
+            return ""
+        if child is None or child is watched:
+            return ""
+        desc = _describe(child)
+        # Live attribute truth (same object, same moment — no cross-time
+        # math, no compositor): a hit-test-visible child that delivery
+        # skips is usually WA_TransparentForMouseEvents / disabled.
+        try:
+            from PySide6.QtCore import Qt
+
+            flags = ""
+            try:
+                if child.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
+                    flags += "T"
+            except Exception:
+                pass
+            try:
+                if not child.isEnabled():
+                    flags += "D"
+            except Exception:
+                pass
+            try:
+                if child.isHidden():
+                    flags += "H"
+            except Exception:
+                pass
+            if flags:
+                desc = f"{desc}[{flags}]"
+        except Exception:
+            pass
+        return desc
+    except Exception:
+        return ""
+
+
 class _EventsFirehose(QObject):
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
         try:
@@ -68,15 +134,36 @@ class _EventsFirehose(QObject):
             buttons = ""
             try:
                 b = event.buttons()
-                buttons = f" buttons={int(b)}" if int(b) else ""
+                bv = int(getattr(b, "value", b))
+                buttons = f" buttons={bv}" if bv else ""
             except Exception:
                 pass
+            top = ""
+            grab = ""
+            if event.type() == QEvent.Type.MouseMove:
+                try:
+                    hit = _top_child_at(watched, event)
+                    top = f" top={hit}" if hit else ""
+                except Exception:
+                    pass
+                # A stuck mouse grab reroutes ALL mouse delivery to the
+                # grabber — log it when present (empty normally).
+                try:
+                    from PySide6.QtWidgets import QWidget as _QW
+
+                    g = _QW.mouseGrabber()
+                    if g is not None:
+                        grab = f" grab={_describe(g)}"
+                except Exception:
+                    pass
             gallery_event(
-                "%s recv=%s pos=%s%s",
+                "%s recv=%s pos=%s%s%s%s",
                 event.type().name,
                 _describe(watched),
                 _pos_of(event),
                 buttons,
+                top,
+                grab,
             )
         except Exception:
             pass
