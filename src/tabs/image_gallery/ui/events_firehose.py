@@ -138,6 +138,18 @@ class _EventsFirehose(QObject):
                 buttons = f" buttons={bv}" if bv else ""
             except Exception:
                 pass
+            # Memorialized Qt button state (QApplication, NOT the event).
+            # Diverges from event.buttons() when a release never reached
+            # the window (consumed upstream): physical button up, Qt still
+            # thinks held -> moves grab-route to the press receiver, no
+            # hit-testing, no Enter. Always logged: it is THE stuck bit.
+            try:
+                from PySide6.QtWidgets import QApplication as _QA2
+
+                _mb = _QA2.mouseButtons()
+                mbtns = f" mbtns={int(getattr(_mb, 'value', _mb))}"
+            except Exception:
+                mbtns = ""
             top = ""
             grab = ""
             if event.type() == QEvent.Type.MouseMove:
@@ -179,11 +191,12 @@ class _EventsFirehose(QObject):
                 except Exception:
                     pass
             gallery_event(
-                "%s recv=%s pos=%s%s%s%s",
+                "%s recv=%s pos=%s%s%s%s%s",
                 event.type().name,
                 _describe(watched),
                 _pos_of(event),
                 buttons,
+                mbtns,
                 top,
                 grab,
             )
