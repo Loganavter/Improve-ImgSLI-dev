@@ -93,6 +93,41 @@ def test_settings_primary_labels_are_14px(qapp: QApplication):
         dialog.close()
 
 
+def test_settings_gallery_ai_page_is_14px(qapp: QApplication):
+    dialog = _dialog(qapp)
+    try:
+        assert isinstance(dialog.gallery_ai_enabled, CheckBox)
+        assert _px(dialog.gallery_ai_enabled) == 14
+        for field in (
+            dialog.gallery_ai_base_url,
+            dialog.gallery_ai_api_key,
+            dialog.gallery_ai_model,
+        ):
+            assert isinstance(field, CustomLineEdit)
+            assert _px(field) == 14, field.placeholderText()
+        # password echo + placeholder survive the font bump
+        assert dialog.gallery_ai_api_key.placeholderText()
+        from PySide6.QtWidgets import QLineEdit
+
+        assert dialog.gallery_ai_api_key.echoMode() == QLineEdit.EchoMode.Password
+    finally:
+        dialog.close()
+
+
+def test_settings_perf_extras_are_14px(qapp: QApplication):
+    dialog = _dialog(qapp)
+    try:
+        assert isinstance(dialog.lbl_zoom_interp, Label)
+        assert _px(dialog.lbl_zoom_interp) == 14
+        assert isinstance(dialog.lbl_fps, Label)
+        assert _px(dialog.lbl_fps) == 14
+        assert _px(dialog.spin_fps) == 14
+        dialog.spin_fps.setValue(60)
+        assert dialog.spin_fps.value() == 60
+    finally:
+        dialog.close()
+
+
 def test_settings_hints_and_search_stay_small(qapp: QApplication):
     """Secondary text is out of the sweep: hints/placeholders keep 11-12px."""
     dialog = _dialog(qapp)

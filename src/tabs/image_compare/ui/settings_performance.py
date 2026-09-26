@@ -10,6 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy
 from sli_ui_toolkit.managers import as_nav_row, scaled_px
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.widgets import CheckBox, ComboBox, Label, SpinBox
 
 from core.constants import AppConstants
@@ -53,7 +54,8 @@ def _build_interactive_optimization_group(dialog, layout, p):
     row_zoom = QHBoxLayout()
     row_zoom.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     dialog.lbl_zoom_interp = Label(
-        INTERACTIVE.text(dialog, "settings.zoom_interpolation")
+        INTERACTIVE.text(dialog, "settings.zoom_interpolation"),
+        pixel_size=14,
     )
     INTERACTIVE.tag_member(dialog.lbl_zoom_interp, "settings.zoom_interpolation")
     dialog.combo_zoom_interp = ComboBox()
@@ -197,8 +199,9 @@ def _build_video_group(dialog, layout, p):
     dialog.video_group = VIDEO.widget(dialog)
     video_layout = QHBoxLayout()
     video_layout.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
-    dialog.lbl_fps = Label(VIDEO.text(dialog, "image_compare.settings.recording_fps") + ":")
+    dialog.lbl_fps = Label(VIDEO.text(dialog, "image_compare.settings.recording_fps") + ":", pixel_size=14)
     dialog.spin_fps = SpinBox(default_value=60)
+    apply_ui_font(dialog.spin_fps, pixel_size=14)
     VIDEO.tag_member(dialog.spin_fps, "image_compare.settings.recording_fps")
     dialog.spin_fps.setRange(10, 144)
     dialog.spin_fps.setValue(p.current_video_fps)

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QHBoxLayout
 from PySide6.QtCore import Qt
 
 from sli_ui_toolkit.managers import scaled_px
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.widgets import CheckBox, CustomGroupWidget, CustomLineEdit, Label
 
 from plugins.settings.registry import SettingsSection
@@ -52,7 +53,7 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
     # Title note inside group
     warning = Label(
         AI_GROUP.text(dialog, "image_gallery.settings.api_key_warning") if hasattr(AI_GROUP, "text") else "Stored unencrypted on this device.",
-        pixel_size=11,
+        pixel_size=14,
         parent=dialog,
     )
     try:
@@ -65,6 +66,7 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
     dialog.gallery_ai_enabled = CheckBox(
         AI_GROUP.text(dialog, "image_gallery.settings.enable_ai") if hasattr(AI_GROUP, "text") else "Enable AI image analysis"
     )
+    apply_ui_font(dialog.gallery_ai_enabled, pixel_size=14)
     try:
         AI_GROUP.tag_member(dialog.gallery_ai_enabled, "image_gallery.settings.enable_ai")
     except Exception:
@@ -77,11 +79,12 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
     url_row.setSpacing(scaled_px(8))
     url_label = Label(
         AI_GROUP.text(dialog, "image_gallery.settings.base_url") if hasattr(AI_GROUP, "text") else "API base URL",
-        pixel_size=11,
+        pixel_size=14,
         parent=dialog,
     )
     url_label.setFixedWidth(scaled_px(110))
     dialog.gallery_ai_base_url = CustomLineEdit(parent=dialog)
+    apply_ui_font(dialog.gallery_ai_base_url, pixel_size=14)
     dialog.gallery_ai_base_url.setText(current.base_url or DEFAULT_BASE_URL)
     dialog.gallery_ai_base_url.setPlaceholderText(DEFAULT_BASE_URL)
     try:
@@ -97,11 +100,12 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
     key_row.setSpacing(scaled_px(8))
     key_label = Label(
         AI_GROUP.text(dialog, "image_gallery.settings.api_key") if hasattr(AI_GROUP, "text") else "API key",
-        pixel_size=11,
+        pixel_size=14,
         parent=dialog,
     )
     key_label.setFixedWidth(scaled_px(110))
     dialog.gallery_ai_api_key = CustomLineEdit(parent=dialog)
+    apply_ui_font(dialog.gallery_ai_api_key, pixel_size=14)
     dialog.gallery_ai_api_key.setText(current.api_key)
     dialog.gallery_ai_api_key.setPlaceholderText("sk-…")
     try:
@@ -121,11 +125,12 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
     model_row.setSpacing(scaled_px(8))
     model_label = Label(
         AI_GROUP.text(dialog, "image_gallery.settings.model_name") if hasattr(AI_GROUP, "text") else "Model name",
-        pixel_size=11,
+        pixel_size=14,
         parent=dialog,
     )
     model_label.setFixedWidth(scaled_px(110))
     dialog.gallery_ai_model = CustomLineEdit(parent=dialog)
+    apply_ui_font(dialog.gallery_ai_model, pixel_size=14)
     dialog.gallery_ai_model.setText(current.model)
     dialog.gallery_ai_model.setPlaceholderText("openrouter/auto or vendor/model")
     try:
