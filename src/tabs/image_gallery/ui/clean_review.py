@@ -343,6 +343,15 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         self._provenance_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         outer.addWidget(self._provenance_label)
 
+        # Phase 4 — footer divider above the bottom bar (mockup v3 svg:104):
+        # same _RuleWidget idiom as the header rule (bound above), no new
+        # widget family, no QSS.
+        self._footer_rule = None
+        if _RuleWidget is not None:
+            self._footer_rule = _RuleWidget(self._content)
+            self._footer_rule.setObjectName("clean_review_footer_rule")
+            outer.addWidget(self._footer_rule)
+
         # Bottom bar: Restore all | size | Cancel | Move N — surface variant
         # with accent background (mockup primary action; toolkit has no
         # variant="primary", so surface + set_background_color is the

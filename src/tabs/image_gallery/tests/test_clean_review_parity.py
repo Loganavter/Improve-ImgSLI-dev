@@ -487,3 +487,65 @@ def test_review_plate_centered_on_veil(qtbot, tmp_path):
     assert left > 0 and top > 0
     assert abs(left - right) <= 2, (left, right)
     assert abs(top - bottom) <= 2, (top, bottom)
+
+
+# -- Phase 4: bottom bar on plate (mockup v3 svg:103-117) ----------------
+
+
+def test_bottom_bar_order_restore_stats_cancel_move(qtbot, tmp_path):
+    """Mockup v3 svg:105-117: Restore all | stats | Cancel | Move N."""
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    bar = overlay.findChild(QWidget, "clean_review_bar")
+    assert bar is not None
+    layout = bar.layout()
+    order = [
+        layout.indexOf(overlay._restore_all_btn),
+        layout.indexOf(overlay._size_label),
+        layout.indexOf(overlay._cancel_btn),
+        layout.indexOf(overlay._move_btn),
+    ]
+    assert all(i >= 0 for i in order)
+    assert order == sorted(order)
+
+
+def test_bottom_bar_on_plate_with_footer_rule(qtbot, tmp_path):
+    """Bar lives on the plate (_content) below provenance; footer divider
+    (mockup v3 svg:104) sits between provenance and bar."""
+    from tabs.image_gallery.ui.quick_look.helpers import _RuleWidget
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    bar = overlay.findChild(QWidget, "clean_review_bar")
+    assert bar is not None
+    assert bar.parentWidget() is overlay._content
+    rule = overlay.findChild(QWidget, "clean_review_footer_rule")
+    assert rule is not None
+    assert isinstance(rule, _RuleWidget)
+    outer = overlay._content.layout()
+    assert outer.indexOf(overlay._provenance_label) < outer.indexOf(rule)
+    assert outer.indexOf(rule) < outer.indexOf(bar)
+
+
+def test_bottom_bar_stats_centered_text(qtbot, tmp_path):
+    """Stats label is AlignCenter with ``N files · X MB`` copy."""
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    assert overlay._size_label.alignment() & Qt.AlignmentFlag.AlignCenter
+    assert re.fullmatch(r"2 files · \d+\.\d+ MB", overlay._size_label.text()), (
+        overlay._size_label.text()
+    )
+
+
+def test_bottom_bar_move_accent_background(qtbot, tmp_path):
+    """Move stays surface + set_background_color(accent) (toolkit
+    ``primary`` variant is deprecated) — accent bg is actually set."""
+    from tabs.image_gallery.ui.quick_look import _token_color
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    assert overlay._move_btn.getBackgroundColor() == _token_color("accent", "#0096FF")
