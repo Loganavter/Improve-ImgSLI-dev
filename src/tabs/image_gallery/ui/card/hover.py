@@ -46,6 +46,38 @@ def _capsule_suppressed(owner, card=None) -> bool:
     return False
 
 
+def _resolve_card_owner(card, hint=None):
+    """Effective triage owner for *card* (fail-open None).
+
+    Pool-recycled cards are built owner-less (grid ``_acquire_card`` passes
+    no owner), so the hover filter's ``self._owner`` is None for them — but
+    the post-action suppression is stamped on the real owner (controller)
+    by ``_after_card_action``. Resolve the same way the capsule action
+    handler does: explicit hint → ``card._gallery_owner`` → window
+    ``_gallery_controller``/``_gallery_owner``. Without this the 600 ms
+    post-action window is skipped for recycled cards and the capsule pops
+    back up under the stationary cursor mid-rebuild.
+    """
+    try:
+        if hint is not None:
+            return hint
+    except Exception:
+        pass
+    try:
+        stored = getattr(card, "_gallery_owner", None)
+        if stored is not None:
+            return stored
+    except Exception:
+        pass
+    try:
+        win = card.window()
+        if win is not None:
+            return getattr(win, "_gallery_controller", None) or getattr(win, "_gallery_owner", None)
+    except Exception:
+        pass
+    return None
+
+
 def _hover_diag_enabled() -> bool:
     """Separate key for the gate-zone dump (bisect aid, not a feature)."""
     try:
@@ -291,14 +323,20 @@ class _CardHoverFilter(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if watched is self._card:
             if event.type() == QEvent.Type.Enter:
+                # Resolve the real owner (pool cards are built owner-less —
+                # suppression is stamped on the controller, see
+                # _resolve_card_owner) before consulting the post-action
+                # window, and hand it to the show path so the action
+                # closure captures the same owner.
+                eff_owner = _resolve_card_owner(self._card, self._owner)
                 _hdbg(
                     "card hover enter card=%s suppressed=%s buttons=%s ev_pos=%s",
                     getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
-                    _capsule_suppressed(self._owner, self._card),
+                    _capsule_suppressed(eff_owner, self._card),
                     _mouse_buttons_int(),
                     _event_pos(event),
                 )
-                log_card_gates(self._card, self._owner, "enter")
+                log_card_gates(self._card, eff_owner, "enter")
                 try:
                     # Hover FX is the translucent shelf-style wash
                     # (overlay painter) — no opaque bg swap. Underline only.
@@ -315,12 +353,12 @@ class _CardHoverFilter(QObject):
                 except Exception as exc:
                     _hdbg("delete sync on Enter FAILED err=%r", exc)
                 try:
-                    if _capsule_suppressed(self._owner, self._card):
+                    if _capsule_suppressed(eff_owner, self._card):
                         _hdbg("capsule NOT shown hide-reason=SUPPRESSED path=%s", getattr(getattr(self._card, "_gallery_item", None), "path", "?"))
-                        log_card_gates(self._card, self._owner, "show-suppressed")
+                        log_card_gates(self._card, eff_owner, "show-suppressed")
                     else:
-                        show_gallery_card_flyout(self._card, self._owner)
-                        log_card_gates(self._card, self._owner, "show-done")
+                        show_gallery_card_flyout(self._card, eff_owner)
+                        log_card_gates(self._card, eff_owner, "show-done")
                 except Exception as exc:
                     _hdbg("capsule show on Enter FAILED err=%r", exc)
             elif event.type() == QEvent.Type.Leave:
