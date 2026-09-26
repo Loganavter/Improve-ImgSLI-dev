@@ -302,3 +302,22 @@ def test_veil_dims_background(qtbot):
     assert abs(pixel.alpha() - DIM_VEIL_ALPHA) <= 2, pixel.alpha()
     assert pixel.red() == pixel.green() == pixel.blue() == 0
     _KEEP_ALIVE.append(parent)
+
+
+def test_show_for_sizes_overlay_to_parent(qtbot, tmp_path):
+    """show_for must size the overlay to the parent (QuickLook idiom).
+
+    Regression: show_for called bare show(), never show_overlay(), so the
+    overlay kept stale geometry and painted ~nothing ("S3 barely renders").
+    """
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")], folder=str(tmp_path))
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    parent.resize(800, 600)
+    parent.show()
+    overlay = CleanReviewOverlay(parent, owner=owner)
+    qtbot.addWidget(overlay)
+    _KEEP_ALIVE.append(parent)
+    overlay.show_for(owner)
+    assert overlay.geometry() == parent.rect()
+    assert overlay._content.isVisibleTo(overlay)

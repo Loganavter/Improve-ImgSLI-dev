@@ -287,6 +287,12 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             self.setFocus(Qt.FocusReason.PopupFocusReason)
         except Exception:
             pass
+        # Geometry/raise/filters live in show_overlay (QuickLook idiom):
+        # bare show() leaves the overlay at stale geometry, painting ~nothing.
+        try:
+            self.show_overlay()
+        except Exception:
+            pass
         _t3 = time.perf_counter()
         try:
             _n = len(self._rejected_items(owner))

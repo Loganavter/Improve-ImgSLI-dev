@@ -123,3 +123,19 @@ def test_drop_zone_expands_to_fill(qtbot) -> None:
     idx = layout.indexOf(zone)
     assert idx >= 0
     assert layout.stretch(idx) >= 1
+
+
+def test_scanning_hides_drop_zone(qtbot) -> None:
+    """S1 shows spinner + count only — no DnD zone while loading/scanning."""
+    state = GalleryEmptyState()
+    qtbot.addWidget(state)
+    state.set_state("scanning", 2, 4)
+    assert not state._drop_label.isVisible()
+    assert not state._hint_label.isVisible()
+    assert state._spinner.isVisible()
+    assert state._scanning_label.isVisible()
+    assert "2/4" in state._scanning_label.text()
+    # Back to empty restores the zone.
+    state.set_state("empty")
+    assert state._drop_label.isVisible()
+    assert not state._spinner.isVisible()

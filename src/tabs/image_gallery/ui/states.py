@@ -211,7 +211,8 @@ class GalleryEmptyState(QWidget):
         """Switch between ``empty`` / ``scanning`` / ``ready``.
 
         * ``empty``  — S0: drop zone visible, spinner hidden.
-        * ``scanning`` — S1: spinner + ``Scanning n/N`` visible, drop zone dimmed/hidden.
+        * ``scanning`` — S1: spinner + ``Scanning n/N`` only, drop zone hidden
+          (drops still land via the whole-widget drop handling).
         * ``ready``  — S2: hide the whole widget (grid owns content).
         """
         state = str(state).lower()
@@ -238,9 +239,9 @@ class GalleryEmptyState(QWidget):
                     pass
         elif state == "scanning":
             self.show()
-            # Keep drop zone visible but hint scanning.
-            self._drop_label.show()
-            self._hint_label.show()
+            # Drop zone stays hidden while scanning — spinner + count only.
+            self._drop_label.hide()
+            self._hint_label.hide()
             try:
                 self._open_button.hide()
             except Exception:
