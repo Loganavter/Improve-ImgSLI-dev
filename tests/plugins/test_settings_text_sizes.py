@@ -282,6 +282,11 @@ def test_settings_captions_are_caption(qapp: QApplication):
     dialog = _dialog(qapp)
     try:
         assert _px(dialog.lbl_rhi_backend_hint) == SETTINGS_CAPTION_PX
+        hint = dialog.lbl_rhi_backend_hint
+        # Wrapped hint takes exactly its heightForWidth — no dead space
+        # above/below the line (Fixed vertical + wiped hfw flag used to
+        # pin the stale multi-line sizeHint height).
+        assert hint.height() == hint.heightForWidth(hint.width())
         for field in (dialog.search_field, dialog._keyboard_search):
             assert isinstance(field, CustomLineEdit)
             assert field.placeholderText(), "search field must keep its hint"
