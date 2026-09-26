@@ -46,6 +46,16 @@ def _capsule_suppressed(owner, card=None) -> bool:
     return False
 
 
+def _hdbg(msg: str, *args) -> None:
+    """One-line hover trace (env-gated, fail-open)."""
+    try:
+        from tabs.image_gallery.debug import gallery_debug as _dbg
+
+        _dbg(msg, *args)
+    except Exception:
+        pass
+
+
 def _notify_owner_hud(owner, text: str) -> None:
     """Transient HUD notice for card actions (fail-open)."""
     try:
@@ -132,16 +142,11 @@ class _CardHoverFilter(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if watched is self._card:
             if event.type() == QEvent.Type.Enter:
-                try:
-                    from tabs.image_gallery.debug import gallery_debug as _dbg
-
-                    _dbg(
-                        "card hover enter card=%s suppressed=%s",
-                        getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
-                        _capsule_suppressed(self._owner, self._card),
-                    )
-                except Exception:
-                    pass
+                _hdbg(
+                    "card hover enter card=%s suppressed=%s",
+                    getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
+                    _capsule_suppressed(self._owner, self._card),
+                )
                 try:
                     # Hover FX is the translucent shelf-style wash
                     # (overlay painter) — no opaque bg swap. Underline only.
@@ -159,12 +164,7 @@ class _CardHoverFilter(QObject):
                     pass
                 try:
                     if _capsule_suppressed(self._owner, self._card):
-                        try:
-                            from tabs.image_gallery.debug import gallery_debug as _dbg
-
-                            _dbg("capsule show suppressed (post-action window)")
-                        except Exception:
-                            pass
+                        _hdbg("capsule show suppressed (post-action window)")
                     else:
                         show_gallery_card_flyout(self._card, self._owner)
                 except Exception:
@@ -191,8 +191,14 @@ class _CardHoverFilter(QObject):
                     )
 
                     self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
-                    if not _over_del(self._card):
+                    over = bool(_over_del(self._card))
+                    if not over:
                         _hide_del(self._card)
+                    _hdbg(
+                        "card hover leave card=%s over_delete=%s",
+                        getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
+                        over,
+                    )
                 except Exception:
                     pass
         return False
@@ -338,17 +344,8 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
 
         # Wire actionTriggered to triage helpers.
         def _on_trigger(action_id: str, c=card, o=owner) -> None:
-            try:
-                from tabs.image_gallery.debug import gallery_debug as _dbg
-            except Exception:
-                _dbg = None  # type: ignore[assignment]
-
             def _log(msg, *args):
-                try:
-                    if _dbg is not None:
-                        _dbg(msg, *args)
-                except Exception:
-                    pass
+                _hdbg(msg, *args)
 
             # Resolve owner: explicit or stored on card/window.
             actual_owner = o
@@ -438,6 +435,7 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                 flyout.raise_()
             except Exception:
                 pass
+            _hdbg("capsule shown path=%s", getattr(getattr(card, "_gallery_item", None), "path", "?"))
         except Exception:
             try:
                 flyout.show_above(card)
@@ -463,12 +461,7 @@ def _after_card_action(card, owner, notice: str | None = None) -> None:
     _suppress_capsule(owner, card)
     if notice:
         _notify_owner_hud(owner, notice)
-    try:
-        from tabs.image_gallery.debug import gallery_debug as _dbg
-
-        _dbg("capsule action done notice=%r", notice)
-    except Exception:
-        pass
+    _hdbg("capsule action done notice=%r", notice)
 
 
 def hide_gallery_card_flyout(card) -> None:  # type: ignore[no-untyped-def]
@@ -476,5 +469,9 @@ def hide_gallery_card_flyout(card) -> None:  # type: ignore[no-untyped-def]
         flyout = ensure_gallery_card_flyout(card)
         if flyout is not None and flyout.isVisible():
             flyout.hide()
+            _hdbg(
+                "capsule hidden path=%s",
+                getattr(getattr(card, "_gallery_item", None), "path", "?"),
+            )
     except Exception:
         pass

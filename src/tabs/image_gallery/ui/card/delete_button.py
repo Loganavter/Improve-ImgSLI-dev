@@ -101,16 +101,33 @@ class _DeleteHoverFilter(QObject):
                     except Exception:
                         pass
                     sync_card_delete_button(self._card)
+                    _log_hover("delete hover enter", self._card)
                 elif event.type() == QEvent.Type.Leave:
                     try:
                         self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
                     except Exception:
                         pass
-                    if not widget_contains_cursor(self._card):
+                    over_card = widget_contains_cursor(self._card)
+                    if not over_card:
                         hide_card_delete_button(self._card)
+                    _log_hover(f"delete hover leave over_card={over_card}", self._card)
         except Exception:
             pass
         return False
+
+
+def _log_hover(msg: str, card) -> None:
+    """One-line hover trace (env-gated, fail-open)."""
+    try:
+        from tabs.image_gallery.debug import gallery_debug as _dbg
+
+        _dbg(
+            "%s card=%s",
+            msg,
+            getattr(getattr(card, "_gallery_item", None), "path", "?"),
+        )
+    except Exception:
+        pass
 
 
 def sync_card_delete_button(card) -> None:
@@ -151,11 +168,21 @@ def sync_card_delete_button(card) -> None:
             rejected = bool(getattr(item, "rejected", False))
         except Exception:
             rejected = False
+        # Transition-only trace: steady states stay silent.
+        try:
+            was = bool(btn.isVisible())
+        except Exception:
+            was = False
         if not (in_host and shown and hovered) or rejected:
             try:
                 btn.hide()
             except Exception:
                 pass
+            if was:
+                _log_hover(
+                    f"delete hide in_host={in_host} shown={shown} hovered={hovered} rejected={rejected}",
+                    card,
+                )
             return
         try:
             pos = card.pos()
@@ -170,6 +197,11 @@ def sync_card_delete_button(card) -> None:
             btn.raise_()
         except Exception:
             pass
+        if not was:
+            _log_hover(
+                f"delete show in_host={in_host} shown={shown} hovered={hovered} rejected={rejected}",
+                card,
+            )
     except Exception:
         pass
 
