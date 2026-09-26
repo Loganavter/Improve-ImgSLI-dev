@@ -334,6 +334,15 @@ class ImageGalleryWidget(QWidget):
         self._empty_state.set_state("empty")
         self._grid_view.hide()
 
+        # Raw input firehose (DEBUGGING.md rule 5): app-wide, env-gated,
+        # session-only. Installed, never consumed.
+        try:
+            from tabs.image_gallery.ui.events_firehose import install_events_firehose
+
+            install_events_firehose()
+        except Exception:
+            pass
+
         # Wave 2c: subscribe renders to the ``gallery`` slot (fail-open —
         # no store in tests / unbootstrapped tabs means no subscription).
         self._gallery_store_connected = False

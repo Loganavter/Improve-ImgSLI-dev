@@ -162,6 +162,34 @@ def test_hover_x_then_card_keeps_visible(qtbot) -> None:
     assert btn.isVisible()
 
 
+def test_capsule_and_badge_hide_show_together(qtbot) -> None:
+    """Card↔badge travel keeps both; leaving both hides both on one tick."""
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    card = _card(qtbot, item, _owner([item]))
+    btn = _delete_button(card)
+    _hover(card, enter=True)
+    flyout = getattr(card, "_gallery_card_flyout", None)
+    assert flyout is not None and flyout.isVisible()
+    assert btn.isVisible()
+    # Travel onto the badge: both stay.
+    _park_over(btn, card)
+    _hover(card, enter=False)
+    assert btn.isVisible()
+    assert flyout.isVisible()
+    # Leave outward from the badge: both drop together.
+    try:
+        from PySide6.QtGui import QCursor
+
+        QCursor.setPos(card._test_parent.mapToGlobal(QPoint(390, 290)))
+    except Exception:
+        pass
+    filt = getattr(card, "_gallery_delete_hover_filter", None)
+    assert filt is not None
+    filt.eventFilter(btn, SimpleNamespace(type=lambda: QEvent.Type.Leave))
+    assert not btn.isVisible()
+    assert not flyout.isVisible()
+
+
 def test_delete_button_hidden_while_rejected(qtbot) -> None:
     """One cross per corner: rejected cards show the toolkit ✕ badge instead."""
     from tabs.image_gallery.ui.card import update_gallery_card

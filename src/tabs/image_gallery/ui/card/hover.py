@@ -174,14 +174,10 @@ class _CardHoverFilter(QObject):
                     _hide_card_hover_underline(self._card)
                 except Exception:
                     pass
-                try:
-                    hide_gallery_card_flyout(self._card)
-                except Exception:
-                    pass
-                # Card-or-badge hover semantics: leaving toward the delete ✕
-                # (which overhangs outside the card rect) keeps it — its own
-                # Enter is imminent. Anything else hides it on the same tick
-                # as the capsule.
+                # Card-or-badge hover unit: the delete ✕ overhangs outside the
+                # card rect, so leaving toward it keeps BOTH (its Enter is
+                # imminent — the log proves capsule-hide/X-enter pairs). Only
+                # a leave toward neither hides both on the same tick.
                 try:
                     from tabs.image_gallery.ui.card.delete_button import (
                         card_delete_contains_cursor as _over_del,
@@ -193,6 +189,7 @@ class _CardHoverFilter(QObject):
                     self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
                     over = bool(_over_del(self._card))
                     if not over:
+                        hide_gallery_card_flyout(self._card)
                         _hide_del(self._card)
                     _hdbg(
                         "card hover leave card=%s over_delete=%s",

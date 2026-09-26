@@ -101,6 +101,7 @@ class _DeleteHoverFilter(QObject):
                     except Exception:
                         pass
                     sync_card_delete_button(self._card)
+                    _show_capsule_for_card(self._card)
                     _log_hover("delete hover enter", self._card)
                 elif event.type() == QEvent.Type.Leave:
                     try:
@@ -110,10 +111,47 @@ class _DeleteHoverFilter(QObject):
                     over_card = widget_contains_cursor(self._card)
                     if not over_card:
                         hide_card_delete_button(self._card)
+                        _hide_capsule_for_card(self._card)
                     _log_hover(f"delete hover leave over_card={over_card}", self._card)
         except Exception:
             pass
         return False
+
+
+def _show_capsule_for_card(card) -> None:
+    """Ensure the capsule is up while the badge is hovered (fail-open)."""
+    try:
+        from tabs.image_gallery.ui.card.hover import (
+            _capsule_suppressed as _suppressed,
+        )
+        from tabs.image_gallery.ui.card.hover import (
+            show_gallery_card_flyout as _show,
+        )
+
+        owner = getattr(card, "_gallery_owner", None)
+        if owner is None:
+            try:
+                win = card.window()
+                owner = getattr(win, "_gallery_controller", None) or getattr(win, "_gallery_owner", None)
+            except Exception:
+                owner = None
+        if bool(_suppressed(owner, card)):
+            return
+        _show(card, owner)
+    except Exception:
+        pass
+
+
+def _hide_capsule_for_card(card) -> None:
+    """Drop the capsule together with the badge (fail-open)."""
+    try:
+        from tabs.image_gallery.ui.card.hover import (
+            hide_gallery_card_flyout as _hide,
+        )
+
+        _hide(card)
+    except Exception:
+        pass
 
 
 def _log_hover(msg: str, card) -> None:
