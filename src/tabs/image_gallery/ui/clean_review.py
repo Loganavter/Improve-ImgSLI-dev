@@ -702,7 +702,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
 
             name = getattr(it, "name", None) or Path(getattr(it, "path", "")).name or str(getattr(it, "path", ""))
 
-            name_lbl = Label(str(name), pixel_size=12, parent=cell)
+            name_lbl = Label(str(name), pixel_size=14, parent=cell)
             name_lbl.setObjectName("clean_review_row_name")
             name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             # Elide handled by Label marquee? Keep word wrap off.
