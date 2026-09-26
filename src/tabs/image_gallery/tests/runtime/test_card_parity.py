@@ -283,6 +283,32 @@ def test_rejected_sets_no_toolkit_badge(qapp):
     card.deleteLater()
 
 
+def test_rejected_dim_is_painter_wash_not_effect(qapp):
+    """Rejected dim must not use QGraphicsOpacityEffect (it dimmed children).
+
+    The effect covered the whole subtree INCLUDING the hover capsule (a
+    child of the card), washing it out to near-invisible. The overlay
+    wash dims only the card's own paint: effect-equivalent mix
+    (substrate @0.62 over black cover ≈ 158 gray), children crisp.
+    """
+    from PySide6.QtWidgets import QGraphicsOpacityEffect
+
+    item = _item(rejected=True)
+    card = build_gallery_card(item, parent=None)
+    card.resize(250, 170)
+    qapp.processEvents()
+    _apply_rejected_visuals(card, item)
+    assert not isinstance(card.graphicsEffect(), QGraphicsOpacityEffect)
+    card.show()
+    qapp.processEvents()
+    px = card.grab().toImage().pixelColor(125, 60)
+    # Black cover blended toward the light substrate: clearly lifted from
+    # 0 (dim applied) but far from plain white (not a white-out).
+    assert 80 <= px.red() <= 220
+    assert abs(px.red() - px.green()) <= 8 and abs(px.red() - px.blue()) <= 8
+    card.deleteLater()
+
+
 def test_hover_capsule_flyout_fits_its_buttons(qapp):
     """The hover pill must not clamp its outer widget below content size.
 

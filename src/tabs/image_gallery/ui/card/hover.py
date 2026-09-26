@@ -630,6 +630,12 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                 except Exception:
                     return
             _log("capsule action %s path=%s", action_id, path)
+            # Stamp suppression BEFORE triage: the rebuild below recycles
+            # cards under the stationary cursor and Qt synthesizes Enter
+            # mid-rebuild — the end-of-action stamp in _after_card_action
+            # comes too late for those (live 2026-09-26: Enter 37 ms after
+            # the click, stamp only after the rebuild finished).
+            _suppress_capsule(_resolve_card_owner(c, actual_owner), c)
             try:
                 if action_id == "make_best":
                     from tabs.image_gallery.use_cases import triage as _triage
@@ -688,10 +694,11 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
             except Exception:
                 pass
             try:
-                # Card 250 wide, right margin 8, top 14 (preview 8,8 +6).
-                # The delete ✕ overhangs the same corner; the capsule's outer
-                # edge is transparent shadow there, so the mockup margin holds.
-                flyout.move(card.width() - flyout.width() - scaled_px(8), scaled_px(14))
+                # Capsule hugs the top-right corner: half margins —
+                # right 4, top 7. The delete ✕ overhangs the same corner;
+                # the capsule's outer edge is transparent shadow there, so
+                # the overlap stays a few px.
+                flyout.move(card.width() - flyout.width() - scaled_px(4), scaled_px(7))
             except Exception:
                 pass
             flyout.show()
@@ -699,13 +706,22 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                 flyout.raise_()
             except Exception:
                 pass
+            try:
+                from tabs.image_gallery.debug import (
+                    gallery_debug_enabled as _dbg_on,
+                )
+
+                _content = _capsule_content_diag(flyout, card) if _dbg_on() else "n/a"
+            except Exception:
+                _content = "?"
             _hdbg(
-                "capsule shown path=%s pos=(%s,%s) size=(%s,%s)",
+                "capsule shown path=%s pos=(%s,%s) size=(%s,%s) content=[%s]",
                 getattr(getattr(card, "_gallery_item", None), "path", "?"),
                 flyout.x(),
                 flyout.y(),
                 flyout.width(),
                 flyout.height(),
+                _content,
             )
         except Exception as exc:
             _hdbg("capsule show FAILED fallback path=%s err=%r", getattr(getattr(card, "_gallery_item", None), "path", "?"), exc)

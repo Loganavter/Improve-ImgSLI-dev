@@ -98,3 +98,44 @@ def test_resolve_card_owner_prefers_hint_then_window(qtbot) -> None:
     assert _resolve_card_owner(card, None) is stored
     del card._gallery_owner
     assert _resolve_card_owner(card, None) is via_window
+
+
+def test_suppression_stamped_before_triage_rebuild(qtbot, monkeypatch) -> None:
+    """The post-action window must open before triage rebuilds the grid.
+
+    Regression (live 2026-09-26): the rebuild recycles cards under the
+    stationary cursor and Qt synthesizes Enter mid-rebuild — the stamp at
+    the end of ``_after_card_action`` came ~50 ms too late, so the capsule
+    re-showed instantly on the shuffled card. The handler stamps first.
+    """
+    from PySide6.QtWidgets import QWidget
+
+    from tabs.image_gallery.ui.card import build_gallery_card
+    from tabs.image_gallery.ui.card.hover import (
+        _capsule_suppressed,
+        show_gallery_card_flyout,
+    )
+    from tabs.image_gallery.use_cases import triage as _triage
+
+    item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1)
+    owner = SimpleNamespace(
+        state=SimpleNamespace(items=[item], selected_paths=set(), selected_order=[]),
+    )
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    card = build_gallery_card(item, parent=parent, owner=owner)
+    card._test_parent = parent
+
+    seen: dict = {}
+    real_toggle = _triage.toggle_reject
+
+    def _spy_toggle(o, p):  # type: ignore[no-untyped-def]
+        seen["stamped"] = bool(_capsule_suppressed(o, card))
+        return real_toggle(o, p)
+
+    monkeypatch.setattr(_triage, "toggle_reject", _spy_toggle)
+    show_gallery_card_flyout(card, owner)
+    flyout = getattr(card, "_gallery_card_flyout", None)
+    assert flyout is not None
+    flyout.actionTriggered.emit("reject")
+    assert seen.get("stamped") is True

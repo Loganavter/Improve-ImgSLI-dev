@@ -215,29 +215,24 @@ def _apply_rejected_visuals(card: Button, item: GalleryItem) -> None:
     except Exception:
         pass
 
-    # Rejected must remain clickable: only QGraphicsOpacityEffect 0.38 + strike.
+    # Rejected must remain clickable: dim is painter-level (overlay wash
+    # in painters._gallery_rejected_dim) + strike-through. No
+    # QGraphicsOpacityEffect here on purpose: the effect dims the whole
+    # subtree INCLUDING the hover capsule (child of the card), washing it
+    # out to near-invisible on rejected cards. The wash dims only the
+    # card's own paint; children stay crisp.
     # Ensure enabled (A2 spec: убрать setEnabled(False)).
     try:
         card.setEnabled(True)
     except Exception:
         pass
 
-    # Keep QGraphicsOpacityEffect as additional dim for fidelity (0.38) via ThemeManager tokens (no manual palette).
+    # Drop any legacy opacity effect (e.g. from pool-recycled cards that
+    # were dimmed before the painter wash replaced the effect).
     try:
         current_effect = card.graphicsEffect()
-        if rejected:
-            if not isinstance(current_effect, QGraphicsOpacityEffect):
-                eff = QGraphicsOpacityEffect(card)
-                eff.setOpacity(0.38)
-                card.setGraphicsEffect(eff)
-            else:
-                current_effect.setOpacity(0.38)
-        else:
-            if isinstance(current_effect, QGraphicsOpacityEffect):
-                # Remove effect to restore full opacity.
-                card.setGraphicsEffect(None)
-        # If rejected, disabled + effect together give 0.38 look; effect alone
-        # also works when disabled is not enough. Keep both for robustness.
+        if isinstance(current_effect, QGraphicsOpacityEffect):
+            card.setGraphicsEffect(None)
     except Exception:
         pass
 
