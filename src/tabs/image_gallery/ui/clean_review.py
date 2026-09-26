@@ -1,12 +1,14 @@
 """S3 clean review modal — TopLevelInWindowOverlay + Toast Undo.
 Audit-Meta: pattern=state-machine size=exempt reason="one overlay lifecycle — provenance+filmstrip+toasts share TopLevelInWindowOverlay state"
 
-Lists rejected files before any move, grouped by provenance series.
+Lists rejected files before any move in one flat filmstrip (stable
+provenance-series order — series survive only in the ``from:`` line).
 Title + reassurance subtitle (``N files will be moved to <folder>/_rejected/
-— nothing is deleted, Undo available for 10 s.``). Filmstrip per series
-(thumbs 150x100, capped at ``FILMSTRIP_MAX_CELLS`` cells + ``+N more`` tile
-in a horizontally scrollable strip) with per-item ``↩ Restore``
-+ per-series Restore SERIES N + Restore all. Provenance line below the
+— nothing is deleted, Undo available for 10 s.``). Flat filmstrip
+(thumbs 150x100, capped at ``FILMSTRIP_MAX_CELLS`` cells total +
+``+N more`` tile in one horizontally scrollable, frameless strip) with
+per-item ``↩ Restore`` + Restore all (no per-series sections, headers,
+or Restore SERIES N — mockup v3 has none). Provenance line below the
 filmstrip, ``from: SERIES N · hub (cnt)`` via hub resolver.
 Final ``Move N to _rejected/`` (surface variant + accent background —
 the mockup primary action; the toolkit has no ``variant="primary"``) does move-only ``shutil.move``
@@ -29,7 +31,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import scaled_px
 
@@ -322,10 +324,15 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             self._header_rule.setObjectName("clean_review_header_rule")
             outer.addWidget(self._header_rule)
 
-        # Scrollable list — vertical host, filmstrip per series inside.
+        # Scrollable list — Phase 6: single flat-strip host (frameless,
+        # borderless over the plate; the strip scrolls horizontally, never
+        # vertically — mockup v3 has no per-series boxes, no series headers).
         self._scroll = QScrollArea(self._content)
         self._scroll.setWidgetResizable(True)
         self._scroll.setObjectName("clean_review_scroll")
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._list_host = QWidget()
         self._list_host.setObjectName("clean_review_list_host")
         self._list_layout = QVBoxLayout(self._list_host)
@@ -613,7 +620,11 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         except Exception:
             pass
 
-        # Rebuild list rows — filmstrip layout per series.
+        # Rebuild list rows — Phase 6: ONE flat horizontal strip over ALL
+        # rejected items in stable order (mockup v3: borderless strip, no
+        # per-series boxes/headers; series survive only in the provenance
+        # line above). Per-series Restore buttons are gone by design
+        # (mockup has none); Restore all + per-thumb Restore remain.
         for w in self._row_widgets:
             try:
                 self._list_layout.removeWidget(w)
@@ -630,60 +641,94 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             self._row_widgets.append(empty)
             return
 
-        # Group items by series for filmstrip.
-        # Reuse sorted_sids order.
-        for series_idx, sid in enumerate(sorted_sids, start=1):
-            group_items = by_series[sid]
-            # Series section container.
-            section = QWidget(self._list_host)
-            section.setObjectName(f"clean_review_series_{series_idx}")
-            sec_layout = QVBoxLayout(section)
-            sec_layout.setContentsMargins(scaled_px(4), scaled_px(4), scaled_px(4), scaled_px(4))
-            sec_layout.setSpacing(scaled_px(6))
+        # Flat order: series groups in stable SERIES order, items in state
+        # order within each group (reuses sorted_sids above).
+        flat: list = []
+        for sid in sorted_sids:
+            flat.extend(by_series[sid])
 
-            # Header row: SERIES N · hub (cnt) + per-series Restore.
-            header = QWidget(section)
-            header.setObjectName(f"clean_review_series_header_{series_idx}")
-            hl_header = QHBoxLayout(header)
-            hl_header.setContentsMargins(0, 0, 0, 0)
-            hl_header.setSpacing(scaled_px(8))
-            hub = _hub_name_for_series(owner, sid)
-            if sid == "__ungrouped__":
-                header_text = f"UNGROUPED · {len(group_items)} images"
-            elif hub:
-                header_text = f"SERIES {series_idx} · {hub} · {len(group_items)} VARIANTS"
+        # Filmstrip: single horizontally scrollable, frameless strip of
+        # thumbs (mockup v3 "scrollable strip" — capped cells exceed the
+        # modal width, so the strip scrolls horizontally past the cap to
+        # the +N tile). NoFrame: borderless strip over the plate.
+        strip_scroll = QScrollArea(self._list_host)
+        strip_scroll.setObjectName("clean_review_filmstrip")
+        strip_scroll.setWidgetResizable(True)
+        strip_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        strip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        strip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        filmstrip = QWidget()
+        filmstrip.setObjectName("clean_review_filmstrip_inner")
+        film_layout = QHBoxLayout(filmstrip)
+        film_layout.setContentsMargins(0, 0, 0, 0)
+        film_layout.setSpacing(scaled_px(8))
+        film_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        for it in flat[:FILMSTRIP_MAX_CELLS]:
+            cell = QWidget(filmstrip)
+            cell.setObjectName("clean_review_filmstrip_cell")
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(scaled_px(4), scaled_px(4), scaled_px(4), scaled_px(4))
+            cell_layout.setSpacing(scaled_px(4))
+            # S3-2: toolkit Label thumb 150x100 — Label is the unified
+            # themed component (QLabel subclass), pixmap set via the
+            # inherited QLabel.setPixmap; neutral "!" placeholder when no
+            # thumbnail is available.
+            thumb_label = Label("", pixel_size=12, parent=cell)
+            thumb_label.setObjectName("clean_review_thumb")
+            thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            thumb_label.setFixedSize(scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX))
+            # Try to load thumbnail if available.
+            pix = getattr(it, "thumbnail", None)
+            if isinstance(pix, QPixmap) and not pix.isNull():
+                try:
+                    scaled = pix.scaled(scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                    thumb_label.setPixmap(scaled)
+                except Exception:
+                    thumb_label.setText("!")
             else:
-                header_text = f"SERIES {series_idx} · {len(group_items)} images"
-            header_label = Label(header_text, pixel_size=11, parent=header)
-            header_label.setObjectName(f"clean_review_series_label_{series_idx}")
+                # Placeholder — painter pipeline owns visuals (no QSS, no get_color).
+                thumb_label.setText("!")
+            cell_layout.addWidget(thumb_label)
+
+            name = getattr(it, "name", None) or Path(getattr(it, "path", "")).name or str(getattr(it, "path", ""))
+            series_id = getattr(it, "provenance_series_id", None) or getattr(it, "series_id", None)
+            prov_line = f"series {series_id}" if series_id else "ungrouped"
+
+            name_lbl = Label(str(name), pixel_size=10, parent=cell)
+            name_lbl.setObjectName("clean_review_row_name")
+            name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # Elide handled by Label marquee? Keep word wrap off.
             try:
-                header_label.setBold(True)
+                name_lbl.setWordWrap(False)
             except Exception:
                 pass
-            hl_header.addWidget(header_label, 1)
-            # Per-series Restore SERIES N button.
-            if sid != "__ungrouped__":
-                restore_series_btn = Button(text=f"Restore SERIES {series_idx}", variant="surface", parent=header)
-            else:
-                restore_series_btn = Button(text="Restore UNGROUPED", variant="surface", parent=header)
-            restore_series_btn.setObjectName(f"clean_review_restore_series_{series_idx}")
-            # Capture sid.
-            _sid = sid
+            cell_layout.addWidget(name_lbl)
 
-            def _make_series_restore(s=_sid):
+            prov_lbl = Label(str(prov_line), pixel_size=9, parent=cell)
+            prov_lbl.setObjectName("clean_review_row_provenance")
+            prov_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cell_layout.addWidget(prov_lbl)
+
+            restore_btn = Button(text="↩ Restore", variant="surface", parent=cell)
+            restore_btn.setObjectName("clean_review_restore")
+            p = Path(it.path) if hasattr(it, "path") else None
+
+            def _make_restore(path=p):
                 def _do():
-                    # Restore all rejected in this series.
-                    to_restore = [it for it in self._rejected_items(self._owner) if (str(getattr(it, "provenance_series_id", None) or getattr(it, "series_id", None) or "__ungrouped__") == str(s))]
-                    for it in to_restore:
-                        try:
-                            from tabs.image_gallery.use_cases import triage as _triage
+                    if path is None:
+                        return
+                    try:
+                        from tabs.image_gallery.use_cases import triage as _triage
 
-                            _triage.toggle_reject(self._owner, Path(it.path))
+                        _triage.toggle_reject(self._owner, path)
+                    except Exception:
+                        try:
+                            it2 = next((x for x in self._rejected_items(self._owner) if Path(x.path) == path), None)
+                            if it2 is not None:
+                                it2.rejected = False
                         except Exception:
-                            try:
-                                it.rejected = False
-                            except Exception:
-                                pass
+                            pass
                     try:
                         self._populate(self._owner)
                     except Exception:
@@ -699,154 +744,48 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
 
                 return _do
 
-            restore_series_btn.clicked.connect(_make_series_restore())
-            hl_header.addWidget(restore_series_btn)
-            sec_layout.addWidget(header)
-
-            # Filmstrip: horizontally scrollable strip of thumbs (mockup v3
-            # "scrollable strip" — 8 capped cells exceed the modal width, so
-            # the strip scrolls horizontally past the cap to the +N tile).
-            filmstrip = QWidget(section)
-            filmstrip.setObjectName(f"clean_review_filmstrip_inner_{series_idx}")
-            film_layout = QHBoxLayout(filmstrip)
-            film_layout.setContentsMargins(0, 0, 0, 0)
-            film_layout.setSpacing(scaled_px(8))
-            film_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            for it in group_items[:FILMSTRIP_MAX_CELLS]:
-                cell = QWidget(filmstrip)
-                cell.setObjectName("clean_review_filmstrip_cell")
-                cell_layout = QVBoxLayout(cell)
-                cell_layout.setContentsMargins(scaled_px(4), scaled_px(4), scaled_px(4), scaled_px(4))
-                cell_layout.setSpacing(scaled_px(4))
-                # S3-2: toolkit Label thumb 150x100 — Label is the unified
-                # themed component (QLabel subclass), pixmap set via the
-                # inherited QLabel.setPixmap; neutral "!" placeholder when no
-                # thumbnail is available.
-                thumb_label = Label("", pixel_size=12, parent=cell)
-                thumb_label.setObjectName("clean_review_thumb")
-                thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                thumb_label.setFixedSize(scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX))
-                # Try to load thumbnail if available.
-                pix = getattr(it, "thumbnail", None)
-                if isinstance(pix, QPixmap) and not pix.isNull():
-                    try:
-                        scaled = pix.scaled(scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-                        thumb_label.setPixmap(scaled)
-                    except Exception:
-                        thumb_label.setText("!")
-                else:
-                    # Placeholder — painter pipeline owns visuals (no QSS, no get_color).
-                    thumb_label.setText("!")
-                cell_layout.addWidget(thumb_label)
-
-                name = getattr(it, "name", None) or Path(getattr(it, "path", "")).name or str(getattr(it, "path", ""))
-                series_id = getattr(it, "provenance_series_id", None) or getattr(it, "series_id", None)
-                prov_line = f"series {series_id}" if series_id else "ungrouped"
-
-                name_lbl = Label(str(name), pixel_size=10, parent=cell)
-                name_lbl.setObjectName("clean_review_row_name")
-                name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                # Elide handled by Label marquee? Keep word wrap off.
-                try:
-                    name_lbl.setWordWrap(False)
-                except Exception:
-                    pass
-                cell_layout.addWidget(name_lbl)
-
-                prov_lbl = Label(str(prov_line), pixel_size=9, parent=cell)
-                prov_lbl.setObjectName("clean_review_row_provenance")
-                prov_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                cell_layout.addWidget(prov_lbl)
-
-                # S3-4: arrow prefix per mockup v3 (per-series button keeps
-                # its "Restore SERIES N" wording).
-                restore_btn = Button(text="↩ Restore", variant="surface", parent=cell)
-                restore_btn.setObjectName("clean_review_restore")
-                p = Path(it.path) if hasattr(it, "path") else None
-
-                def _make_restore(path=p):
-                    def _do():
-                        if path is None:
-                            return
-                        try:
-                            from tabs.image_gallery.use_cases import triage as _triage
-
-                            _triage.toggle_reject(self._owner, path)
-                        except Exception:
-                            try:
-                                it2 = next((x for x in self._rejected_items(self._owner) if Path(x.path) == path), None)
-                                if it2 is not None:
-                                    it2.rejected = False
-                            except Exception:
-                                pass
-                        try:
-                            self._populate(self._owner)
-                        except Exception:
-                            pass
-                        try:
-                            w = getattr(self._owner, "widget", None) or getattr(self._owner, "_widget", None)
-                            if w is not None and hasattr(w, "rebuild_grid"):
-                                st = getattr(self._owner, "state", None)
-                                items2 = list(getattr(st, "items", []) or []) if st is not None else []
-                                w.rebuild_grid(items2)
-                        except Exception:
-                            pass
-
-                    return _do
-
-                restore_btn.clicked.connect(_make_restore())
-                cell_layout.addWidget(restore_btn)
-                # Mockup v3 thumb row: every cell top-aligned so thumbs
-                # share one top edge (QHBoxLayout would vertically center
-                # shorter items like the +N tile otherwise).
-                film_layout.addWidget(cell, 0, Qt.AlignmentFlag.AlignTop)
-            # S3-3: "+N more" informational tile when the series exceeds
-            # FILMSTRIP_MAX_CELLS — the mockup draws a dashed-border tile,
-            # which the painter pipeline does not support without QSS, so a
-            # disabled surface Button with two muted rows is used instead.
-            # Cells beyond the cap stay accessible via the horizontally
-            # scrollable strip context (informational tile, cap documented
-            # in FILMSTRIP_MAX_CELLS).
-            overflow = len(group_items) - FILMSTRIP_MAX_CELLS
-            if overflow > 0:
-                more_tile = Button(
-                    rows=[
-                        ButtonRow(text=f"+{overflow} more", size=14),
-                        ButtonRow(text="scrollable strip", size=10),
-                    ],
-                    variant="surface",
-                    size=(THUMB_WIDTH_PX, THUMB_HEIGHT_PX),
-                    parent=filmstrip,
-                )
-                more_tile.setObjectName("clean_review_filmstrip_more")
-                more_tile.setEnabled(False)
-                try:
-                    more_tile.setToolTip(f"{overflow} more rejected file(s) in this series")
-                except Exception:
-                    pass
-                # Top-aligned with the cells (mockup v3: tile shares the
-                # thumb-row top edge, not the row vertical center).
-                film_layout.addWidget(more_tile, 0, Qt.AlignmentFlag.AlignTop)
-            # Add stretch to left align.
-            film_layout.addStretch(1)
-            # Horizontal scroll host — keeps the clean_review_filmstrip_N
-            # objectName on the scroll so parity tests keep finding the
-            # strip and its cells via findChild/findChildren.
-            strip_scroll = QScrollArea(section)
-            strip_scroll.setObjectName(f"clean_review_filmstrip_{series_idx}")
-            strip_scroll.setWidgetResizable(True)
-            strip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            strip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            strip_scroll.setWidget(filmstrip)
+            restore_btn.clicked.connect(_make_restore())
+            cell_layout.addWidget(restore_btn)
+            # Mockup v3 thumb row: every cell top-aligned so thumbs
+            # share one top edge (QHBoxLayout would vertically center
+            # shorter items like the +N tile otherwise).
+            film_layout.addWidget(cell, 0, Qt.AlignmentFlag.AlignTop)
+        # S3-3: "+N more" informational tile when ALL rejected exceed
+        # FILMSTRIP_MAX_CELLS — the mockup draws a dashed-border tile,
+        # which the painter pipeline does not support without QSS, so a
+        # disabled surface Button with two muted rows is used instead.
+        # Cells beyond the cap stay accessible via the horizontally
+        # scrollable strip context (informational tile, cap documented
+        # in FILMSTRIP_MAX_CELLS).
+        overflow = len(flat) - FILMSTRIP_MAX_CELLS
+        if overflow > 0:
+            more_tile = Button(
+                rows=[
+                    ButtonRow(text=f"+{overflow} more", size=14),
+                    ButtonRow(text="scrollable strip", size=10),
+                ],
+                variant="surface",
+                size=(THUMB_WIDTH_PX, THUMB_HEIGHT_PX),
+                parent=filmstrip,
+            )
+            more_tile.setObjectName("clean_review_filmstrip_more")
+            more_tile.setEnabled(False)
             try:
-                strip_scroll.setFixedHeight(filmstrip.sizeHint().height() + scaled_px(16))
+                more_tile.setToolTip(f"{overflow} more rejected file(s)")
             except Exception:
                 pass
-            sec_layout.addWidget(strip_scroll)
-            self._list_layout.addWidget(section)
-            self._row_widgets.append(section)
-            # Also expose legacy row objectName for compat — each cell also has restore button.
-            # Keep per_series section counted.
+            # Top-aligned with the cells (mockup v3: tile shares the
+            # thumb-row top edge, not the row vertical center).
+            film_layout.addWidget(more_tile, 0, Qt.AlignmentFlag.AlignTop)
+        # Add stretch to left align.
+        film_layout.addStretch(1)
+        strip_scroll.setWidget(filmstrip)
+        try:
+            strip_scroll.setFixedHeight(filmstrip.sizeHint().height() + scaled_px(16))
+        except Exception:
+            pass
+        self._list_layout.addWidget(strip_scroll)
+        self._row_widgets.append(strip_scroll)
 
     def _on_restore_all(self) -> None:
         owner = self._owner

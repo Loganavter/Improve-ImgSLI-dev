@@ -7,9 +7,10 @@ Covers audit items S3-1..S3-4 against ``ui/clean_review.py``:
   Undo available for 10 s.`` (safety promise shown before the move);
 - S3-2: filmstrip thumbs 150x100 (scaled) rendered by the toolkit ``Label``
   component (QLabel subclass) with a neutral ``!`` placeholder;
-- S3-3: series filmstrip capped at ``FILMSTRIP_MAX_CELLS`` cells with a
-  ``+N more`` / ``scrollable strip`` informational tile, inside a
-  horizontally scrollable strip (mockup v3 "scrollable strip");
+- S3-3: flat filmstrip capped at ``FILMSTRIP_MAX_CELLS`` cells total with
+  a ``+N more`` / ``scrollable strip`` informational tile, inside ONE
+  horizontally scrollable, frameless strip (mockup v3 "scrollable strip";
+  no per-series boxes or headers);
 - S3-4: per-item Restore button text ``↩ Restore``.
 - S3-5 (close-out): provenance line below the filmstrip with a ``from: ``
   prefix (svg:100); move toast ``Moved N files`` with ``success=True``
@@ -145,7 +146,7 @@ def test_thumbs_are_toolkit_labels_150x100(qtbot, tmp_path):
     owner = _make_owner(tmp_path, [str(tmp_path / f"img_{i}.jpg") for i in range(3)])
     overlay = _make_overlay(qtbot, owner)
 
-    filmstrip = overlay.findChild(QWidget, "clean_review_filmstrip_1")
+    filmstrip = overlay.findChild(QWidget, "clean_review_filmstrip")
     assert filmstrip is not None
     thumbs = [w for w in filmstrip.findChildren(ToolkitLabel) if w.objectName() == "clean_review_thumb"]
     assert len(thumbs) == 3
@@ -164,7 +165,7 @@ def test_filmstrip_capped_with_more_tile(qtbot, tmp_path):
     owner = _make_owner(tmp_path, [str(tmp_path / f"img_{i}.jpg") for i in range(total)])
     overlay = _make_overlay(qtbot, owner)
 
-    filmstrip = overlay.findChild(QWidget, "clean_review_filmstrip_1")
+    filmstrip = overlay.findChild(QWidget, "clean_review_filmstrip")
     assert filmstrip is not None
     cells = [w for w in filmstrip.findChildren(QWidget) if w.objectName() == "clean_review_filmstrip_cell"]
     assert len(cells) == FILMSTRIP_MAX_CELLS
@@ -293,7 +294,7 @@ def test_filmstrip_horizontally_scrollable(qtbot, tmp_path):
     owner = _make_owner(tmp_path, [str(tmp_path / f"img_{i}.jpg") for i in range(total)])
     overlay = _make_overlay(qtbot, owner)
 
-    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip_1")
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip")
     assert strip is not None
     assert strip.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
     assert strip.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
@@ -311,17 +312,17 @@ def test_filmstrip_horizontally_scrollable(qtbot, tmp_path):
 
 
 def test_filmstrip_strip_direction_horizontal(qtbot, tmp_path):
-    """Per-series section is a HORIZONTAL strip: inner container uses
-    QHBoxLayout (LTR) inside a Qt.Horizontal QScrollArea; cells share one
-    row (equal y, strictly increasing x)."""
+    """The flat strip is HORIZONTAL: inner container uses QHBoxLayout
+    (LTR) inside a Qt.Horizontal QScrollArea; cells share one row
+    (equal y, strictly increasing x)."""
     from PySide6.QtWidgets import QHBoxLayout
 
     owner = _make_owner(tmp_path, [str(tmp_path / f"img_{i}.jpg") for i in range(3)])
     overlay = _make_overlay(qtbot, owner)
 
-    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip_1")
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip")
     assert strip is not None
-    inner = overlay.findChild(QWidget, "clean_review_filmstrip_inner_1")
+    inner = overlay.findChild(QWidget, "clean_review_filmstrip_inner")
     assert inner is not None
     layout = inner.layout()
     assert isinstance(layout, QHBoxLayout)
@@ -345,7 +346,7 @@ def test_filmstrip_thumb_row_top_aligned_with_more_tile(qtbot, tmp_path):
     overlay.show()
     qtbot.waitExposed(overlay)
 
-    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip_1")
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip")
     assert strip is not None
     cells = sorted(
         (w for w in strip.findChildren(QWidget) if w.objectName() == "clean_review_filmstrip_cell"),
@@ -361,6 +362,119 @@ def test_filmstrip_thumb_row_top_aligned_with_more_tile(qtbot, tmp_path):
     # ... and top-aligned with the row (cell padding tolerance), not
     # vertically centered.
     assert abs(tile.y() - cells[0].y()) <= scaled_px(8)
+
+
+# -- Phase 6: flat strip (mockup v3: ONE borderless strip, no sections) --
+
+
+def test_no_per_series_sections_headers_or_series_restore(qtbot, tmp_path):
+    """Phase 6: multi-series rejected build NO section boxes, NO header
+    rows, NO per-series Restore buttons — only the flat strip, per-thumb
+    Restore, and Restore all remain (series survive in the provenance
+    line, asserted separately)."""
+    owner = _make_multi_series_owner(tmp_path)
+    overlay = _make_overlay(qtbot, owner)
+
+    for prefix in (
+        "clean_review_series_",
+        "clean_review_series_header_",
+        "clean_review_series_label_",
+        "clean_review_restore_series_",
+    ):
+        assert [
+            w.objectName()
+            for w in overlay.findChildren(QWidget)
+            if w.objectName().startswith(prefix)
+        ] == []
+    series_buttons = [
+        b
+        for b in overlay.findChildren(type(overlay._restore_all_btn))
+        if "SERIES" in "".join(getattr(region, "text", "") for region in b.regions())
+    ]
+    assert series_buttons == []
+
+
+def test_flat_strip_spans_all_series_in_stable_order(qtbot, tmp_path):
+    """Phase 6: exactly ONE strip holds every rejected item across series
+    (stable SERIES order, state order within a series); per-thumb name
+    labels cover both series."""
+    owner = _make_multi_series_owner(tmp_path)
+    overlay = _make_overlay(qtbot, owner)
+
+    strips = overlay.findChildren(QScrollArea, "clean_review_filmstrip")
+    assert len(strips) == 1
+    names = [
+        w.text()
+        for w in strips[0].findChildren(QWidget)
+        if w.objectName() == "clean_review_row_name"
+    ]
+    assert names == ["sunset_0.jpg", "sunset_1.jpg", "city_0.png"]
+    restores = [
+        b
+        for b in strips[0].findChildren(type(overlay._restore_all_btn))
+        if b.objectName() == "clean_review_restore"
+    ]
+    assert len(restores) == 3
+
+
+def test_flat_cap_applies_across_series(qtbot, tmp_path):
+    """Phase 6: FILMSTRIP_MAX_CELLS + the single +N tile apply to the
+    COMBINED total across series (not per series)."""
+    split = 5
+    rest = FILMSTRIP_MAX_CELLS + 4 - split
+    items = [
+        SimpleNamespace(
+            rejected=True,
+            path=str(tmp_path / f"sunset_{i}.jpg"),
+            name=f"sunset_{i}.jpg",
+            thumbnail=None,
+            provenance_series_id="series_1",
+        )
+        for i in range(split)
+    ] + [
+        SimpleNamespace(
+            rejected=True,
+            path=str(tmp_path / f"city_{i}.png"),
+            name=f"city_{i}.png",
+            thumbnail=None,
+            provenance_series_id="series_2",
+        )
+        for i in range(rest)
+    ]
+    owner = SimpleNamespace(state=SimpleNamespace(items=items, folder=str(tmp_path)))
+    overlay = _make_overlay(qtbot, owner)
+
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip")
+    assert strip is not None
+    cells = [
+        w for w in strip.findChildren(QWidget)
+        if w.objectName() == "clean_review_filmstrip_cell"
+    ]
+    assert len(cells) == FILMSTRIP_MAX_CELLS
+    tiles = overlay.findChildren(QWidget, "clean_review_filmstrip_more")
+    assert len(tiles) == 1
+    row_texts = [
+        getattr(row, "text", "")
+        for region in tiles[0].regions()
+        for row in (getattr(region, "rows", None) or [])
+    ]
+    assert "+4 more" in row_texts
+
+
+def test_scroll_areas_frameless_horizontal_only(qtbot, tmp_path):
+    """Phase 6: both scroll areas are NoFrame, vertical AlwaysOff,
+    horizontal AsNeeded (borderless strip over the plate)."""
+    from PySide6.QtWidgets import QFrame
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip")
+    assert strip is not None
+    for scroll in (overlay._scroll, strip):
+        assert scroll.frameShape() == QFrame.Shape.NoFrame
+        assert scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
 
 
 # -- P0-10: app-side dim veil ------------------------------------------
