@@ -20,9 +20,11 @@ Runs headless (QT_QPA_PLATFORM=offscreen).
 
 from __future__ import annotations
 
+import json
 import re
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QScrollArea, QWidget
@@ -549,3 +551,121 @@ def test_bottom_bar_move_accent_background(qtbot, tmp_path):
     overlay = _make_overlay(qtbot, owner)
 
     assert overlay._move_btn.getBackgroundColor() == _token_color("accent", "#0096FF")
+
+
+# -- Phase 5: theme parity (mockup light + dark via tokens only) ---------
+
+
+@pytest.fixture()
+def _production_palettes(qapp):
+    """Register production palettes; teardown restores the bare manager.
+
+    Mirrors the ``_production_dark_palettes`` idiom in
+    ``tests/runtime/test_card_parity.py``: bare-manager fallbacks are
+    light-pinned, so theme-parity asserts boot the real palettes and
+    compare hex-exact against the live ``themes.json``.
+    """
+    from core.theme import DARK_THEME_PALETTE, LIGHT_THEME_PALETTE
+    from sli_ui_toolkit.managers import ThemeManager
+
+    tm = ThemeManager.get_instance()
+    prev_theme = tm.get_current_theme()
+    tm.register_palettes(LIGHT_THEME_PALETTE, DARK_THEME_PALETTE)
+    yield tm
+    try:
+        tm.register_palettes({}, {})
+        tm.set_theme(prev_theme, qapp, await_ripples=False)
+        try:
+            tm._flush_pending_theme()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _set_theme(tm, qapp, name: str) -> None:
+    tm.set_theme(name, qapp, await_ripples=False)
+    try:
+        tm._flush_pending_theme()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    qapp.processEvents()
+
+
+def _themes_data() -> dict:
+    from utils.resource_loader import resource_path
+
+    with open(resource_path("resources/themes.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_review_plate_bg_border_match_themes_json_in_both_themes(
+    qtbot, qapp, _production_palettes
+):
+    """Plate bg/border resolve via token chains on BOTH themes, hex-exact
+    against the live themes.json (never duplicated here, so no hardcoded
+    literals in test code either)."""
+    tm = _production_palettes
+    data = _themes_data()
+
+    for theme in ("light", "dark"):
+        _set_theme(tm, qapp, theme)
+        assert tm.get_current_theme() == theme
+
+        plate = _ReviewPlate()
+        qtbot.addWidget(plate)
+        plate.resize(scaled_px(REVIEW_CARD_WIDTH_PX), scaled_px(REVIEW_CARD_HEIGHT_PX))
+        plate.show()
+        QApplication.processEvents()
+
+        assert plate._bg is not None, f"bg unresolvable under {theme}"
+        assert plate._border is not None, f"border unresolvable under {theme}"
+        # QColor.name() drops alpha on both sides, so the dark 8-digit
+        # border ("#1EFFFFFF") still compares exactly.
+        assert plate._bg.name().lower() == QColor(data[theme]["gallery.card.background"]).name().lower(), theme
+        assert plate._border.name().lower() == QColor(data[theme]["gallery.card.border"]).name().lower(), theme
+        # Repaint path must not crash offscreen on either theme.
+        assert not plate.grab().isNull()
+
+
+def test_review_plate_tracks_light_dark_flip(qtbot, qapp, _production_palettes):
+    """One plate across light → dark → light re-resolves and repaints;
+    round-trip lands back on the light production values."""
+    tm = _production_palettes
+    data = _themes_data()
+
+    plate = _ReviewPlate()
+    qtbot.addWidget(plate)
+    plate.resize(scaled_px(REVIEW_CARD_WIDTH_PX), scaled_px(REVIEW_CARD_HEIGHT_PX))
+    plate.show()
+    QApplication.processEvents()
+
+    for theme in ("light", "dark", "light"):
+        _set_theme(tm, qapp, theme)
+        try:
+            plate.on_theme_changed()
+        except Exception:
+            pass
+        QApplication.processEvents()
+        assert plate._bg.name().lower() == QColor(data[theme]["gallery.card.background"]).name().lower(), theme
+        assert plate._border.name().lower() == QColor(data[theme]["gallery.card.border"]).name().lower(), theme
+        assert not plate.grab().isNull()
+
+    assert plate._bg.name().lower() == QColor(data["light"]["gallery.card.background"]).name().lower()
+    assert plate._border.name().lower() == QColor(data["light"]["gallery.card.border"]).name().lower()
+
+
+def test_move_accent_matches_theme_at_construction(qtbot, qapp, _production_palettes, tmp_path):
+    """Move button accent bg is the construction theme's ``accent`` token
+    (surface + set_background_color idiom), hex-exact per theme."""
+    tm = _production_palettes
+    data = _themes_data()
+
+    for theme in ("light", "dark"):
+        _set_theme(tm, qapp, theme)
+        owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+        overlay = _make_overlay(qtbot, owner)
+        expected = QColor(data[theme]["accent"]).name().lower()
+        got = overlay._move_btn.getBackgroundColor()
+        got = (got if isinstance(got, QColor) else QColor(got)).name().lower()
+        assert got == expected, f"accent under {theme}: {got} != themes.json {expected}"
