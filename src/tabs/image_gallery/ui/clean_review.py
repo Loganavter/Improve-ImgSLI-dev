@@ -787,7 +787,10 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
 
                 restore_btn.clicked.connect(_make_restore())
                 cell_layout.addWidget(restore_btn)
-                film_layout.addWidget(cell)
+                # Mockup v3 thumb row: every cell top-aligned so thumbs
+                # share one top edge (QHBoxLayout would vertically center
+                # shorter items like the +N tile otherwise).
+                film_layout.addWidget(cell, 0, Qt.AlignmentFlag.AlignTop)
             # S3-3: "+N more" informational tile when the series exceeds
             # FILMSTRIP_MAX_CELLS — the mockup draws a dashed-border tile,
             # which the painter pipeline does not support without QSS, so a
@@ -812,7 +815,9 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
                     more_tile.setToolTip(f"{overflow} more rejected file(s) in this series")
                 except Exception:
                     pass
-                film_layout.addWidget(more_tile)
+                # Top-aligned with the cells (mockup v3: tile shares the
+                # thumb-row top edge, not the row vertical center).
+                film_layout.addWidget(more_tile, 0, Qt.AlignmentFlag.AlignTop)
             # Add stretch to left align.
             film_layout.addStretch(1)
             # Horizontal scroll host — keeps the clean_review_filmstrip_N

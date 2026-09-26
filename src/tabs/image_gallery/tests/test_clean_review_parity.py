@@ -305,6 +305,62 @@ def test_filmstrip_horizontally_scrollable(qtbot, tmp_path):
     assert strip.findChild(QWidget, "clean_review_filmstrip_more") is not None
 
 
+# -- Phase 3: horizontal filmstrip (mockup v3: one thumb row, 150x100) --
+
+
+def test_filmstrip_strip_direction_horizontal(qtbot, tmp_path):
+    """Per-series section is a HORIZONTAL strip: inner container uses
+    QHBoxLayout (LTR) inside a Qt.Horizontal QScrollArea; cells share one
+    row (equal y, strictly increasing x)."""
+    from PySide6.QtWidgets import QHBoxLayout
+
+    owner = _make_owner(tmp_path, [str(tmp_path / f"img_{i}.jpg") for i in range(3)])
+    overlay = _make_overlay(qtbot, owner)
+
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip_1")
+    assert strip is not None
+    inner = overlay.findChild(QWidget, "clean_review_filmstrip_inner_1")
+    assert inner is not None
+    layout = inner.layout()
+    assert isinstance(layout, QHBoxLayout)
+    assert layout.direction() == QHBoxLayout.Direction.LeftToRight
+
+    cells = [w for w in strip.findChildren(QWidget) if w.objectName() == "clean_review_filmstrip_cell"]
+    assert len(cells) == 3
+    cells.sort(key=lambda w: w.x())
+    assert len({c.y() for c in cells}) == 1
+    xs = [c.x() for c in cells]
+    assert xs == sorted(xs) and len(set(xs)) == len(xs)
+
+
+def test_filmstrip_thumb_row_top_aligned_with_more_tile(qtbot, tmp_path):
+    """Over cap: cells + the +N tile share the thumb-row top edge (mockup
+    v3 draws the dashed tile at the same y as the thumbs); tile geometry
+    is 150x100 like the thumbs."""
+    total = FILMSTRIP_MAX_CELLS + 3
+    owner = _make_owner(tmp_path, [str(tmp_path / f"img_{i}.jpg") for i in range(total)])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show()
+    qtbot.waitExposed(overlay)
+
+    strip = overlay.findChild(QScrollArea, "clean_review_filmstrip_1")
+    assert strip is not None
+    cells = sorted(
+        (w for w in strip.findChildren(QWidget) if w.objectName() == "clean_review_filmstrip_cell"),
+        key=lambda w: w.x(),
+    )
+    assert len(cells) == FILMSTRIP_MAX_CELLS
+    tile = strip.findChild(QWidget, "clean_review_filmstrip_more")
+    assert tile is not None
+    assert tile.width() == scaled_px(THUMB_WIDTH_PX)
+    assert tile.height() == scaled_px(THUMB_HEIGHT_PX)
+    # Tile sits in the same row, after the last cell ...
+    assert tile.x() > cells[-1].x()
+    # ... and top-aligned with the row (cell padding tolerance), not
+    # vertically centered.
+    assert abs(tile.y() - cells[0].y()) <= scaled_px(8)
+
+
 # -- P0-10: app-side dim veil ------------------------------------------
 
 
