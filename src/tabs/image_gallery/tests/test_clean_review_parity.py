@@ -1314,3 +1314,26 @@ def test_quick_look_close_returns_to_s3(qtbot, tmp_path):
     assert overlay._ql_return is None
     assert overlay.isVisible()  # back to S3, repopulated
     overlay.hide()
+
+
+def test_filmstrip_cards_have_hover_wash(qtbot, tmp_path):
+    """Rejected cards tint on hover; the modal plate itself never does."""
+    from PySide6.QtCore import QEvent
+
+    from tabs.image_gallery.ui.clean_review import _ReviewPlate
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    cell = overlay.findChild(QWidget, "clean_review_filmstrip_cell")
+    assert isinstance(cell, _ReviewPlate)
+    assert cell._hover_wash_enabled is True
+    assert cell._hovered is False
+    cell.enterEvent(QEvent(QEvent.Type.Enter))
+    assert cell._hovered is True
+    cell.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert cell._hovered is False
+
+    assert overlay._content._hover_wash_enabled is False
+    overlay._content.enterEvent(QEvent(QEvent.Type.Enter))
+    assert overlay._content._hovered is False

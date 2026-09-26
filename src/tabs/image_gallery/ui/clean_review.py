@@ -77,10 +77,15 @@ class _ReviewPlate(QWidget):
     (contracts/test_no_hardcoded_qcolor.py baseline).
     """
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, hover_wash: bool = False) -> None:
         super().__init__(parent)
         self._bg = self._resolve_bg()
         self._border = self._resolve_border()
+        # Hover wash only for filmstrip cards (the modal plate itself must
+        # not tint when the mouse crosses empty dialog areas).
+        self._hover_wash_enabled = bool(hover_wash)
+        self._hovered = False
+        self._hover = self._resolve_hover()
         try:
             from sli_ui_toolkit.managers import ThemeManager
 
@@ -137,6 +142,28 @@ class _ReviewPlate(QWidget):
         except Exception:
             return None
 
+    @staticmethod
+    def _resolve_hover():
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            from ui.theming import try_resolve_theme_color
+
+            c = try_resolve_theme_color(
+                ThemeManager.get_instance(), "list_item.background.hover"
+            )
+            if c is not None:
+                return c if isinstance(c, QColor) else QColor(c)
+        except Exception:
+            pass
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            dark = bool(ThemeManager.get_instance().is_dark())
+        except Exception:
+            dark = False
+        return QColor(255, 255, 255, 38) if dark else QColor(0, 0, 0, 26)
+
     def _on_theme_changed(self) -> None:
         try:
             self._bg = self._resolve_bg()
@@ -147,12 +174,40 @@ class _ReviewPlate(QWidget):
         except Exception:
             pass
         try:
+            self._hover = self._resolve_hover()
+        except Exception:
+            pass
+        try:
             self.update()
         except Exception:
             pass
 
     def on_theme_changed(self) -> None:
         self._on_theme_changed()
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        if self._hover_wash_enabled:
+            self._hovered = True
+            try:
+                self.update()
+            except Exception:
+                pass
+        try:
+            super().enterEvent(event)
+        except Exception:
+            pass
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        if self._hover_wash_enabled:
+            self._hovered = False
+            try:
+                self.update()
+            except Exception:
+                pass
+        try:
+            super().leaveEvent(event)
+        except Exception:
+            pass
 
     def paintEvent(self, event) -> None:  # noqa: N802
         try:
@@ -173,6 +228,14 @@ class _ReviewPlate(QWidget):
                     bg = self._resolve_bg()
                 p.setBrush(bg)
                 p.drawRoundedRect(r, rx, rx)
+                if self._hover_wash_enabled and self._hovered:
+                    try:
+                        wash = self._hover
+                    except Exception:
+                        wash = self._resolve_hover()
+                    if wash is not None:
+                        p.setBrush(wash)
+                        p.drawRoundedRect(r, rx, rx)
                 try:
                     border = self._border
                 except Exception:
@@ -1487,11 +1550,10 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             # One framed card per item (recent-panel idiom): picture on top,
             # Restore button below — the plate frame makes them read as one
             # card instead of floating thumb + button parts.
-            cell = _ReviewPlate(filmstrip)
+            cell = _ReviewPlate(filmstrip, hover_wash=True)
             cell.setObjectName("clean_review_filmstrip_cell")
             cell._s3_item = it  # type: ignore[attr-defined]
             try:
-                cell.setCursor(Qt.CursorShape.PointingHandCursor)
                 cell.installEventFilter(self)
             except Exception:
                 pass

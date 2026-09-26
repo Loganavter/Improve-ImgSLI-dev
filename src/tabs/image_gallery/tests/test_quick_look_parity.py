@@ -2339,3 +2339,46 @@ def test_set_source_button_stays_open(qtbot):
     QApplication.processEvents()
     assert ov.isVisible()
     ov.hide()
+
+
+def test_no_bold_type_anywhere(qtbot):
+    """Quick Look is all regular weight: no bold Labels, no bold rows."""
+    from PySide6.QtWidgets import QLabel
+
+    a = _item("a.png")
+    ov = _make_overlay(qtbot)
+    _show(ov, a, [a])
+    try:
+        for label in ov.findChildren(QLabel):
+            assert label.font().bold() is False, label.text()[:40]
+        for button in ov.findChildren(QWidget):
+            regions = getattr(button, "regions", None)
+            if not callable(regions):
+                continue
+            try:
+                rows = [row for region in regions() for row in (getattr(region, "rows", None) or [])]
+            except Exception:
+                continue
+            for row in rows:
+                assert getattr(row, "weight", "normal") != "bold", getattr(row, "text", "")
+    finally:
+        ov.hide()
+
+
+def test_crop_title_has_capsule_backing(qtbot):
+    """SHARPNESS CROP rides an opaque white capsule hugging the label."""
+    a = _item("a.png")
+    ov = _make_overlay(qtbot)
+    _show(ov, a, [a])
+    try:
+        pill = ov.findChild(QWidget, "quicklook_crop_title_pill")
+        assert pill is not None
+        assert ov._crop_title.parentWidget() is pill
+        assert not pill.grab().isNull()
+        assert pill._bg.name().lower() == "#ffffff"
+        assert pill._bg.alpha() == 255
+        assert ov._crop_title.palette().color(ov._crop_title.foregroundRole()).name().lower() == "#23262b"
+        QApplication.processEvents()
+        assert pill.width() < ov._crop_host.width()
+    finally:
+        ov.hide()
