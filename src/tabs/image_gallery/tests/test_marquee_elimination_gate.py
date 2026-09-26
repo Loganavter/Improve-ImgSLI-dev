@@ -57,3 +57,37 @@ def test_gate_off_starts_gesture(qtbot, monkeypatch) -> None:
     assert host.childAt(empty) is None
     assert _marquee.host_mouse_press(view, _press_at(host, empty)) is True
     assert view._marquee_gesture is not None
+
+
+def test_commit_gate_skips_commit(qtbot, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import QRect
+
+    applied: list = []
+    view = SimpleNamespace(
+        _marquee_additive=False,
+        _owner=None,
+        _marquee_base=set(),
+        apply_selection=lambda paths: applied.append(set(paths)),
+    )
+    monkeypatch.setenv("IMGSLI_GALLERY_NO_MARQUEE_COMMIT", "1")
+    _marquee.on_rect_finish(view, QRect())
+    assert applied == []
+
+
+def test_commit_gate_off_clears_preview(qtbot, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import QRect
+
+    applied: list = []
+    view = SimpleNamespace(
+        _marquee_additive=False,
+        _owner=None,
+        _marquee_base=set(),
+        apply_selection=lambda paths: applied.append(set(paths)),
+    )
+    monkeypatch.delenv("IMGSLI_GALLERY_NO_MARQUEE_COMMIT", raising=False)
+    _marquee.on_rect_finish(view, QRect())
+    assert applied == [set()]

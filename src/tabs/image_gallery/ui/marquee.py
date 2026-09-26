@@ -240,6 +240,14 @@ def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
         )
     except Exception:
         pass
+    try:
+        from shared.debug_flags import env_flag
+
+        if bool(env_flag("IMGSLI_GALLERY_NO_MARQUEE_COMMIT")):
+            _mdbg("marquee finish SKIP commit (elimination gate IMGSLI_GALLERY_NO_MARQUEE_COMMIT=1)")
+            return
+    except Exception:
+        pass
     if rect.isEmpty():
         additive = bool(getattr(view, "_marquee_additive", False))
         if not additive:
