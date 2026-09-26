@@ -97,6 +97,43 @@ def test_title_is_mockup_copy(qtbot, tmp_path):
     assert overlay._title.text() == "Review rejected files"
 
 
+# -- Phase 2: header (mockup v3 svg:43-45: title 16 bold + 12 muted + rule) -
+
+
+def test_header_title_16_bold(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    assert overlay._title.text() == "Review rejected files"
+    assert overlay._title.font().pixelSize() == 16
+    assert overlay._title.font().bold() is True
+
+
+def test_header_subtitle_12_muted_wrap(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    assert overlay._subtitle.font().pixelSize() == 12
+    assert overlay._subtitle.variant() == "caption"
+    assert overlay._subtitle.wordWrap() is True
+
+
+def test_header_divider_present_and_ordered(qtbot, tmp_path):
+    from tabs.image_gallery.ui.quick_look.helpers import _RuleWidget
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    rule = overlay.findChild(QWidget, "clean_review_header_rule")
+    assert rule is not None
+    assert isinstance(rule, _RuleWidget)
+    assert rule.isVisibleTo(overlay)
+    layout = overlay._content.layout()
+    assert layout.indexOf(overlay._title) < layout.indexOf(overlay._subtitle)
+    assert layout.indexOf(overlay._subtitle) < layout.indexOf(rule)
+    assert layout.indexOf(rule) < layout.indexOf(overlay._scroll)
+
+
 # -- S3-2 -----------------------------------------------------------
 
 

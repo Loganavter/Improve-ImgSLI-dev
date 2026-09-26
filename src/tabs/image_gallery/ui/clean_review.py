@@ -289,19 +289,38 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         outer.setContentsMargins(scaled_px(16), scaled_px(16), scaled_px(16), scaled_px(16))
         outer.setSpacing(scaled_px(12))
 
-        self._title = Label("", pixel_size=14, bold=True, parent=self._content)
+        # Phase 2 — mockup v3 header (svg:43-45): title 16 bold + 12
+        # muted subtitle + divider rule. Bold goes through the Label
+        # constructor (QL overlay_build.py:487 — setBold after would
+        # re-run Label's pixel-based _apply_style and revert sizing).
+        self._title = Label("", pixel_size=16, bold=True, parent=self._content)
         self._title.setObjectName("clean_review_title")
         self._title.setAlignment(Qt.AlignmentFlag.AlignLeft)
         outer.addWidget(self._title)
 
         # S3-1: reassurance subtitle under the title — safety promise before
         # the move (mockup v3). Muted via the toolkit ``caption`` variant
-        # (11 px secondary/status text) — no hand-coloring, tokens own color.
-        self._subtitle = Label("", pixel_size=11, variant="caption", parent=self._content)
+        # (12 px secondary/status text) — no hand-coloring, tokens own color.
+        self._subtitle = Label("", pixel_size=12, variant="caption", parent=self._content)
         self._subtitle.setObjectName("clean_review_subtitle")
         self._subtitle.setWordWrap(True)
         self._subtitle.setAlignment(Qt.AlignmentFlag.AlignLeft)
         outer.addWidget(self._subtitle)
+
+        # Phase 2 — header divider under the subtitle (mockup v3 svg:45):
+        # reuse the quick-look ``_RuleWidget`` (painted 1px rule,
+        # ``separator.color`` token, theme-subscribed) — same widget, no
+        # new widget family, no QSS. Lazy import like the other
+        # quick-look reaches in this file (module scope stays light).
+        try:
+            from tabs.image_gallery.ui.quick_look.helpers import _RuleWidget
+        except Exception:
+            _RuleWidget = None  # type: ignore[assignment]
+        self._header_rule = None
+        if _RuleWidget is not None:
+            self._header_rule = _RuleWidget(self._content)
+            self._header_rule.setObjectName("clean_review_header_rule")
+            outer.addWidget(self._header_rule)
 
         # Scrollable list — vertical host, filmstrip per series inside.
         self._scroll = QScrollArea(self._content)
