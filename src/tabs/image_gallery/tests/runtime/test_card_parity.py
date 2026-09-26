@@ -268,16 +268,18 @@ def test_unreadable_cover_has_plate_background(qapp):
     card.deleteLater()
 
 
-def test_rejected_badge_uses_danger_token(qapp, _production_dark_palettes):
+def test_rejected_sets_no_toolkit_badge(qapp):
+    """Rejected cards carry no toolkit badge — dim + strike signal the state.
+
+    No corner mode switch: the hover-only delete ✕ stays the single corner
+    control in both modes (see ``sync_card_delete_button``).
+    """
     item = _item(rejected=True)
     card = build_gallery_card(item, parent=None)
     qapp.processEvents()
     _apply_rejected_visuals(card, item)
-    # Badge resolves the real gallery.status.danger token (dark #D93025);
-    # the bare "danger" alias never exists in themes.json.
-    danger = _token_color("gallery.status.danger", "#D93025")
-    assert danger.name().lower() == "#d93025"  # live dark production hex
-    assert card.property("badgeBackgroundColor").name().lower() == danger.name().lower()
+    assert getattr(card, "_badge", None) is None
+    assert getattr(card, "_gallery_badge", None) is None
     card.deleteLater()
 
 

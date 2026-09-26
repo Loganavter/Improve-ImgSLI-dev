@@ -95,27 +95,17 @@ def apply_fixed_gallery_card_size(
 
 
 def _apply_rejected_visuals(card: Button, item: GalleryItem) -> None:
-    """Rejected = opacity 0.38 + strike-through + ✕ badge (setBadge).
+    """Rejected = opacity 0.38 + strike-through (no toolkit badge).
 
-    Stage 3 extension: ``AI tie-break…`` pending badge takes precedence
-    over normal rank badges — shown on both top-2 candidates until resolved,
-    degraded silent-but-visible (cleared) if VLM unresolved.
-
-    Opacity 0.38 is imitated via ``setEnabled(False)`` (disabled dim) plus
-    ``set_show_strike_through`` and ``ButtonRow(strikethrough=True)`` — the
-    latter is marked in ``_text_rows``. Badge: ``★ BEST`` accent pill or
-    ``#N`` gray via ``Button.setBadge``/``setBadgeStyle``. Crown ``★ BEST``
-    uses badge as well — rejected takes precedence, tie-break pending takes
-    even higher precedence (unless rejected).
+    No mode switch on the corner: rejected cards keep the same hover-only
+    delete ✕ as normal cards (see ``sync_card_delete_button``) — the only
+    rejected signals are the dim + strike-through. The toolkit ``setBadge``
+    pill is never used here (it painted an almost-glyphless red oval).
     """
     from PySide6.QtGui import QColor as _QColor
 
     # Lazy imports to avoid cycles at module import.
-    from tabs.image_gallery.ui.card.dots import (
-        _accent_color,
-        _error_line_color,
-        _token_color,
-    )
+    from tabs.image_gallery.ui.card.dots import _accent_color
 
     # Local theme helpers already defined at module level (_token_qcolor etc.)
     # but keep _QColor alias for accent lighter derivation.
@@ -133,18 +123,16 @@ def _apply_rejected_visuals(card: Button, item: GalleryItem) -> None:
     except Exception:
         tie_pending = False
 
-    # Badge priority: rejected (right top red) > AI tie-break (right) > BEST/#N (left per real_design.md:2.5)
+    # Badge priority: AI tie-break > BEST/#N overlay pills. Rejected sets no
+    # toolkit badge (no corner mode switch) but still suppresses the BEST
+    # overlay pill; dim + strike-through carry the rejected signal.
     try:
         if rejected:
-            card.setBadge("✕")
             try:
-                _danger = _error_line_color()
-                card.setBadgeStyle(
-                    filled=True,
-                    background_color=_danger,
-                    border_color=_danger,
-                    text_color=_token_qcolor("button.primary.text", "#ffffff"),
-                )
+                card.setBadge(None)
+            except Exception:
+                pass
+            try:
                 card.setBorderColor(_token_rgba_qcolor("button.dialog.default.border", (255, 255, 255, 30)))
             except Exception:
                 pass

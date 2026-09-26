@@ -237,6 +237,56 @@ def _hdbg(msg: str, *args) -> None:
         pass
 
 
+def _capsule_content_diag(flyout, card=None) -> str:
+    """Compact one-line dump of the capsule's live buttons (debug only).
+
+    ``n=`` total buttons; per button ``aid:vis/eff/size/icon`` where
+    ``vis`` is the Qt visible flag, ``eff`` effective visibility against
+    the card, ``size`` ``WxH``, ``icon`` ``ok`` when the rasterized pixmap
+    at the button's icon size is non-null, else ``blank``. Call only when
+    the gallery debug stream is enabled (does pixmap work per button).
+    """
+    try:
+        buttons = list(getattr(flyout, "_buttons", {}).items())
+    except Exception:
+        return "n=? (no _buttons)"
+    parts = []
+    for aid, btn in buttons:
+        try:
+            import shiboken6 as _shib
+
+            valid = bool(_shib.isValid(btn))
+        except Exception:
+            valid = False
+        if not valid:
+            parts.append(f"{aid}:invalid")
+            continue
+        try:
+            vis = "v" if bool(btn.isVisible()) else "h"
+        except Exception:
+            vis = "?"
+        try:
+            eff = "V" if (card is not None and bool(btn.isVisibleTo(card))) else ("v" if card is None else "H")
+        except Exception:
+            eff = "?"
+        try:
+            size = f"{btn.width()}x{btn.height()}"
+        except Exception:
+            size = "?"
+        try:
+            from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import (
+                normalized_icon_pixmap as _px,
+            )
+
+            icon_val = getattr(btn, "_icon_unchecked", None)
+            pm = _px(icon_val, 14)
+            icon = "ok" if (pm is not None and not pm.isNull()) else "blank"
+        except Exception:
+            icon = "?"
+        parts.append(f"{aid}:{vis}/{eff}/{size}/{icon}")
+    return f"n={len(parts)} " + ",".join(parts)
+
+
 def _notify_owner_hud(owner, text: str) -> None:
     """Transient HUD notice for card actions (fail-open)."""
     try:

@@ -1,7 +1,8 @@
 """Card delete ✕ button: round hover-only badge overhanging the corner.
 
-Reject (capsule ✕) only toggles the rejected flag; the top-right ✕ deletes
-the card via ``remove_from_grid`` (file on disk stays) + HUD notice.
+Reject (capsule ✕) only toggles the rejected flag (dim + strike-through,
+no corner mode switch); the top-right ✕ deletes the card via
+``remove_from_grid`` (file on disk stays) + HUD notice.
 """
 
 from __future__ import annotations
@@ -190,15 +191,18 @@ def test_capsule_and_badge_hide_show_together(qtbot) -> None:
     assert not flyout.isVisible()
 
 
-def test_delete_button_hidden_while_rejected(qtbot) -> None:
-    """One cross per corner: rejected cards show the toolkit ✕ badge instead."""
+def test_delete_button_visible_while_rejected(qtbot) -> None:
+    """No corner mode switch: rejected cards keep the same delete ✕.
+
+    Rejected is signalled by dim + strike-through only; the hover-only
+    delete button shows for rejected cards exactly like for normal ones.
+    """
     from tabs.image_gallery.ui.card import update_gallery_card
 
     item = GalleryItem(path=Path("/gallery/a.png"), mtime_ns=1, rejected=True)
     card = _card(qtbot, item, _owner([item]))
-    assert not _delete_button(card).isVisible()
     _hover(card, enter=True)
-    assert not _delete_button(card).isVisible()
+    assert _delete_button(card).isVisible()
     item.rejected = False
     update_gallery_card(card, item)
     _hover(card, enter=True)

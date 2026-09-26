@@ -188,9 +188,10 @@ def _log_hover(msg: str, card, *args) -> None:
 def sync_card_delete_button(card) -> None:
     """Reposition/hide the card's delete ✕ to match the card (fail-open).
 
-    Visible only while the card (or the button itself) is hovered, the card
-    sits on the button's host, and the item is not rejected (the toolkit
-    rejected ✕ badge owns the corner there — one cross per corner).
+    Visible while the card (or the button itself) is hovered and the card
+    sits on the button's host — in every item state, rejected included
+    (no corner mode switch: rejected is signalled by dim + strike-through,
+    the corner cross stays the same delete button everywhere).
     """
     try:
         btn = getattr(card, "_gallery_delete_btn", None)
@@ -223,20 +224,13 @@ def sync_card_delete_button(card) -> None:
             hovered = bool(getattr(card, "_gallery_delete_hovered", False))
         except Exception:
             hovered = False
-        try:
-            item = getattr(card, "_gallery_item", None)
-            rejected = bool(getattr(item, "rejected", False))
-        except Exception:
-            rejected = False
         # Transition-only trace: steady states stay silent.
         try:
             was = bool(btn.isVisible())
         except Exception:
             was = False
-        if not (in_host and shown and hovered) or rejected:
-            if rejected:
-                reason = "REJECTED"
-            elif not in_host:
+        if not (in_host and shown and hovered):
+            if not in_host:
                 reason = "NOT_IN_HOST"
             elif not shown:
                 reason = "NOT_SHOWN"
@@ -247,13 +241,12 @@ def sync_card_delete_button(card) -> None:
             except Exception:
                 pass
             _log_hover(
-                "delete hide hide-reason=%s in_host=%s shown=%s hovered=%s rejected=%s was_visible=%s",
+                "delete hide hide-reason=%s in_host=%s shown=%s hovered=%s was_visible=%s",
                 card,
                 reason,
                 in_host,
                 shown,
                 hovered,
-                rejected,
                 was,
             )
             try:
@@ -277,12 +270,11 @@ def sync_card_delete_button(card) -> None:
         except Exception:
             pass
         _log_hover(
-            "delete show in_host=%s shown=%s hovered=%s rejected=%s was_visible=%s",
+            "delete show in_host=%s shown=%s hovered=%s was_visible=%s",
             card,
             in_host,
             shown,
             hovered,
-            rejected,
             was,
         )
     except Exception as exc:
