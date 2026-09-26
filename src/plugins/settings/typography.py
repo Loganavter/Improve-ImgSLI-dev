@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.widgets import CustomGroupWidget, Label
+from ui.actions.search_index import PROP_GROUP
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QFont
@@ -52,15 +53,39 @@ def apply_settings_caption(widget) -> QFont:
     return apply_ui_font(widget, pixel_size=SETTINGS_CAPTION_PX)
 
 
-def settings_group(dialog, search_group: object) -> CustomGroupWidget:
-    """Build a title-styled group widget from a settings ``SearchGroup``.
+def settings_group(dialog, search_group: object) -> SettingsGroupWidget:
+    """Build a settings-styled group widget from a settings ``SearchGroup``.
 
-    Same as ``search_group.widget(dialog)`` plus the ``TITLE`` font — the
-    single entry point every settings page uses for its fieldsets.
+    Same title + Find Action ``PROP_GROUP`` tag as
+    ``search_group.widget(dialog)``, but as a :class:`SettingsGroupWidget`
+    — the single entry point every settings page uses for its fieldsets.
     """
-    widget = search_group.widget(dialog)  # type: ignore[attr-defined]
-    apply_settings_title(widget)
+    widget = SettingsGroupWidget(search_group.title(dialog))  # type: ignore[attr-defined]
+    widget.setProperty(PROP_GROUP, search_group.title_key)  # type: ignore[attr-defined]
     return widget
+
+
+class SettingsGroupWidget(CustomGroupWidget):
+    """Settings fieldset: ``TITLE`` caption, flush side insets.
+
+    The toolkit group keeps 12px left/right content insets; settings rows
+    manage their own horizontal rhythm, so the group contributes none —
+    radios/checkboxes align to the group edge (their own indicator padding
+    still applies). Vertical insets (title clearance, bottom) are untouched.
+    The trim re-runs inside the toolkit's own metrics pass, so it survives
+    UiScale and title changes.
+    """
+
+    def __init__(self, title_text: str = "", parent=None, **kwargs) -> None:
+        super().__init__(title_text, parent, **kwargs)
+        apply_settings_title(self)
+
+    def _apply_layout_metrics(self) -> None:
+        super()._apply_layout_metrics()
+        lay = self.layout()
+        if lay is not None:
+            margins = lay.contentsMargins()
+            lay.setContentsMargins(0, margins.top(), 0, margins.bottom())
 
 
 def settings_body_label(text: str, parent=None, **kwargs) -> Label:

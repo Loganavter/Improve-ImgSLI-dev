@@ -210,7 +210,9 @@ def _build_video_group(dialog, layout, p):
     dialog.video_group = settings_group(dialog, VIDEO)
     video_layout = QHBoxLayout()
     video_layout.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
-    dialog.lbl_fps = settings_body_label(VIDEO.text(dialog, "image_compare.settings.recording_fps") + ":")
+    # Bare "FPS" — universal abbreviation, no translation needed (and the
+    # spin keeps the Find Action member key for discoverability).
+    dialog.lbl_fps = settings_body_label("FPS:")
     dialog.spin_fps = SpinBox(default_value=60)
     apply_settings_body(dialog.spin_fps)
     VIDEO.tag_member(dialog.spin_fps, "image_compare.settings.recording_fps")

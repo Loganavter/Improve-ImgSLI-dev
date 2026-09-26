@@ -56,7 +56,9 @@ def build(dialog, p):
 
     dialog.lang_group = settings_group(dialog, LANGUAGE)
     lang_layout = QHBoxLayout()
-    lang_layout.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
+    # Flush sides: the group contributes no horizontal insets, so the row
+    # adds none either — radios align to the group edge.
+    lang_layout.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     dialog.radio_en = RadioButton(LANGUAGE.text(dialog, "settings.language_en"))
     dialog.radio_ru = RadioButton(LANGUAGE.text(dialog, "settings.language_ru"))
     dialog.radio_zh = RadioButton(LANGUAGE.text(dialog, "settings.language_zh"))

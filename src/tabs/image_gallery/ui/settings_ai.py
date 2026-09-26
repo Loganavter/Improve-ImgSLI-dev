@@ -86,7 +86,10 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
         AI_GROUP.text(dialog, "image_gallery.settings.base_url") if hasattr(AI_GROUP, "text") else "API base URL",
         parent=dialog,
     )
-    url_label.setFixedWidth(scaled_px(110))
+    # 150px fits the longest label ("Название модели", 139px at BODY size)
+    # in every UI language — narrower clips Cyrillic under the edit.
+    url_label.setFixedWidth(scaled_px(150))
+    dialog.gallery_ai_base_url_label = url_label
     dialog.gallery_ai_base_url = CustomLineEdit(parent=dialog)
     apply_settings_body(dialog.gallery_ai_base_url)
     dialog.gallery_ai_base_url.setText(current.base_url or DEFAULT_BASE_URL)
@@ -106,7 +109,8 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
         AI_GROUP.text(dialog, "image_gallery.settings.api_key") if hasattr(AI_GROUP, "text") else "API key",
         parent=dialog,
     )
-    key_label.setFixedWidth(scaled_px(110))
+    key_label.setFixedWidth(scaled_px(150))
+    dialog.gallery_ai_api_key_label = key_label
     dialog.gallery_ai_api_key = CustomLineEdit(parent=dialog)
     apply_settings_body(dialog.gallery_ai_api_key)
     dialog.gallery_ai_api_key.setText(current.api_key)
@@ -130,7 +134,8 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
         AI_GROUP.text(dialog, "image_gallery.settings.model_name") if hasattr(AI_GROUP, "text") else "Model name",
         parent=dialog,
     )
-    model_label.setFixedWidth(scaled_px(110))
+    model_label.setFixedWidth(scaled_px(150))
+    dialog.gallery_ai_model_label = model_label
     dialog.gallery_ai_model = CustomLineEdit(parent=dialog)
     apply_settings_body(dialog.gallery_ai_model)
     dialog.gallery_ai_model.setText(current.model)

@@ -17,7 +17,6 @@ from plugins.settings.registry import SettingsSection
 from plugins.settings.search import SearchIndex, group
 from plugins.settings.typography import (
     apply_settings_body,
-    settings_body_label,
     settings_caption_label,
     settings_group,
 )
@@ -61,12 +60,6 @@ def _build_render_backend_group(dialog, layout, p, builder):
     dialog.render_backend_group = settings_group(dialog, RENDER_BACKEND)
     row = QHBoxLayout()
     row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
-    dialog.lbl_rhi_backend = settings_body_label(
-        RENDER_BACKEND.text(dialog, "settings.render_backend_label") + ":",
-    )
-    RENDER_BACKEND.tag_member(
-        dialog.lbl_rhi_backend, "settings.render_backend_label"
-    )
     dialog.combo_rhi_backend = ComboBox()
     apply_settings_body(dialog.combo_rhi_backend)
     RENDER_BACKEND.tag_combo(dialog.combo_rhi_backend)
@@ -101,7 +94,6 @@ def _build_render_backend_group(dialog, layout, p, builder):
     idx = dialog.combo_rhi_backend.findData(p.rhi_backend or "default")
     if idx != -1:
         dialog.combo_rhi_backend.setCurrentIndex(idx)
-    row.addWidget(dialog.lbl_rhi_backend)
     row.addWidget(dialog.combo_rhi_backend, 1)
     backend_row = builder.row(row)
     dialog.render_backend_group.add_widget(backend_row)

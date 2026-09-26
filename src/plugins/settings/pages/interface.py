@@ -67,7 +67,8 @@ def build(dialog, p):
     builder = page_nav_builder(dialog, tag="settings-interface")
     dialog.ui_mode_group = settings_group(dialog, UI_MODE)
     row = QHBoxLayout()
-    row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
+    # Flush sides, same as the language row in general.py.
+    row.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     dialog.radio_ui_mode_beginner = RadioButton(
         UI_MODE.text(dialog, "settings.ui_mode_beginner")
     )
