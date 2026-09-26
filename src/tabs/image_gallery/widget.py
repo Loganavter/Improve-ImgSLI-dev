@@ -143,6 +143,7 @@ class ImageGalleryWidget(QWidget):
         # Wire strip signals -> use_cases (keep_best_of_series etc).
         try:
             self.stats_strip.keepBestClicked.connect(lambda: self._on_keep_best())
+            self.stats_strip.showAllClicked.connect(lambda: self._on_show_all())
             self.stats_strip.cleanClicked.connect(lambda: self._on_clean_rejected())
             self.stats_strip.compareClicked.connect(lambda: self._on_compare_finalists())
         except Exception:
@@ -1103,6 +1104,14 @@ class ImageGalleryWidget(QWidget):
         except Exception:
             pass
 
+    def _on_show_all(self) -> None:
+        try:
+            from tabs.image_gallery.use_cases import triage as _triage
+
+            _triage.show_all(self._owner_for_triage())
+        except Exception:
+            pass
+
     def _on_clean_rejected(self) -> None:
         try:
             # Prefer S3 overlay if rejected items exist.
@@ -1208,6 +1217,23 @@ class ImageGalleryWidget(QWidget):
                 pass
             self.stats_strip.set_stats(total, series_cnt, redundant)
             self.stats_strip.set_rejected_count(rejected_n)
+            try:
+                from tabs.image_gallery.use_cases.triage import should_show_all as _should_show_all
+
+                groups = [cl for cl in (filtered or []) if len(cl) >= 2]
+                if not groups:
+                    # Flat fallback: group grid items by series_id.
+                    try:
+                        from tabs.image_gallery.use_cases.triage import _flat_series_groups
+
+                        groups = _flat_series_groups(self._items or [])
+                    except Exception:
+                        groups = []
+                self.stats_strip.set_keep_mode(
+                    "show" if _should_show_all(self._items or [], groups) else "keep"
+                )
+            except Exception:
+                pass
             self.stats_strip.set_mode(str(mode or "fidelity"), self._source_path)
             self.stats_strip.show()
         except Exception:

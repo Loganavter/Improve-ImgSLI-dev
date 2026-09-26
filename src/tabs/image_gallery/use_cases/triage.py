@@ -773,6 +773,15 @@ def _refresh_owner_grid(owner) -> None:
                     setter(int(n))
             except Exception:
                 pass
+            # Keep best ↔ Show all: when every series has exactly one
+            # non-rejected left, the strip button flips to "Show all".
+            try:
+                strip = getattr(w, "stats_strip", None)
+                mode_setter = getattr(strip, "set_keep_mode", None) if strip is not None else None
+                if callable(mode_setter):
+                    mode_setter("show" if is_keep_best_done(owner) else "keep")
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -890,6 +899,117 @@ def keep_best_of_series(owner):  # type: ignore[no-untyped-def]
     except Exception:
         pass
     return {}
+
+
+def _is_rejected(it) -> bool:
+    """Single rejected predicate shared by keep/show-all helpers."""
+    try:
+        return bool(getattr(it, "rejected", getattr(it, "triage_rejected", False)))
+    except Exception:
+        return False
+
+
+def should_show_all(items, groups) -> bool:
+    """Pure predicate: every series (≥2 members) has exactly one survivor.
+
+    *groups* are member lists (series clusters or series_id groupings).
+    Returns True only when at least one group has ≥2 members, every such
+    group keeps exactly one non-rejected item, and at least one item is
+    rejected (i.e. ``keep_best`` output — not an untouched gallery).
+    """
+    series_groups = [list(g) for g in (groups or []) if len(list(g or [])) >= 2]
+    if not series_groups:
+        return False
+    any_rejected = False
+    for members in series_groups:
+        survivors = 0
+        for m in members:
+            if _is_rejected(m):
+                any_rejected = True
+            else:
+                survivors += 1
+        if survivors != 1:
+            return False
+    return any_rejected
+
+
+def _flat_series_groups(items) -> list[list]:
+    """Group *items* by ``provenance_series_id``/``series_id`` (≥2 kept)."""
+    groups: dict[str, list] = {}
+    for it in items or []:
+        try:
+            key = getattr(it, "provenance_series_id", None) or getattr(it, "series_id", None)
+        except Exception:
+            key = None
+        if key is None:
+            continue
+        groups.setdefault(str(key), []).append(it)
+    return [members for members in groups.values() if len(members) >= 2]
+
+
+def is_keep_best_done(owner) -> bool:
+    """True when every series has exactly one non-rejected item left."""
+    try:
+        items = _items_of(owner)
+    except Exception:
+        items = []
+    try:
+        clusters = _series_of(owner)
+    except Exception:
+        clusters = []
+    # Normalize clusters to member lists (Series dataclass or plain list).
+    groups: list[list] = []
+    for cl in clusters or []:
+        try:
+            if hasattr(cl, "members"):
+                members = list(getattr(cl, "members", []) or [])
+            elif isinstance(cl, (list, tuple)):
+                members = list(cl)
+            else:
+                continue
+            if len(members) >= 2:
+                groups.append(members)
+        except Exception:
+            continue
+    if not groups:
+        # No cluster view (flat grid) — fall back to series_id grouping,
+        # mirroring keep_best_of_series.
+        try:
+            groups = _flat_series_groups(items)
+        except Exception:
+            groups = []
+    try:
+        return bool(should_show_all(items, groups))
+    except Exception:
+        return False
+
+
+def show_all(owner) -> int:
+    """Clear all rejected flags (inverse of ``keep_best_of_series``).
+
+    Returns number of items restored.
+    """
+    items = _items_of(owner)
+    restored = 0
+    for it in items:
+        if not _is_rejected(it):
+            continue
+        try:
+            it.rejected = False
+        except Exception:
+            pass
+        try:
+            it.triage_rejected = False  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        restored += 1
+    _refresh_owner_grid(owner)
+    try:
+        _emit_rank_snapshot(owner)
+    except Exception:
+        pass
+    logger.debug("triage.show_all: restored %d", restored)
+    return restored
 
 
 # Ensure provenance fields are present on GalleryItem (Stage 2 safety model)

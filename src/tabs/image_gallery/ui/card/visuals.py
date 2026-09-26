@@ -194,7 +194,8 @@ def _apply_rejected_visuals(card: Button, item: GalleryItem) -> None:
                 try:
                     card._gallery_badge = badge_text  # type: ignore[attr-defined]
                     rank_bg = _token_qcolor("button.toggle.background.checked", "#555555")
-                    card._gallery_badge_style = (True, rank_bg, rank_bg, QColor("#ffffff"))  # type: ignore[attr-defined]
+                    # Rank pill text is always black (both themes).
+                    card._gallery_badge_style = (True, rank_bg, rank_bg, QColor("#000000"))  # type: ignore[attr-defined]
                     card.setBorderColor(_card_border_color())
                 except Exception:
                     pass

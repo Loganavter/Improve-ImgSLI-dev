@@ -1385,6 +1385,11 @@ class GalleryController:
 
         return _keep(self)
 
+    def show_all(self) -> int:
+        from tabs.image_gallery.use_cases.triage import show_all as _show
+
+        return int(_show(self))
+
     def clean_rejected(self) -> list[dict]:
         from tabs.image_gallery.use_cases.triage import clean_rejected as _clean
 

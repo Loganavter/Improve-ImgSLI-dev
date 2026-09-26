@@ -256,7 +256,7 @@ def test_best_card_has_no_accent_outline(qapp, _production_dark_palettes):
     card.deleteLater()
 
 
-def test_rank_badge_text_is_white(qapp):
+def test_rank_badge_text_is_black(qapp):
     from types import SimpleNamespace
 
     card = build_gallery_card(_item(), parent=None)
@@ -267,7 +267,7 @@ def test_rank_badge_text_is_white(qapp):
     )
     assert getattr(card, "_gallery_badge", None) == "#3"
     _filled, _bg, _bd, txt = card._gallery_badge_style
-    assert txt.name().lower() == "#ffffff"
+    assert txt.name().lower() == "#000000"
     card.deleteLater()
 
 

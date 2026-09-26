@@ -147,22 +147,21 @@ class _ReviewPlate(QWidget):
         try:
             from sli_ui_toolkit.managers import ThemeManager
 
-            from ui.theming import try_resolve_theme_color
-
-            c = try_resolve_theme_color(
-                ThemeManager.get_instance(), "list_item.background.hover"
-            )
-            if c is not None:
-                return c if isinstance(c, QColor) else QColor(c)
-        except Exception:
-            pass
-        try:
-            from sli_ui_toolkit.managers import ThemeManager
-
             dark = bool(ThemeManager.get_instance().is_dark())
         except Exception:
             dark = False
-        return QColor(255, 255, 255, 38) if dark else QColor(0, 0, 0, 26)
+        try:
+            from tabs.image_gallery.ui.quick_look.labels_theme import _token_rgba_qcolor
+
+            c = _token_rgba_qcolor(
+                "list_item.background.hover",
+                (255, 255, 255, 38) if dark else (0, 0, 0, 26),
+            )
+            if c is not None:
+                return c
+        except Exception:
+            pass
+        return QColor(0, 0, 0, 0)
 
     def _on_theme_changed(self) -> None:
         try:
@@ -858,7 +857,13 @@ class _CleanReviewResizeGrip(QWidget):
                 return c if isinstance(c, QColor) else QColor(c)
         except Exception:
             pass
-        return QColor("#e5e5e5")
+        try:
+            from tabs.image_gallery.ui.quick_look.labels_theme import _token_color
+
+            return _token_color("separator.color", "#e5e5e5")
+        except Exception:
+            pass
+        return QColor(0, 0, 0, 0)
 
     def _on_theme_changed(self) -> None:
         try:

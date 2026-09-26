@@ -489,14 +489,49 @@ def _hide_card_hover_underline(card) -> None:  # type: ignore[no-untyped-def]
 
 # -- Hover mini-capsule: IconActionFlyout pattern --------------------
 
-def _gallery_card_actions_spec(include_source: bool = False) -> list:
-    """Specs for hover capsule: ★ make best · ✕ reject · ⇄ compare (+ Set as source for fidelity)."""
+def _pale_reject_color():
+    """Rejected-state capsule ✕: danger hue at disabled alpha (pale, still clickable).
+
+    Disabled via ``setEnabled(False)`` would block the un-reject click, so
+    the paleness is a foreground color with the toolkit's disabled alpha
+    (110, same wash as atomic checkbox/radio) instead of a state switch.
+    """
+    try:
+        from PySide6.QtGui import QColor as _QC
+
+        base = _capsule_icon_color("reject")
+        pale = _QC(base)
+        try:
+            pale.setAlpha(110)
+        except Exception:
+            pass
+        return pale
+    except Exception:
+        return None
+
+
+def _rejected_tooltip() -> str:
+    """Tooltip for the capsule ✕ on a rejected card (un-reject action)."""
+    return "↩ Return"
+
+
+def _gallery_card_actions_spec(include_source: bool = False, rejected: bool = False) -> list:
+    """Specs for hover capsule: ★ make best · ✕ reject · ⇄ compare (+ Set as source for fidelity).
+
+    On a rejected card the ✕ flips to the return action (pale icon +
+    "↩ Return" tooltip); the ``action_id`` stays ``reject`` so the
+    trigger handler (toggle) is unchanged.
+    """
     try:
         from sli_ui_toolkit.widgets import IconAction
 
         actions = [
             IconAction(action_id="make_best", icon="star", tooltip="★ Make best"),
-            IconAction(action_id="reject", icon="close", tooltip="✕ Reject"),
+            IconAction(
+                action_id="reject",
+                icon="close",
+                tooltip=_rejected_tooltip() if rejected else "✕ Reject",
+            ),
             IconAction(action_id="compare", icon="compare", tooltip="⇄ Compare"),
         ]
         if include_source:
@@ -566,7 +601,13 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
             return
 
         # Fidelity mode adds "Set as source" to the capsule (A2 spec).
+        # Rejected cards flip the ✕ to the return action (tooltip + pale).
         try:
+            try:
+                _item = getattr(card, "_gallery_item", None)
+                _rejected_card = bool(getattr(_item, "rejected", False))
+            except Exception:
+                _rejected_card = False
             _mode = getattr(card, "_gallery_mode", None)
             if _mode is None:
                 _owner_tmp = owner if owner is not None else getattr(card, "_gallery_owner", None)
@@ -579,19 +620,27 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                 _include = ms == "fidelity"
             except Exception:
                 _include = False
-            flyout.set_actions(_gallery_card_actions_spec(include_source=_include))
+            flyout.set_actions(
+                _gallery_card_actions_spec(include_source=_include, rejected=_rejected_card)
+            )
             _hdbg(
-                "capsule mode mode=%r include_source=%d path=%s",
+                "capsule mode mode=%r include_source=%d rejected=%d path=%s",
                 ms,
                 1 if _include else 0,
+                1 if _rejected_card else 0,
                 getattr(getattr(card, "_gallery_item", None), "path", "?"),
             )
         except Exception as exc:
             _hdbg("capsule mode-resolve FAILED err=%r", exc)
 
         # S2 tri-color capsule icons: star gold · cross red · swap accent
-        # (painter-pipeline foreground, no QSS).
+        # (painter-pipeline foreground, no QSS). Rejected cards: pale ✕.
         try:
+            try:
+                _item_fg = getattr(card, "_gallery_item", None)
+                _rejected_fg = bool(getattr(_item_fg, "rejected", False))
+            except Exception:
+                _rejected_fg = False
             for _aid in ("make_best", "reject", "compare", "set_source"):
                 try:
                     _btn = flyout.action_button(_aid)
@@ -600,7 +649,10 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                 if _btn is None:
                     continue
                 try:
-                    _btn.setForegroundColor(_capsule_icon_color(_aid))
+                    if _aid == "reject" and _rejected_fg:
+                        _btn.setForegroundColor(_pale_reject_color())
+                    else:
+                        _btn.setForegroundColor(_capsule_icon_color(_aid))
                 except Exception:
                     pass
         except Exception:
