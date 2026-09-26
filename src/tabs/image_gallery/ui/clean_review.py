@@ -701,8 +701,6 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             cell_layout.addWidget(thumb_label)
 
             name = getattr(it, "name", None) or Path(getattr(it, "path", "")).name or str(getattr(it, "path", ""))
-            series_id = getattr(it, "provenance_series_id", None) or getattr(it, "series_id", None)
-            prov_line = f"series {series_id}" if series_id else "ungrouped"
 
             name_lbl = Label(str(name), pixel_size=10, parent=cell)
             name_lbl.setObjectName("clean_review_row_name")
@@ -713,11 +711,6 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             except Exception:
                 pass
             cell_layout.addWidget(name_lbl)
-
-            prov_lbl = Label(str(prov_line), pixel_size=9, parent=cell)
-            prov_lbl.setObjectName("clean_review_row_provenance")
-            prov_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            cell_layout.addWidget(prov_lbl)
 
             restore_btn = Button(text="↩ Restore", variant="surface", parent=cell)
             restore_btn.setObjectName("clean_review_restore")

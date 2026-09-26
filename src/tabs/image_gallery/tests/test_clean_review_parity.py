@@ -813,3 +813,16 @@ def test_move_button_paints_solid_accent(qtbot, tmp_path):
     assert abs(center.green() - accent.green()) <= 12
     assert abs(center.blue() - accent.blue()) <= 12
     overlay.hide()
+
+
+def test_thumb_cell_has_no_provenance_sublabel(qtbot, tmp_path):
+    """Mockup v3 thumb cell: thumbnail + name + Restore only.
+
+    No per-thumb series sublabel (series live in the provenance line).
+    """
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show_for(owner)
+    assert overlay.findChild(QWidget, "clean_review_row_provenance") is None
+    assert overlay.findChild(QWidget, "clean_review_row_name") is not None
+    overlay.hide()
