@@ -23,10 +23,13 @@ Status: `Audited → фиксы применены` (см. «Статус пра
 - S1: спиннер + `n/N` в тулбаре (`toolbar.py:221-252`) и empty-state
   (`ui/states.py:195-237`), `✓ triage complete` по завершении
   (`toolbar.py:254-272`).
-- Card: rejected = `QGraphicsOpacityEffect(0.38)` + strike-through + красный
-  бейдж `✕`, при этом карточка остаётся кликабельной
-  (`ui/card.py:744-857`); badge-приоритет `rejected > AI tie-break… > ★ BEST > #N`
-  (`card.py:773-824`).
+- Card: rejected = overlay dim-wash (substrate @0.62 ≈ effect 0.38) +
+  strike-through, без toolkit-бейджа `✕` и без `QGraphicsOpacityEffect`
+  (эффект диммил всё поддерево включая hover-капсулу — она выцветала;
+  wash красит только саму карточку, дети crisp), карточка остаётся
+  кликабельной; badge-приоритет overlay-пилюль `AI tie-break… > ★ BEST > #N`,
+  rejected подавляет overlay-пилюлю (`ui/card/visuals.py`,
+  `ui/card/painters.py:_gallery_rejected_dim`).
 - Series grid: кластеры ≥2 с коллапс-хедерами `SERIES {i} · {hub} · {n} VARIANTS ▾`,
   UNGROUPED-хвост (`ui/grid_view.py:338-398`).
 - S3: `TopLevelInWindowOverlay(close_on_escape=True)`, provenance-строка
