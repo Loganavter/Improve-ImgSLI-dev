@@ -59,7 +59,7 @@ def build(dialog, p):
 def _build_render_backend_group(dialog, layout, p, builder):
     dialog.render_backend_group = settings_group(dialog, RENDER_BACKEND)
     row = QHBoxLayout()
-    row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
+    row.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     dialog.combo_rhi_backend = ComboBox()
     apply_settings_body(dialog.combo_rhi_backend)
     RENDER_BACKEND.tag_combo(dialog.combo_rhi_backend)

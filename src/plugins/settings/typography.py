@@ -66,15 +66,19 @@ def settings_group(dialog, search_group: object) -> SettingsGroupWidget:
 
 
 class SettingsGroupWidget(CustomGroupWidget):
-    """Settings fieldset: ``TITLE`` caption, flush side insets.
+    """Settings fieldset: ``TITLE`` caption, near-flush side insets.
 
     The toolkit group keeps 12px left/right content insets; settings rows
-    manage their own horizontal rhythm, so the group contributes none —
-    radios/checkboxes align to the group edge (their own indicator padding
-    still applies). Vertical insets (title clearance, bottom) are untouched.
-    The trim re-runs inside the toolkit's own metrics pass, so it survives
-    UiScale and title changes.
+    manage their own horizontal rhythm, so the group keeps only a 2px
+    guard — exactly enough that opaque children (``QLineEdit`` background,
+    ``Button`` washes) never paint over the 1px border, close enough to
+    read as edge-aligned. Vertical insets (title clearance, bottom) are
+    untouched. The trim re-runs inside the toolkit's own metrics pass, so
+    it survives UiScale and title changes.
     """
+
+    #: Side guard kept so opaque children clear the 1px group border.
+    SIDE_GUARD_PX = 10
 
     def __init__(self, title_text: str = "", parent=None, **kwargs) -> None:
         super().__init__(title_text, parent, **kwargs)
@@ -85,7 +89,10 @@ class SettingsGroupWidget(CustomGroupWidget):
         lay = self.layout()
         if lay is not None:
             margins = lay.contentsMargins()
-            lay.setContentsMargins(0, margins.top(), 0, margins.bottom())
+            lay.setContentsMargins(
+                self.SIDE_GUARD_PX, margins.top(),
+                self.SIDE_GUARD_PX, margins.bottom(),
+            )
 
 
 def settings_body_label(text: str, parent=None, **kwargs) -> Label:

@@ -63,11 +63,54 @@ def test_settings_group_titles_are_title(qapp: QApplication):
         assert groups, "settings dialog must build group widgets"
         for group in groups:
             assert _px(group) == SETTINGS_TITLE_PX, group.get_title()
-            # Flush sides: rows align to the group edge, no group-level
-            # horizontal insets (vertical title clearance untouched).
+            # Near-flush sides: rows align to the group edge, keeping only
+            # the 10px guard so opaque children clear the 1px border
+            # (vertical title clearance untouched).
             margins = group.layout().contentsMargins()
-            assert margins.left() == 0, group.get_title()
-            assert margins.right() == 0, group.get_title()
+            assert margins.left() == 10, group.get_title()
+            assert margins.right() == 10, group.get_title()
+    finally:
+        dialog.close()
+
+
+def test_settings_group_children_clear_border(qapp: QApplication):
+    """No visible child may reach the 1px group border (it gets overpainted).
+
+    Regression: zero side insets let opaque QLineEdit backgrounds chew
+    notches into the group frame. Walks every settings page.
+    """
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QWidget
+
+    from plugins.settings.typography import SettingsGroupWidget
+
+    dialog = _dialog(qapp)
+    try:
+        stack = dialog.pages_stack
+        for i in range(stack.count()):
+            stack.setCurrentIndex(i)
+            qapp.processEvents()
+            page = stack.widget(i)
+            for group in page.findChildren(SettingsGroupWidget):
+                gw = group.width()
+                lay = group.layout()
+                # Rows span the full content width — no extra side insets
+                # at row level, only the 5px group guard.
+                for i in range(lay.count()):
+                    row = lay.itemAt(i).widget()
+                    if row is None or not row.isVisibleTo(group):
+                        continue
+                    left = row.mapTo(group, QPoint(0, 0)).x()
+                    right = row.mapTo(group, QPoint(row.width(), 0)).x()
+                    assert left == 10, (group.get_title(), row, left)
+                    assert right == gw - 10, (group.get_title(), row, right, gw)
+                for child in group.findChildren(QWidget):
+                    if not child.isVisibleTo(group) or child.width() <= 0:
+                        continue
+                    left = child.mapTo(group, QPoint(0, 0)).x()
+                    right = child.mapTo(group, QPoint(child.width(), 0)).x()
+                    assert left >= 10, (group.get_title(), child, left)
+                    assert right <= gw - 10, (group.get_title(), child, right, gw)
     finally:
         dialog.close()
 
@@ -187,6 +230,49 @@ def test_settings_gallery_labels_fit(qapp: QApplication):
         ):
             need = QFontMetrics(label.font()).horizontalAdvance(label.text())
             assert label.width() >= need, (label.text(), label.width(), need)
+    finally:
+        dialog.close()
+
+
+def test_settings_capture_buttons_are_uniform(qapp: QApplication):
+    """Shortcut capture buttons share one cell regardless of chord text.
+
+    Regression: the base Button clears fixed min/max on the first
+    empty→text transition, so heights stretched after wrapped labels
+    and widths followed the chord text.
+    """
+    from sli_ui_toolkit.managers import scaled_px
+
+    dialog = _dialog(qapp)
+    try:
+        dialog.pages_stack.setCurrentWidget(dialog.page_keyboard)
+        qapp.processEvents()
+        assert dialog._keyboard_capture_rows
+        for action_id, cap in dialog._keyboard_capture_rows.items():
+            assert (cap.width(), cap.height()) == (
+                scaled_px(140),
+                scaled_px(28),
+            ), (action_id, cap.width(), cap.height())
+    finally:
+        dialog.close()
+
+
+def test_settings_keyboard_rows_are_uniform(qapp: QApplication):
+    """Capture rows share one height — no uneven gaps.
+
+    Regression: single-line rows collapsed to 28px next to 44px wrapped
+    ones, so the vertical rhythm fell apart.
+    """
+    dialog = _dialog(qapp)
+    try:
+        dialog.pages_stack.setCurrentWidget(dialog.page_keyboard)
+        qapp.processEvents()
+        assert dialog._keyboard_filter_rows
+        heights = set()
+        for row, _group, _entry in dialog._keyboard_filter_rows:
+            assert row.isVisibleTo(dialog.page_keyboard)
+            heights.add(row.height())
+        assert len(heights) == 1, sorted(heights)
     finally:
         dialog.close()
 

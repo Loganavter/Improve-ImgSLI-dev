@@ -209,7 +209,7 @@ def _populate_interpolation_combos(dialog, p):
 def _build_video_group(dialog, layout, p):
     dialog.video_group = settings_group(dialog, VIDEO)
     video_layout = QHBoxLayout()
-    video_layout.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
+    video_layout.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     # Bare "FPS" — universal abbreviation, no translation needed (and the
     # spin keeps the Find Action member key for discoverability).
     dialog.lbl_fps = settings_body_label("FPS:")

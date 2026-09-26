@@ -131,7 +131,7 @@ def build(dialog, p):
     # row here would nearly double the gap between them.
     for rb in font_radios:
         row_widget = builder.row(rb)
-        row_widget.layout().setContentsMargins(scaled_px(5), 0, scaled_px(5), 0)
+        row_widget.layout().setContentsMargins(0, 0, 0, 0)
         dialog.font_group.add_widget(row_widget)
 
     dialog.combo_font_family = ComboBox()
@@ -145,7 +145,7 @@ def build(dialog, p):
         dialog.combo_font_family.addItem(fam, fam)
     font_combo_container = QWidget()
     fc_layout = QHBoxLayout(font_combo_container)
-    fc_layout.setContentsMargins(scaled_px(5), 0, scaled_px(5), scaled_px(5))
+    fc_layout.setContentsMargins(0, 0, 0, scaled_px(5))
     fc_layout.addWidget(dialog.combo_font_family)
     fc_layout.addStretch()
     dialog.font_group.add_widget(font_combo_container)
@@ -184,7 +184,7 @@ def build(dialog, p):
 
     dialog.other_ui_group = settings_group(dialog, MAX_NAME)
     len_layout = QHBoxLayout()
-    len_layout.setContentsMargins(scaled_px(12), scaled_px(5), scaled_px(12), scaled_px(5))
+    len_layout.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     value = max(p.min_limit, min(p.max_limit, p.current_max_length))
     dialog.spin_max_length = SpinBox(default_value=value)
     apply_settings_body(dialog.spin_max_length)
@@ -201,7 +201,7 @@ def build(dialog, p):
 
     dialog.ui_scale_group = settings_group(dialog, UI_SCALE)
     scale_layout = QHBoxLayout()
-    scale_layout.setContentsMargins(scaled_px(12), scaled_px(5), scaled_px(12), scaled_px(5))
+    scale_layout.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     # Free (continuous) slider: value = factor * 100 (range 50..250 →
     # 0.50..2.50, matching UiScale's clamp; any step of 0.01 is available).
     dialog.slider_ui_scale = ValueSlider(

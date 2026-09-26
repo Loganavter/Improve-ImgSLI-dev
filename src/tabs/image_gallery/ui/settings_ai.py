@@ -80,7 +80,7 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
 
     # Base URL
     url_row = QHBoxLayout()
-    url_row.setContentsMargins(scaled_px(5), scaled_px(4), scaled_px(5), scaled_px(4))
+    url_row.setContentsMargins(0, scaled_px(4), 0, scaled_px(4))
     url_row.setSpacing(scaled_px(8))
     url_label = settings_body_label(
         AI_GROUP.text(dialog, "image_gallery.settings.base_url") if hasattr(AI_GROUP, "text") else "API base URL",
@@ -103,7 +103,7 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
 
     # API key (echoMode password)
     key_row = QHBoxLayout()
-    key_row.setContentsMargins(scaled_px(5), scaled_px(4), scaled_px(5), scaled_px(4))
+    key_row.setContentsMargins(0, scaled_px(4), 0, scaled_px(4))
     key_row.setSpacing(scaled_px(8))
     key_label = settings_body_label(
         AI_GROUP.text(dialog, "image_gallery.settings.api_key") if hasattr(AI_GROUP, "text") else "API key",
@@ -128,7 +128,7 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
 
     # Model
     model_row = QHBoxLayout()
-    model_row.setContentsMargins(scaled_px(5), scaled_px(4), scaled_px(5), scaled_px(4))
+    model_row.setContentsMargins(0, scaled_px(4), 0, scaled_px(4))
     model_row.setSpacing(scaled_px(8))
     model_label = settings_body_label(
         AI_GROUP.text(dialog, "image_gallery.settings.model_name") if hasattr(AI_GROUP, "text") else "Model name",

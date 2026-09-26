@@ -82,7 +82,7 @@ def build(dialog, p):
 
     dialog.sys_group = settings_group(dialog, APPEARANCE)
     theme_row = QHBoxLayout()
-    theme_row.setContentsMargins(scaled_px(5), scaled_px(5), scaled_px(5), scaled_px(5))
+    theme_row.setContentsMargins(0, scaled_px(5), 0, scaled_px(5))
     dialog.combo_theme = ComboBox()
     apply_settings_body(dialog.combo_theme)
     APPEARANCE.tag_combo(dialog.combo_theme, "label.theme")
