@@ -27,8 +27,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QPainter, QPixmap
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import scaled_px
@@ -57,6 +57,141 @@ FILMSTRIP_MAX_CELLS = 8
 # background), so CleanReviewOverlay paints this veil itself in gallery
 # scope — never in the toolkit.
 DIM_VEIL_ALPHA = round(0.45 * 255)  # 115
+
+# Phase 1 — card plate geometry (mockup v3: 900x440 white card, rx12).
+REVIEW_CARD_WIDTH_PX = 900
+REVIEW_CARD_HEIGHT_PX = 440
+REVIEW_CARD_RADIUS_PX = 12
+
+
+class _ReviewPlate(QWidget):
+    """S3 clean-review card plate — ``gallery.card.background`` fill + border, rx12.
+
+    Mirrors quick-look ``_CardPlate``
+    (``ui/quick_look/overlay_build.py``): painter pipeline owns visuals
+    (explicit paintEvent, theme-subscribed); no QSS, no palette. Token
+    chains mirror the grid-card seam. All QColor() calls take resolved
+    variables — never literals
+    (contracts/test_no_hardcoded_qcolor.py baseline).
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._bg = self._resolve_bg()
+        self._border = self._resolve_border()
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _resolve_bg():
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            from ui.theming import try_resolve_theme_color
+
+            mgr = ThemeManager.get_instance()
+            for token in ("gallery.card.background", "surface.list", "surface.background"):
+                c = try_resolve_theme_color(mgr, token)
+                if c is not None:
+                    return c if isinstance(c, QColor) else QColor(c)
+        except Exception:
+            pass
+        try:
+            from tabs.image_gallery.ui.quick_look.labels_theme import _is_dark_theme, _token_color
+
+            return _token_color(
+                "gallery.card.background", "#ffffff" if not _is_dark_theme() else "#383838"
+            )
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_border():
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            from ui.theming import try_resolve_theme_color
+
+            mgr = ThemeManager.get_instance()
+            for token in ("gallery.card.border", "flyout.border"):
+                try:
+                    c = try_resolve_theme_color(mgr, token)
+                except Exception:
+                    c = None
+                if c is not None:
+                    return c if isinstance(c, QColor) else QColor(c)
+        except Exception:
+            pass
+        try:
+            from tabs.image_gallery.ui.quick_look.labels_theme import _is_dark_theme, _token_color
+
+            return _token_color(
+                "gallery.card.border", "#e2e4e8" if not _is_dark_theme() else "#4a4a4a"
+            )
+        except Exception:
+            return None
+
+    def _on_theme_changed(self) -> None:
+        try:
+            self._bg = self._resolve_bg()
+        except Exception:
+            pass
+        try:
+            self._border = self._resolve_border()
+        except Exception:
+            pass
+        try:
+            self.update()
+        except Exception:
+            pass
+
+    def on_theme_changed(self) -> None:
+        self._on_theme_changed()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        try:
+            from PySide6.QtCore import QRectF
+            from PySide6.QtGui import QPen
+
+            from sli_ui_toolkit.managers import scaled_px
+
+            p = QPainter(self)
+            try:
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                r = QRectF(self.rect())
+                rx = scaled_px(REVIEW_CARD_RADIUS_PX)
+                p.setPen(Qt.PenStyle.NoPen)
+                try:
+                    bg = self._bg
+                except Exception:
+                    bg = self._resolve_bg()
+                p.setBrush(bg)
+                p.drawRoundedRect(r, rx, rx)
+                try:
+                    border = self._border
+                except Exception:
+                    border = self._resolve_border()
+                try:
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.setPen(QPen(border, 1))
+                    # Border fully inside the widget rect (not straddling):
+                    # the outer half of a straddled 1px pen is clipped and
+                    # its AA fade makes the visible line sit ~1px off.
+                    p.drawRoundedRect(r.adjusted(1, 1, -1, -1), rx, rx)
+                except Exception:
+                    pass
+            finally:
+                p.end()
+        except Exception:
+            pass
+        try:
+            super().paintEvent(event)
+        except Exception:
+            pass
 
 
 def _hub_name_for_series(owner, series_id: str) -> str | None:
@@ -138,7 +273,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             close_on_deactivate=True,
         )
         self._owner = owner
-        self._content = QWidget(self)
+        self._content = _ReviewPlate(self)
         self._content.setObjectName("CleanReviewContent")
         # Theme tokens — painter pipeline owns visuals (no QSS).
         # Uses ThemeManager palette tokens via toolkit Button/Label (no direct get_color call
@@ -233,14 +368,18 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
 
         # Host content in overlay — centered slot.
         self.add_widget(self._content, slot=None)
-        # Size content with scaled_px.
+        # Phase 1: mockup-v3 plate floor 900x440 (scaled), not a suggestion.
         try:
-            self._content.setMinimumWidth(scaled_px(520))
-            self._content.setMinimumHeight(scaled_px(360))
+            self._content.setMinimumWidth(scaled_px(REVIEW_CARD_WIDTH_PX))
+            self._content.setMinimumHeight(scaled_px(REVIEW_CARD_HEIGHT_PX))
         except Exception:
             pass
         self._row_widgets: list[QWidget] = []
         self._toast_manager: ToastManager | None = None
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        # QuickLook idiom (quick_look.py:848): overlay hint = plate floor.
+        return QSize(scaled_px(REVIEW_CARD_WIDTH_PX), scaled_px(REVIEW_CARD_HEIGHT_PX))
 
     # -- public API ---------------------------------------------------
 

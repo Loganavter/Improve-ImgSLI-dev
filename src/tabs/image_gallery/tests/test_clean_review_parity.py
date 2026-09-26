@@ -30,9 +30,12 @@ from PySide6.QtWidgets import QApplication, QScrollArea, QWidget
 from tabs.image_gallery.ui.clean_review import (
     DIM_VEIL_ALPHA,
     FILMSTRIP_MAX_CELLS,
+    REVIEW_CARD_HEIGHT_PX,
+    REVIEW_CARD_WIDTH_PX,
     THUMB_HEIGHT_PX,
     THUMB_WIDTH_PX,
     CleanReviewOverlay,
+    _ReviewPlate,
 )
 from sli_ui_toolkit.managers import scaled_px
 
@@ -321,3 +324,73 @@ def test_show_for_sizes_overlay_to_parent(qtbot, tmp_path):
     overlay.show_for(owner)
     assert overlay.geometry() == parent.rect()
     assert overlay._content.isVisibleTo(overlay)
+
+
+# -- Phase 1: card plate (mockup v3: 900x440 white card, rx12) ----------
+
+
+def test_review_plate_min_size_matches_mockup(qtbot, tmp_path):
+    """_content is a _ReviewPlate with the mockup 900x440 floor (scaled);
+    the overlay sizeHint mirrors it (QuickLook :848 idiom)."""
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    assert isinstance(overlay._content, _ReviewPlate)
+    assert _ReviewPlate.paintEvent is not QWidget.paintEvent
+    assert overlay._content.minimumWidth() == scaled_px(REVIEW_CARD_WIDTH_PX)
+    assert overlay._content.minimumHeight() == scaled_px(REVIEW_CARD_HEIGHT_PX)
+    assert REVIEW_CARD_WIDTH_PX == 900
+    assert REVIEW_CARD_HEIGHT_PX == 440
+    assert overlay.sizeHint().width() == scaled_px(REVIEW_CARD_WIDTH_PX)
+    assert overlay.sizeHint().height() == scaled_px(REVIEW_CARD_HEIGHT_PX)
+
+
+def test_review_plate_paints_fill_and_border(qtbot):
+    """Bare-plate grab: center pixel == resolved bg fill, mid-left edge
+    pixel == resolved 1px border (both theme tokens, no hardcoded QColor)."""
+    plate = _ReviewPlate()
+    qtbot.addWidget(plate)
+    plate.resize(scaled_px(REVIEW_CARD_WIDTH_PX), scaled_px(REVIEW_CARD_HEIGHT_PX))
+    plate.show()
+    QApplication.processEvents()
+
+    assert plate._bg is not None
+    assert plate._border is not None
+    img = plate.grab().toImage()
+    center = img.pixelColor(img.width() // 2, img.height() // 2)
+    assert (center.red(), center.green(), center.blue()) == (
+        plate._bg.red(), plate._bg.green(), plate._bg.blue(),
+    )
+    # Border is a 1px pen inside rect.adjusted(1,1,-1,-1): sample the
+    # mid-left edge; allow small AA blend toward the fill.
+    edge = img.pixelColor(1, img.height() // 2)
+    for got, want in (
+        (edge.red(), plate._border.red()),
+        (edge.green(), plate._border.green()),
+        (edge.blue(), plate._border.blue()),
+    ):
+        assert abs(got - want) <= 16, (got, want)
+    _KEEP_ALIVE.append(plate)
+
+
+def test_review_plate_centered_on_veil(qtbot, tmp_path):
+    """After show_for, the plate sits centered on the fullscreen veil
+    (equal margins on each axis, ±2px rounding)."""
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")], folder=str(tmp_path))
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    parent.resize(1200, 800)
+    parent.show()
+    overlay = CleanReviewOverlay(parent, owner=owner)
+    qtbot.addWidget(overlay)
+    _KEEP_ALIVE.append(parent)
+    overlay.show_for(owner)
+    QApplication.processEvents()
+
+    cg = overlay._content.geometry()
+    left, top = cg.x(), cg.y()
+    right = overlay.width() - (cg.x() + cg.width())
+    bottom = overlay.height() - (cg.y() + cg.height())
+    assert left > 0 and top > 0
+    assert abs(left - right) <= 2, (left, right)
+    assert abs(top - bottom) <= 2, (top, bottom)
