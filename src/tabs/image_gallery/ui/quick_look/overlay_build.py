@@ -687,7 +687,7 @@ def build_overlay_ui(overlay) -> None:
     overlay._report_title = _make_label("Fidelity report", parent=right_host, pixel_size=13, pt=13, bold=True)
     overlay._report_title.setObjectName("quicklook_report_title")
     right_lay.addWidget(overlay._report_title)
-    overlay._report_sub = _make_label("", parent=right_host, pixel_size=11, pt=11.5, elide=True, minimum_width=40)
+    overlay._report_sub = _make_label("", parent=right_host, pixel_size=11, pt=11.0, elide=True, minimum_width=40)
     overlay._report_sub.setObjectName("quicklook_report_sub")
     right_lay.addWidget(overlay._report_sub)
     # FLAT report section: metric + artifact rows are direct right_lay
@@ -713,7 +713,7 @@ def build_overlay_ui(overlay) -> None:
     overlay._series_header = _make_label("Series", parent=right_host, pixel_size=13, pt=13, bold=True, elide=True, minimum_width=40)
     overlay._series_header.setObjectName("quicklook_series_header")
     right_lay.addWidget(overlay._series_header)
-    overlay._series_sub = _make_label("", parent=right_host, pixel_size=11, pt=11.5, elide=True, minimum_width=40)
+    overlay._series_sub = _make_label("", parent=right_host, pixel_size=11, pt=11.0, elide=True, minimum_width=40)
     overlay._series_sub.setObjectName("quicklook_series_sub")
     right_lay.addWidget(overlay._series_sub)
     overlay._strip_host = QWidget(right_host)
