@@ -304,7 +304,7 @@ class StatsStrip(QWidget):
         self._compare_btn.clicked.connect(self.compareClicked.emit)
         layout.addWidget(self._compare_btn)
 
-        self._mode_chip = Label("FIDELITY MODE · source: …", pixel_size=10, parent=self)
+        self._mode_chip = Label("FIDELITY MODE · source: …", pixel_size=11, parent=self)
         self._mode_chip.setObjectName("gallery_mode_chip")
         try:
             self._mode_chip.setColorToken("accent")

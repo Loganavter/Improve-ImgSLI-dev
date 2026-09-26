@@ -487,7 +487,7 @@ def build_overlay_ui(overlay) -> None:
     # NOTE: bold goes through the _make_label constructor (never setBold
     # after): setBold re-runs Label's pixel-based _apply_style and would
     # revert the mockup-pt font.
-    overlay._mode_chip = _make_label("FIDELITY MODE", parent=overlay._content, pixel_size=10, pt=10, color_token="accent", bold=True)
+    overlay._mode_chip = _make_label("FIDELITY MODE", parent=overlay._content, pixel_size=11, pt=11.5, color_token="accent", bold=True)
     overlay._mode_chip.setObjectName("quicklook_mode_chip")
     # S4 mockup: accent-tinted pill behind the chip (fill accent @ 0.2).
     # Painted host (explicit paintEvent, theme-subscribed) — no QSS, no palette.
@@ -502,7 +502,7 @@ def build_overlay_ui(overlay) -> None:
         overlay._mode_chip_pill = pill
         chip_row.addWidget(pill)
         # Reparenting resets the explicit font — re-assert the pt size after.
-        _apply_point_size(overlay._mode_chip, 10, bold=True)
+        _apply_point_size(overlay._mode_chip, 11.5, bold=True)
     except Exception:
         try:
             chip_row.addWidget(overlay._mode_chip)
@@ -593,7 +593,7 @@ def build_overlay_ui(overlay) -> None:
         overlay._source_inset_caption = _InsetCaptionStrip(overlay._source_inset_host)
         overlay._source_inset_label = overlay._source_inset_caption.label
     except Exception:
-        overlay._source_inset_label = _make_label("SOURCE", parent=overlay._source_inset_host, pixel_size=9, pt=9)
+        overlay._source_inset_label = _make_label("SOURCE", parent=overlay._source_inset_host, pixel_size=11, pt=11.5)
         overlay._source_inset_label.setObjectName("quicklook_source_inset_title")
     overlay._source_inset_pix = QLabel(overlay._source_inset_host)
     overlay._source_inset_pix.setObjectName("quicklook_source_inset_pix")
@@ -610,7 +610,7 @@ def build_overlay_ui(overlay) -> None:
     crop_lay = QVBoxLayout(overlay._crop_host)
     crop_lay.setContentsMargins(0, 0, 0, 0)
     crop_lay.setSpacing(scaled_px(2))
-    overlay._crop_title = _make_label("SHARPNESS CROP", parent=overlay._crop_host, pixel_size=9, pt=9)
+    overlay._crop_title = _make_label("SHARPNESS CROP", parent=overlay._crop_host, pixel_size=11, pt=11.5)
     overlay._crop_title.setObjectName("quicklook_crop_title")
     crop_lay.addWidget(overlay._crop_title)
     overlay._crop_pix = QLabel(overlay._crop_host)
@@ -623,7 +623,7 @@ def build_overlay_ui(overlay) -> None:
     fname_row = QHBoxLayout()
     fname_row.setContentsMargins(0, 0, 0, 0)
     fname_row.setSpacing(scaled_px(8))
-    overlay._filename_label = _make_label("", parent=preview_host, pixel_size=12, pt=12, bold=True)
+    overlay._filename_label = _make_label("", parent=preview_host, pixel_size=14, pt=14, bold=True)
     overlay._filename_label.setObjectName("quicklook_filename")
     fname_row.addWidget(overlay._filename_label)
     overlay._meta_label = _make_label("", parent=preview_host, pixel_size=11, pt=11.5)
@@ -687,7 +687,7 @@ def build_overlay_ui(overlay) -> None:
     overlay._report_title = _make_label("Fidelity report", parent=right_host, pixel_size=13, pt=13, bold=True)
     overlay._report_title.setObjectName("quicklook_report_title")
     right_lay.addWidget(overlay._report_title)
-    overlay._report_sub = _make_label("", parent=right_host, pixel_size=10, pt=10, elide=True, minimum_width=40)
+    overlay._report_sub = _make_label("", parent=right_host, pixel_size=11, pt=11.5, elide=True, minimum_width=40)
     overlay._report_sub.setObjectName("quicklook_report_sub")
     right_lay.addWidget(overlay._report_sub)
     # FLAT report section: metric + artifact rows are direct right_lay
@@ -710,10 +710,10 @@ def build_overlay_ui(overlay) -> None:
     right_lay.addWidget(overlay._div_series)
     # W7: the hub stem can be a long filename ("Series 1 · <stem>":
     # probe measured 315px) — elide to the column like the sublines.
-    overlay._series_header = _make_label("Series", parent=right_host, pixel_size=11, pt=13, bold=True, elide=True, minimum_width=40)
+    overlay._series_header = _make_label("Series", parent=right_host, pixel_size=13, pt=13, bold=True, elide=True, minimum_width=40)
     overlay._series_header.setObjectName("quicklook_series_header")
     right_lay.addWidget(overlay._series_header)
-    overlay._series_sub = _make_label("", parent=right_host, pixel_size=10, pt=11.5, elide=True, minimum_width=40)
+    overlay._series_sub = _make_label("", parent=right_host, pixel_size=11, pt=11.5, elide=True, minimum_width=40)
     overlay._series_sub.setObjectName("quicklook_series_sub")
     right_lay.addWidget(overlay._series_sub)
     overlay._strip_host = QWidget(right_host)
@@ -816,7 +816,7 @@ def build_overlay_ui(overlay) -> None:
     # (svg:198, right-aligned), out of the left column.
     # Close paths: X, Esc, veil click (W6/W11 bans reversed). Hint names
     # all three; minimize/focus loss stay pinned.
-    overlay._hint_label = _make_label("X / Esc / veil closes · ←→ walk series", parent=bar, pixel_size=10, pt=10)
+    overlay._hint_label = _make_label("X / Esc / veil closes · ←→ walk series", parent=bar, pixel_size=11, pt=11.5)
     overlay._hint_label.setObjectName("quicklook_hint")
     bar_lay.addWidget(overlay._hint_label)
     outer.addWidget(bar)

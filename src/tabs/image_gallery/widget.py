@@ -210,7 +210,7 @@ class ImageGalleryWidget(QWidget):
         # Footer — SVG y822 10.5px italic #8a8a8a
         self._footer = Label(
             "keys: Space/Delete remove · B best · Enter compare selected · dbl-click quick look (TopLevelInWindowOverlay) · quality dots: ● sharpness ● exposure ● noise (outlier shown warm/red)",
-            pixel_size=10,
+            pixel_size=11,
             parent=self,
         )
         self._footer.setObjectName("image_gallery_footer")

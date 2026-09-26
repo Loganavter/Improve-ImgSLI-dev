@@ -1112,9 +1112,9 @@ def test_labels_render_at_mockup_point_sizes(qtbot):
     ov = _make_overlay(qtbot)
     _show(ov, item, [item])
     assert ov._report_title.font().pointSizeF() == pytest.approx(13)
-    assert ov._filename_label.font().pointSizeF() == pytest.approx(12)
-    assert ov._mode_chip.font().pointSizeF() == pytest.approx(10)
-    assert ov._hint_label.font().pointSizeF() == pytest.approx(10)
+    assert ov._filename_label.font().pointSizeF() == pytest.approx(14)
+    assert ov._mode_chip.font().pointSizeF() == pytest.approx(11.5)
+    assert ov._hint_label.font().pointSizeF() == pytest.approx(11.5)
     assert ov._brief_label.font().pointSizeF() == pytest.approx(11.5)
     ov.hide()
 

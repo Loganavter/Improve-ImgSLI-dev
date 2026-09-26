@@ -214,9 +214,9 @@ def rebuild_strip(overlay) -> None:
             except Exception:
                 _strip_label = Label  # type: ignore
             if _strip_label is Label:
-                cap = Label(caption_text, pixel_size=9, parent=container)
+                cap = Label(caption_text, pixel_size=11, parent=container)
             else:
-                cap = _strip_label(caption_text, parent=container, pixel_size=10, pt=10)
+                cap = _strip_label(caption_text, parent=container, pixel_size=11, pt=11.5)
             cap.setObjectName(f"quicklook_strip_cap_{idx}")
             cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cont_lay.addWidget(cap)
@@ -238,9 +238,9 @@ def rebuild_strip(overlay) -> None:
             # setParent(None) regardless of which layout holds it.
             strip_parent = overlay._strip_host.parentWidget()
             if _strip_hint_label is Label:
-                hint = Label("click thumb = switch preview", pixel_size=9, parent=strip_parent)
+                hint = Label("click thumb = switch preview", pixel_size=11, parent=strip_parent)
             else:
-                hint = _strip_hint_label("click thumb = switch preview", parent=strip_parent, pixel_size=10, pt=10)
+                hint = _strip_hint_label("click thumb = switch preview", parent=strip_parent, pixel_size=11, pt=11.5)
             hint.setObjectName("quicklook_strip_hint")
             placed = False
             try:

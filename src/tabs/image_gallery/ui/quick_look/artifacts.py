@@ -161,7 +161,7 @@ def rebuild_artifacts(overlay, item) -> None:
             # W5: the caption elides to the 296px column like the metric
             # sublines (its full ~300px text forced the h-scrollbar; the
             # full copy stays in _original_text, as with elided values).
-            note = _make_label("gradient histogram — comb spikes = banding steps (sky)", parent=row, pixel_size=9, pt=9, elide=True, minimum_width=40)
+            note = _make_label("gradient histogram — comb spikes = banding steps (sky)", parent=row, pixel_size=11, pt=11.5, elide=True, minimum_width=40)
             rl.addWidget(note)
         overlay._artifact_rows.append(row)
     # Flat placement (rows + uniform spacers) is owned by the coordinator.

@@ -93,7 +93,7 @@ def _left_badge_painter(painter, rect, text: str, style: tuple) -> None:  # type
         from PySide6.QtGui import QColor, QPen
 
         filled, bg, border, txt_col = style
-        f = ui_font(pixel_size=10, bold=True)
+        f = ui_font(pixel_size=11, bold=True)
         painter.save()
         try:
             painter.setFont(f)

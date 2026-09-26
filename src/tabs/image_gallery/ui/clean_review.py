@@ -644,7 +644,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         self._row_widgets.clear()
 
         if not items:
-            empty = Label("No rejected files.", pixel_size=11, parent=self._list_host)
+            empty = Label("No rejected files.", pixel_size=14, parent=self._list_host)
             empty.setObjectName("clean_review_empty")
             self._list_layout.addWidget(empty)
             self._row_widgets.append(empty)

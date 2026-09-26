@@ -52,7 +52,7 @@ def build(dialog, p):  # type: ignore[no-untyped-def]
     # Title note inside group
     warning = Label(
         AI_GROUP.text(dialog, "image_gallery.settings.api_key_warning") if hasattr(AI_GROUP, "text") else "Stored unencrypted on this device.",
-        pixel_size=10,
+        pixel_size=11,
         parent=dialog,
     )
     try:
