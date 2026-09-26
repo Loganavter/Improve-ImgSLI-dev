@@ -856,13 +856,6 @@ def build_overlay_ui(overlay) -> None:
     overlay._set_source_btn.clicked.connect(overlay._on_set_source)
     bar_lay.addWidget(overlay._set_source_btn)
     bar_lay.addStretch(1)
-    # W4 item 4: the hint sits at the right end of the button bar row
-    # (svg:198, right-aligned), out of the left column.
-    # Close paths: X, Esc, veil click (W6/W11 bans reversed). Hint names
-    # all three; minimize/focus loss stay pinned.
-    overlay._hint_label = _make_label("X / Esc / veil closes · ←→ walk series", parent=bar, pixel_size=11, pt=11.5)
-    overlay._hint_label.setObjectName("quicklook_hint")
-    bar_lay.addWidget(overlay._hint_label)
     outer.addWidget(bar)
     overlay.add_widget(overlay._content, slot=None)
     # D1: interactive buttons keep an explicit arrow cursor so a stale plate
