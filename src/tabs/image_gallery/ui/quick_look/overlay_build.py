@@ -243,7 +243,10 @@ class _RuleWidget(QWidget):
         super().__init__(parent)
         from sli_ui_toolkit.managers import scaled_px
 
-        self.setFixedHeight(scaled_px(9))
+        # 1px rule + 7px breathing room (was 9): the readability sweep
+        # (11px labels) leaves the right column exactly 1px over the
+        # viewport — this absorbs it without touching content metrics.
+        self.setFixedHeight(scaled_px(8))
         try:
             self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         except Exception:
