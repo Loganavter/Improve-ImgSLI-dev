@@ -46,6 +46,115 @@ def _capsule_suppressed(owner, card=None) -> bool:
     return False
 
 
+def _hover_diag_enabled() -> bool:
+    """Separate key for the gate-zone dump (bisect aid, not a feature)."""
+    try:
+        from shared.debug_flags import env_flag
+
+        return bool(env_flag("IMGSLI_GALLERY_HOVER_DIAG"))
+    except Exception:
+        return False
+
+
+def log_card_gates(card, owner, trigger: str) -> None:  # type: ignore[no-untyped-def]
+    """One-line dump of EVERY gate in the card-buttons show path.
+
+    Gated by ``IMGSLI_GALLERY_HOVER_DIAG=1`` only (never in the default
+    streams). Call at Enter/Leave/show/hide/sync decision points; when a
+    hover shows nothing, this line names the exact gate that said no
+    (or proves no decision point ran at all).
+    """
+    if not _hover_diag_enabled():
+        return
+    try:
+        import logging as _logging
+
+        _logger = _logging.getLogger("ImproveImgSLI")
+    except Exception:
+        return
+    try:
+        path = getattr(getattr(card, "_gallery_item", None), "path", "?")
+        # Suppression window: remaining ms (>0 means capsule blocked).
+        try:
+            now = time.monotonic()
+            remains = [
+                max(0.0, float(getattr(o, "_gallery_capsule_suppress_until", 0.0) or 0.0) - now)
+                for o in (owner, card)
+                if o is not None
+            ]
+            suppress_ms = int(max(remains) * 1000) if remains else 0
+        except Exception:
+            suppress_ms = -1
+        try:
+            hovered = bool(getattr(card, "_gallery_delete_hovered", False))
+        except Exception:
+            hovered = False
+        try:
+            from PySide6.QtCore import Qt as _Qt
+
+            transparent = bool(card.testAttribute(_Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+            enabled = bool(card.isEnabled())
+            visible = bool(card.isVisible())
+        except Exception:
+            transparent, enabled, visible = "?", "?", "?"
+        try:
+            btn = getattr(card, "_gallery_delete_btn", None)
+            pin = getattr(card, "_gallery_delete_pin", None)
+            import shiboken6 as _shib
+
+            btn_ok = btn is not None and bool(_shib.isValid(btn))
+            btn_vis = bool(btn.isVisible()) if btn_ok else False
+        except Exception:
+            btn_ok, btn_vis = False, False
+            pin = None
+        try:
+            in_host = btn is not None and card.parent() is btn.parent() and btn.parent() is not None
+        except Exception:
+            in_host = False
+        try:
+            shown = bool(card.isVisibleTo(btn.parent())) if (btn is not None and in_host) else False
+        except Exception:
+            shown = False
+        try:
+            rejected = bool(getattr(getattr(card, "_gallery_item", None), "rejected", False))
+        except Exception:
+            rejected = False
+        try:
+            flyout = getattr(card, "_gallery_card_flyout", None)
+            fly_vis = bool(flyout.isVisible()) if flyout is not None else False
+            fly = "shown" if fly_vis else ("exists" if flyout is not None else "none")
+        except Exception:
+            fly = "?"
+        try:
+            bg_locked = bool(card.is_bg_locked()) if hasattr(card, "is_bg_locked") else False
+        except Exception:
+            bg_locked = False
+        try:
+            gesture, filt = None, None
+            for cand in (owner, getattr(card, "_gallery_owner", None)):
+                try:
+                    gv = getattr(cand, "grid_view", None) or getattr(cand, "widget", None)
+                    gv = getattr(gv, "_grid_view", gv)
+                    gesture = getattr(gv, "_marquee_gesture", None)
+                    if gesture is not None:
+                        filt = bool(getattr(gesture, "app_filter_installed", False))
+                        break
+                except Exception:
+                    continue
+            gest = "none" if gesture is None else ("active" if bool(getattr(gesture, "active", False)) else ("filter" if filt else "idle"))
+        except Exception:
+            gest = "?"
+        _logger.warning(
+            "[gallery-debug] [gates] %s card=%s suppress_ms=%s hovered=%s in_host=%s shown=%s "
+            "rejected=%s btn=%s/%s flyout=%s marquee=%s tmouse=%s ena=%s vis=%s bglock=%s",
+            trigger, path, suppress_ms, hovered, in_host, shown,
+            rejected, btn_ok, btn_vis, fly, gest,
+            transparent, enabled, visible, bg_locked,
+        )
+    except Exception:
+        pass
+
+
 def _event_pos(event) -> str:
     """Position carried BY the event (trustworthy).
 
@@ -189,6 +298,7 @@ class _CardHoverFilter(QObject):
                     _mouse_buttons_int(),
                     _event_pos(event),
                 )
+                log_card_gates(self._card, self._owner, "enter")
                 try:
                     # Hover FX is the translucent shelf-style wash
                     # (overlay painter) — no opaque bg swap. Underline only.
@@ -207,8 +317,10 @@ class _CardHoverFilter(QObject):
                 try:
                     if _capsule_suppressed(self._owner, self._card):
                         _hdbg("capsule NOT shown hide-reason=SUPPRESSED path=%s", getattr(getattr(self._card, "_gallery_item", None), "path", "?"))
+                        log_card_gates(self._card, self._owner, "show-suppressed")
                     else:
                         show_gallery_card_flyout(self._card, self._owner)
+                        log_card_gates(self._card, self._owner, "show-done")
                 except Exception as exc:
                     _hdbg("capsule show on Enter FAILED err=%r", exc)
             elif event.type() == QEvent.Type.Leave:
@@ -230,6 +342,7 @@ class _CardHoverFilter(QObject):
 
                     self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
                     over = bool(_over_del(self._card))
+                    log_card_gates(self._card, self._owner, "leave")
                     if not over:
                         _hdbg(
                             "card hover leave hide-reason=LEAVE_OUTSIDE card=%s over_delete=%s buttons=%s ev_pos=%s",

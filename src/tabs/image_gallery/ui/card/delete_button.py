@@ -256,6 +256,12 @@ def sync_card_delete_button(card) -> None:
                 rejected,
                 was,
             )
+            try:
+                from tabs.image_gallery.ui.card.hover import log_card_gates as _gates
+
+                _gates(card, getattr(card, "_gallery_owner", None), "sync-hide")
+            except Exception:
+                pass
             return
         try:
             pos = card.pos()
