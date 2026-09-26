@@ -308,7 +308,26 @@ def _mdbg(msg: str, *args) -> None:
         pass
 
 
+def marquee_disabled() -> bool:
+    """Elimination gate (bisect, not a feature).
+
+    ``IMGSLI_GALLERY_NO_MARQUEE=1`` makes empty-host presses fall through,
+    killing gesture + preview + commit in ONE toggle. Used to decide
+    whether the host-click hover-loss lives anywhere in this chain.
+    Parsing via shared ``env_flag`` (see plan-host-debug-flags).
+    """
+    try:
+        from shared.debug_flags import env_flag
+
+        return bool(env_flag("IMGSLI_GALLERY_NO_MARQUEE"))
+    except Exception:
+        return False
+
+
 def host_mouse_press(view, event: QMouseEvent) -> bool:  # type: ignore[no-untyped-def]
+    if marquee_disabled():
+        _mdbg("marquee press SKIP (elimination gate IMGSLI_GALLERY_NO_MARQUEE=1)")
+        return False
     if event.button() != Qt.MouseButton.LeftButton:
         return False
     host = getattr(view, "items_host", None)
