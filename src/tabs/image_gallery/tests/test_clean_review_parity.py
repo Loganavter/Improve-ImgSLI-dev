@@ -310,12 +310,12 @@ def test_provenance_keeps_count_for_multiples(qtbot, tmp_path):
     assert overlay._provenance_label.text() == "from: SERIES 1 · a (3)", overlay._provenance_label.text()
 
 
-def test_move_title_names_destination_folder(qtbot, tmp_path):
+def test_move_title_is_bare_count(qtbot, tmp_path):
     owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")], folder=str(tmp_path))
     overlay = _make_overlay(qtbot, owner)
 
     title = "".join(getattr(region, "text", "") or "" for region in overlay._move_btn.regions())
-    assert title == f"Move 2 to {tmp_path.name}/_rejected/", title
+    assert title == "Move 2", title
 
 
 def test_move_hover_stays_dark_accent(qtbot, tmp_path):
@@ -489,17 +489,17 @@ def test_no_per_series_sections_headers_or_series_restore(qtbot, tmp_path):
 
 def test_flat_strip_spans_all_series_in_stable_order(qtbot, tmp_path):
     """Phase 6: exactly ONE strip holds every rejected item across series
-    (stable SERIES order, state order within a series); per-thumb name
-    labels cover both series."""
+    (stable SERIES order, state order within a series); per-thumb filenames
+    ride the Restore-button tooltips in the same order."""
     owner = _make_multi_series_owner(tmp_path)
     overlay = _make_overlay(qtbot, owner)
 
     strips = overlay.findChildren(QScrollArea, "clean_review_filmstrip")
     assert len(strips) == 1
     names = [
-        w.text()
-        for w in strips[0].findChildren(QWidget)
-        if w.objectName() == "clean_review_row_name"
+        b.toolTip()
+        for b in strips[0].findChildren(type(overlay._restore_all_btn))
+        if b.objectName() == "clean_review_restore"
     ]
     assert names == ["sunset_0.jpg", "sunset_1.jpg", "city_0.png"]
     restores = [
@@ -912,15 +912,19 @@ def test_move_button_paints_solid_accent(qtbot, tmp_path):
 
 
 def test_thumb_cell_has_no_provenance_sublabel(qtbot, tmp_path):
-    """Mockup v3 thumb cell: thumbnail + name + Restore only.
+    """Mockup v3 thumb cell: thumbnail + Restore only (recent-panel idiom).
 
-    No per-thumb series sublabel (series live in the provenance line).
+    No per-thumb name label (the filename rides the Restore tooltip) and
+    no per-thumb series sublabel (series live in the provenance line).
     """
     owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
     overlay = _make_overlay(qtbot, owner)
     overlay.show_for(owner)
     assert overlay.findChild(QWidget, "clean_review_row_provenance") is None
-    assert overlay.findChild(QWidget, "clean_review_row_name") is not None
+    assert overlay.findChild(QWidget, "clean_review_row_name") is None
+    restore = overlay.findChild(QWidget, "clean_review_restore")
+    assert restore is not None
+    assert restore.toolTip() == "a.jpg"
     overlay.hide()
 
 
@@ -1192,4 +1196,121 @@ def test_ring_press_starts_drag_without_dismiss(qtbot, tmp_path):
     overlay.mouseReleaseEvent(release)
     assert overlay._border_drag is None
     assert overlay.isVisible()
+    overlay.hide()
+
+
+def test_filmstrip_cells_are_framed_cards(qtbot, tmp_path):
+    """Recent-panel idiom: each filmstrip item is one framed card
+    (picture on top, Restore button below), not floating parts."""
+    from tabs.image_gallery.ui.clean_review import _ReviewPlate
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    cells = [
+        w
+        for w in overlay.findChildren(QWidget)
+        if w.objectName() == "clean_review_filmstrip_cell"
+    ]
+    assert len(cells) == 2
+    for cell in cells:
+        assert isinstance(cell, _ReviewPlate)
+        kinds = sorted(type(ch).__name__ for ch in cell.children())
+        assert "Button" in kinds  # Restore below
+        assert overlay.findChild(QWidget, "clean_review_restore") is not None
+
+
+def test_thumb_pixmap_has_rounded_top_corners():
+    """Card photo: top corners rounded like the other cards, bottom square."""
+    from PySide6.QtGui import QColor, QPixmap
+
+    from tabs.image_gallery.ui.clean_review import _rounded_top_pixmap
+
+    src = QPixmap(150, 100)
+    src.fill(QColor("#ff0000"))
+    out = _rounded_top_pixmap(src, 150, 100)
+    assert out.width() == 150 and out.height() == 100
+    assert out.toImage().pixelColor(0, 0).alpha() == 0
+    assert out.toImage().pixelColor(149, 0).alpha() == 0
+    assert out.toImage().pixelColor(0, 99).alpha() == 255
+    assert out.toImage().pixelColor(149, 99).alpha() == 255
+    assert out.toImage().pixelColor(75, 50).alpha() == 255
+
+
+def test_restore_button_centered_in_card(qtbot, tmp_path):
+    from PySide6.QtCore import Qt
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    cell = overlay.findChild(QWidget, "clean_review_filmstrip_cell")
+    assert cell is not None
+    lay = cell.layout()
+    btn_idx = next(
+        i
+        for i in range(lay.count())
+        if lay.itemAt(i).widget() is not None
+        and lay.itemAt(i).widget().objectName() == "clean_review_restore"
+    )
+    assert lay.itemAt(btn_idx).alignment() == Qt.AlignmentFlag.AlignHCenter
+
+
+def test_card_click_opens_quick_look_not_restore(qtbot, tmp_path):
+    """Press on the card photo opens Quick Look; press on Restore does not."""
+    from PySide6.QtCore import QPoint
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+
+    opened = []
+    overlay._open_quick_look_for_item = opened.append  # type: ignore[method-assign]
+
+    cell = overlay.findChild(QWidget, "clean_review_filmstrip_cell")
+    assert cell is not None
+    thumb = overlay.findChild(QWidget, "clean_review_thumb")
+    assert thumb is not None
+    pos = thumb.mapTo(cell, thumb.rect().center())
+    press = _s3_mouse_event("press", pos, cell)
+    assert overlay.eventFilter(cell, press) is True
+    assert len(opened) == 1
+
+    restore = overlay.findChild(QWidget, "clean_review_restore")
+    assert restore is not None
+    pos_btn = restore.mapTo(cell, restore.rect().center())
+    assert overlay.eventFilter(cell, _s3_mouse_event("press", pos_btn, cell)) is False
+    assert len(opened) == 1
+    overlay.hide()
+
+
+def test_quick_look_close_returns_to_s3(qtbot, tmp_path):
+    """Card-click Quick Look hides S3; its Hide (any close path) re-shows S3."""
+    from PySide6.QtGui import QHideEvent
+    from PySide6.QtWidgets import QWidget
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    shown = []
+    ql_stub = QWidget()
+
+    class _StubWidget:
+        _quick_look_overlay = ql_stub
+
+        def show_quick_look(self, item):
+            shown.append(item)
+
+    stub_owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    stub_owner.widget = _StubWidget()
+    overlay._owner = stub_owner
+    item = stub_owner.state.items[0]
+    overlay._open_quick_look_for_item(item)
+
+    assert shown == [item]
+    assert overlay._ql_return is ql_stub
+    assert overlay.isHidden()  # S3 hides while Quick Look is up
+    overlay.eventFilter(ql_stub, QHideEvent())
+    assert overlay._ql_return is None
+    assert overlay.isVisible()  # back to S3, repopulated
     overlay.hide()

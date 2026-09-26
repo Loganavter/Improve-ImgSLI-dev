@@ -257,6 +257,41 @@ def _total_bytes_for_items(items: list) -> int:
     return total
 
 
+def _rounded_top_pixmap(pix: QPixmap, w: int, h: int) -> QPixmap:
+    """Clip a pixmap to top-rounded corners (recent/grid card idiom).
+
+    Radius 10 like the other cards, bottom corners square. Returns the
+    source untouched when sizes are degenerate.
+    """
+    try:
+        from PySide6.QtGui import QPainterPath
+
+        w, h = int(w), int(h)
+        if w <= 0 or h <= 0 or pix.isNull():
+            return pix
+        r = min(scaled_px(10), w // 2, h // 2)
+        out = QPixmap(w, h)
+        out.fill(Qt.GlobalColor.transparent)
+        p = QPainter(out)
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            path = QPainterPath()
+            path.moveTo(0, h)
+            path.lineTo(0, r)
+            path.arcTo(0, 0, 2 * r, 2 * r, 180.0, -90.0)
+            path.lineTo(w - r, 0)
+            path.arcTo(w - 2 * r, 0, 2 * r, 2 * r, 90.0, -90.0)
+            path.lineTo(w, h)
+            path.closeSubpath()
+            p.setClipPath(path)
+            p.drawPixmap(0, 0, pix)
+        finally:
+            p.end()
+        return out
+    except Exception:
+        return pix
+
+
 def _display_folder_for_items(owner, items: list) -> str:
     """Folder shown in the subtitle/move title.
 
@@ -990,7 +1025,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         self._cancel_btn.clicked.connect(self.hide)
         bar_layout.addWidget(self._cancel_btn)
 
-        self._move_btn = Button(text="Move 0 to _rejected/", variant="surface", parent=bar)
+        self._move_btn = Button(text="Move 0", variant="surface", parent=bar)
         self._move_btn.setObjectName("clean_review_move")
         self._move_btn.clicked.connect(self._on_move)
         try:
@@ -1042,6 +1077,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         reposition_clean_review_grip(self)
         self._row_widgets: list[QWidget] = []
         self._toast_manager: ToastManager | None = None
+        self._ql_return = None
 
     def sizeHint(self) -> QSize:  # noqa: N802
         # QuickLook idiom (quick_look.py:848): overlay hint = plate floor.
@@ -1119,12 +1155,59 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             _n,
         )
 
+    def _open_quick_look_for_item(self, item) -> None:
+        """Open Quick Look for a card click (anywhere but Restore).
+
+        S3 hides; when Quick Look hides again (any close path — ✕ calls
+        ``hide()`` with no signal, so this watches Hide, not ``dismissed``)
+        S3 re-shows repopulated. One-shot per open.
+        """
+        try:
+            owner = self._owner
+            w = getattr(owner, "widget", None) or getattr(owner, "_widget", None)
+            if w is None or not hasattr(w, "show_quick_look"):
+                return
+            try:
+                prev = getattr(self, "_ql_return", None)
+                if prev is not None:
+                    try:
+                        prev.removeEventFilter(self)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            w.show_quick_look(item)
+            ql = getattr(w, "_quick_look_overlay", None)
+            if ql is None:
+                return
+            self.hide()
+            self._ql_return = ql
+            try:
+                ql.installEventFilter(self)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
         # Card-plate resizes re-pin the grip; presses/moves/releases on the
         # plate drive the W9 border drag with hover cursors (Quick Look idiom).
         try:
             from PySide6.QtCore import QEvent
 
+            if watched is getattr(self, "_ql_return", None) and event.type() == QEvent.Type.Hide:
+                # Quick Look closed (any path) after a card-click open —
+                # back to S3, repopulated (reject toggles may have changed).
+                try:
+                    watched.removeEventFilter(self)
+                except Exception:
+                    pass
+                self._ql_return = None
+                try:
+                    self.show_for(self._owner)
+                except Exception:
+                    pass
+                return False
             if watched is getattr(self, "_content", None):
                 t = event.type()
                 if t == QEvent.Type.Resize:
@@ -1141,6 +1224,36 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
                 elif t == QEvent.Type.Leave:
                     if getattr(self, "_border_drag", None) is None:
                         _s3_apply_cursor(self._content, None)
+            elif (
+                event.type() == QEvent.Type.MouseButtonPress
+                and isinstance(watched, _ReviewPlate)
+                and watched.objectName() == "clean_review_filmstrip_cell"
+            ):
+                # Card click: Restore eats its own presses (real Button);
+                # anywhere else opens Quick Look for the card's item.
+                try:
+                    pos = event.position().toPoint()
+                except Exception:
+                    return False
+                try:
+                    child = watched.childAt(pos)
+                except Exception:
+                    child = None
+                try:
+                    btn = watched.findChild(QWidget, "clean_review_restore")
+                except Exception:
+                    btn = None
+                if btn is not None and child is not None:
+                    try:
+                        if child is btn or btn.isAncestorOf(child):
+                            return False
+                    except Exception:
+                        pass
+                item = getattr(watched, "_s3_item", None)
+                if item is not None:
+                    self._open_quick_look_for_item(item)
+                    return True
+                return False
         except Exception:
             pass
         return super().eventFilter(watched, event)
@@ -1308,11 +1421,9 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         except Exception:
             pass
 
-        # Move button variant primary, size label total MB. The title names
-        # the destination folder (basename — full path lives in the subtitle).
+        # Move button variant primary, size label total MB.
         try:
-            folder_short = Path(folder_name).name or folder_name
-            self._move_btn.setText(f"Move {n} to {folder_short}/_rejected/")
+            self._move_btn.setText(f"Move {n}")
             self._move_btn.setEnabled(n > 0)
         except Exception:
             pass
@@ -1373,11 +1484,20 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         film_layout.setSpacing(scaled_px(8))
         film_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         for it in flat[:FILMSTRIP_MAX_CELLS]:
-            cell = QWidget(filmstrip)
+            # One framed card per item (recent-panel idiom): picture on top,
+            # Restore button below — the plate frame makes them read as one
+            # card instead of floating thumb + button parts.
+            cell = _ReviewPlate(filmstrip)
             cell.setObjectName("clean_review_filmstrip_cell")
+            cell._s3_item = it  # type: ignore[attr-defined]
+            try:
+                cell.setCursor(Qt.CursorShape.PointingHandCursor)
+                cell.installEventFilter(self)
+            except Exception:
+                pass
             cell_layout = QVBoxLayout(cell)
-            cell_layout.setContentsMargins(scaled_px(4), scaled_px(4), scaled_px(4), scaled_px(4))
-            cell_layout.setSpacing(scaled_px(4))
+            cell_layout.setContentsMargins(scaled_px(8), scaled_px(8), scaled_px(8), scaled_px(8))
+            cell_layout.setSpacing(scaled_px(6))
             # S3-2: toolkit Label thumb 150x100 — Label is the unified
             # themed component (QLabel subclass), pixmap set via the
             # inherited QLabel.setPixmap; neutral "!" placeholder when no
@@ -1386,12 +1506,15 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             thumb_label.setObjectName("clean_review_thumb")
             thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             thumb_label.setFixedSize(scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX))
-            # Try to load thumbnail if available.
+            # Try to load thumbnail if available (top corners rounded like
+            # the other cards; bottom stays square into the card).
             pix = getattr(it, "thumbnail", None)
             if isinstance(pix, QPixmap) and not pix.isNull():
                 try:
                     scaled = pix.scaled(scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-                    thumb_label.setPixmap(scaled)
+                    thumb_label.setPixmap(
+                        _rounded_top_pixmap(scaled, scaled_px(THUMB_WIDTH_PX), scaled_px(THUMB_HEIGHT_PX))
+                    )
                 except Exception:
                     thumb_label.setText("!")
             else:
@@ -1399,20 +1522,18 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
                 thumb_label.setText("!")
             cell_layout.addWidget(thumb_label)
 
+            # Recent-projects-panel idiom: the cell is picture on top,
+            # Restore button below — no name label; the filename rides
+            # the button tooltip instead.
             name = getattr(it, "name", None) or Path(getattr(it, "path", "")).name or str(getattr(it, "path", ""))
-
-            name_lbl = Label(str(name), pixel_size=14, parent=cell)
-            name_lbl.setObjectName("clean_review_row_name")
-            name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            # Elide handled by Label marquee? Keep word wrap off.
-            try:
-                name_lbl.setWordWrap(False)
-            except Exception:
-                pass
-            cell_layout.addWidget(name_lbl)
 
             restore_btn = Button(text="↩ Restore", variant="surface", parent=cell)
             restore_btn.setObjectName("clean_review_restore")
+            try:
+                restore_btn.setToolTip(str(name))
+            except Exception:
+                pass
+            cell_layout.addWidget(restore_btn, 0, Qt.AlignmentFlag.AlignHCenter)
             p = Path(it.path) if hasattr(it, "path") else None
 
             def _make_restore(path=p):
@@ -1446,7 +1567,6 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
                 return _do
 
             restore_btn.clicked.connect(_make_restore())
-            cell_layout.addWidget(restore_btn)
             # Mockup v3 thumb row: every cell top-aligned so thumbs
             # share one top edge (QHBoxLayout would vertically center
             # shorter items like the +N tile otherwise).
