@@ -86,8 +86,15 @@ def test_subtitle_reassurance_line(qtbot, tmp_path):
     assert "Undo available for 10 s" in subtitle
 
 
-def test_subtitle_folder_literal_fallback(qtbot, tmp_path):
+def test_subtitle_falls_back_to_common_parent(qtbot, tmp_path):
     owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")], folder=None)
+    overlay = _make_overlay(qtbot, owner)
+
+    assert f"{tmp_path}/_rejected/" in overlay._subtitle.text()
+
+
+def test_subtitle_folder_literal_last_resort(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [], folder=None)
     overlay = _make_overlay(qtbot, owner)
 
     assert "<folder>/_rejected/" in overlay._subtitle.text()
@@ -112,11 +119,11 @@ def test_header_title_16_bold(qtbot, tmp_path):
     assert overlay._title.font().bold() is True
 
 
-def test_header_subtitle_12_muted_wrap(qtbot, tmp_path):
+def test_header_subtitle_14_muted_wrap(qtbot, tmp_path):
     owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
     overlay = _make_overlay(qtbot, owner)
 
-    assert overlay._subtitle.font().pixelSize() == 12
+    assert overlay._subtitle.font().pixelSize() == 14
     assert overlay._subtitle.variant() == "caption"
     assert overlay._subtitle.wordWrap() is True
 
@@ -254,6 +261,75 @@ def test_provenance_has_from_prefix(qtbot, tmp_path):
     assert re.match(r"^from:", text), text
     assert "SERIES 1" in text
     assert "SERIES 2" in text
+
+
+def test_provenance_omits_count_for_singletons(qtbot, tmp_path):
+    """A lone hub needs no `` (1)`` — filenames like ``pic(1)`` would
+    stutter into ``(1) (1)``."""
+    from types import SimpleNamespace
+
+    items = [
+        SimpleNamespace(
+            rejected=True,
+            path=str(tmp_path / "pic(1).jpg"),
+            name="pic(1).jpg",
+            thumbnail=None,
+            provenance_series_id="series_1",
+        ),
+        SimpleNamespace(
+            rejected=True,
+            path=str(tmp_path / "other.jpg"),
+            name="other.jpg",
+            thumbnail=None,
+            provenance_series_id="series_2",
+        ),
+    ]
+    owner = SimpleNamespace(state=SimpleNamespace(items=items, folder=str(tmp_path)))
+    overlay = _make_overlay(qtbot, owner)
+
+    text = overlay._provenance_label.text()
+    assert text == "from: SERIES 1 · pic(1) · SERIES 2 · other", text
+
+
+def test_provenance_keeps_count_for_multiples(qtbot, tmp_path):
+    from types import SimpleNamespace
+
+    items = [
+        SimpleNamespace(
+            rejected=True,
+            path=str(tmp_path / f"{name}.jpg"),
+            name=f"{name}.jpg",
+            thumbnail=None,
+            provenance_series_id="series_1",
+        )
+        for name in ("a", "b", "c")
+    ]
+    owner = SimpleNamespace(state=SimpleNamespace(items=items, folder=str(tmp_path)))
+    overlay = _make_overlay(qtbot, owner)
+
+    assert overlay._provenance_label.text() == "from: SERIES 1 · a (3)", overlay._provenance_label.text()
+
+
+def test_move_title_names_destination_folder(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")], folder=str(tmp_path))
+    overlay = _make_overlay(qtbot, owner)
+
+    title = "".join(getattr(region, "text", "") or "" for region in overlay._move_btn.regions())
+    assert title == f"Move 2 to {tmp_path.name}/_rejected/", title
+
+
+def test_move_hover_stays_dark_accent(qtbot, tmp_path):
+    """Hover must not stack the light surface wash over the accent."""
+    from PySide6.QtGui import QColor
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+
+    hover = overlay._move_btn.hover_color()
+    assert isinstance(hover, QColor)
+    accent = getattr(overlay._move_btn, "_override_bg_color", None)
+    assert isinstance(accent, QColor)
+    assert hover.lightness() < accent.lightness()
 
 
 def test_provenance_below_filmstrip(qtbot, tmp_path):
@@ -824,11 +900,14 @@ def test_move_button_paints_solid_accent(qtbot, tmp_path):
 
     btn = overlay._move_btn
     img = btn.grab().toImage()
-    center = img.pixelColor(img.width() // 2, img.height() // 2)
+    # Left padding pixel: the (now longer, folder-naming) title is centered,
+    # so the middle row's center may land on a white glyph — sample the fill
+    # clear of the text.
+    bg = img.pixelColor(6, img.height() // 2)
     accent = _token_color("accent", "#0096FF")
-    assert abs(center.red() - accent.red()) <= 12
-    assert abs(center.green() - accent.green()) <= 12
-    assert abs(center.blue() - accent.blue()) <= 12
+    assert abs(bg.red() - accent.red()) <= 12
+    assert abs(bg.green() - accent.green()) <= 12
+    assert abs(bg.blue() - accent.blue()) <= 12
     overlay.hide()
 
 
@@ -970,4 +1049,147 @@ def test_resize_grip_drags_card(qtbot, tmp_path):
     assert grown.height() == start_size.height() + 80
     # Grip stays pinned to the card's bottom-right corner.
     assert grip.pos() == content.rect().bottomRight() - grip.rect().bottomRight()
+    overlay.hide()
+
+
+def _s3_mouse_event(kind, local, widget):
+    from PySide6.QtCore import QPoint, QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    global_pos = widget.mapToGlobal(local)
+    if kind == "press":
+        return QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            local,
+            global_pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    if kind == "release":
+        return QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            local,
+            global_pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    buttons = (
+        Qt.MouseButton.LeftButton
+        if kind == "drag"
+        else Qt.MouseButton.NoButton
+    )
+    return QMouseEvent(
+        QEvent.Type.MouseMove,
+        local,
+        global_pos,
+        Qt.MouseButton.NoButton,
+        buttons,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def _s3_shown_overlay(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    parent = overlay.parentWidget()
+    assert parent is not None
+    parent.resize(1400, 900)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+    return overlay
+
+
+def test_border_drag_right_edge_grows_card(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint
+
+    overlay = _s3_shown_overlay(qtbot, tmp_path)
+    content = overlay._content
+    start_geom = content.geometry()
+    assert overlay.eventFilter(
+        content, _s3_mouse_event("press", QPoint(start_geom.width() - 4, start_geom.height() // 2), content)
+    )
+    assert overlay.eventFilter(
+        content,
+        _s3_mouse_event("drag", QPoint(start_geom.width() + 56, start_geom.height() // 2), content),
+    )
+    assert overlay.eventFilter(content, _s3_mouse_event("release", QPoint(0, 0), content))
+    grown = content.geometry()
+    assert grown.width() == start_geom.width() + 60
+    assert grown.height() == start_geom.height()
+    assert grown.x() == start_geom.x()  # right drags keep the left anchor
+    assert overlay._border_drag is None
+    overlay.hide()
+
+
+def test_border_drag_left_edge_moves_anchor(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint
+
+    overlay = _s3_shown_overlay(qtbot, tmp_path)
+    content = overlay._content
+    start_geom = content.geometry()
+    assert overlay.eventFilter(content, _s3_mouse_event("press", QPoint(4, start_geom.height() // 2), content))
+    assert overlay.eventFilter(
+        content, _s3_mouse_event("drag", QPoint(4 - 40, start_geom.height() // 2), content)
+    )
+    assert overlay.eventFilter(content, _s3_mouse_event("release", QPoint(0, 0), content))
+    grown = content.geometry()
+    assert grown.width() == start_geom.width() + 40
+    assert grown.x() == start_geom.x() - 40  # opposite edge tracks the cursor
+    overlay.hide()
+
+
+def test_border_drag_clamps_to_plate_floor(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint
+
+    overlay = _s3_shown_overlay(qtbot, tmp_path)
+    content = overlay._content
+    start_geom = content.geometry()
+    assert overlay.eventFilter(
+        content, _s3_mouse_event("press", QPoint(start_geom.width() - 4, start_geom.height() // 2), content)
+    )
+    assert overlay.eventFilter(
+        content,
+        _s3_mouse_event("drag", QPoint(start_geom.width() - 4000, start_geom.height() // 2), content),
+    )
+    assert overlay.eventFilter(content, _s3_mouse_event("release", QPoint(0, 0), content))
+    assert content.geometry().width() == content.minimumWidth()
+    overlay.hide()
+
+
+def test_border_hover_shows_resize_cursor(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint, Qt as _Qt
+
+    overlay = _s3_shown_overlay(qtbot, tmp_path)
+    content = overlay._content
+    assert not overlay.eventFilter(
+        content, _s3_mouse_event("hover", QPoint(content.width() - 4, content.height() // 2), content)
+    )
+    assert content.cursor().shape() == _Qt.CursorShape.SizeHorCursor
+    assert not overlay.eventFilter(
+        content, _s3_mouse_event("hover", QPoint(content.width() // 2, content.height() // 2), content)
+    )
+    assert content.cursor().shape() == _Qt.CursorShape.ArrowCursor
+    overlay.hide()
+
+
+def test_ring_press_starts_drag_without_dismiss(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint
+
+    overlay = _s3_shown_overlay(qtbot, tmp_path)
+    content = overlay._content
+    # Overlay-local point 4px left of the card: outer ring, open veil beyond.
+    ring_pos = content.pos() + QPoint(-4, content.height() // 2)
+    press = _s3_mouse_event("press", ring_pos, overlay)
+    overlay.mousePressEvent(press)
+    assert press.isAccepted()
+    assert overlay.isVisible()  # ring press drags, never dismisses
+    assert overlay._border_drag is not None
+    release = _s3_mouse_event("release", ring_pos, overlay)
+    overlay.mouseReleaseEvent(release)
+    assert overlay._border_drag is None
+    assert overlay.isVisible()
     overlay.hide()

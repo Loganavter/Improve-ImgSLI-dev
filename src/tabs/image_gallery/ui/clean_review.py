@@ -257,6 +257,43 @@ def _total_bytes_for_items(items: list) -> int:
     return total
 
 
+def _display_folder_for_items(owner, items: list) -> str:
+    """Folder shown in the subtitle/move title.
+
+    State folder first; file-drop sessions carry no folder context, so fall
+    back to the rejected items' common parent; the ``<folder>`` literal is
+    the last resort (no paths at all or parents disagree).
+    """
+    try:
+        folder = getattr(getattr(owner, "state", None), "folder", None)
+    except Exception:
+        folder = None
+    if folder:
+        return str(folder)
+    try:
+        parents = {
+            str(Path(getattr(it, "path", None)).parent)
+            for it in list(items or [])
+            if getattr(it, "path", None)
+        }
+    except Exception:
+        parents = set()
+    if len(parents) == 1:
+        return next(iter(parents))
+    return "<folder>"
+
+
+def _with_count(text: str, cnt: int) -> str:
+    """Append `` (cnt)`` unless the count is 1 (a lone hub needs no count —
+    and filenames like ``pic(1)`` would stutter into ``(1) (1)``)."""
+    try:
+        if int(cnt) > 1:
+            return f"{text} ({int(cnt)})"
+    except Exception:
+        pass
+    return text
+
+
 def _clamp_clean_review_size(overlay, want_w: int, want_h: int) -> tuple[int, int]:
     """Clamp a wanted S3 card size: floor = content minimum (900×440 plate),
     ceiling = overlay minus the 16px margin on each side (Quick Look idiom).
@@ -307,6 +344,379 @@ def reposition_clean_review_grip(overlay) -> None:
             pass
     except Exception:
         pass
+
+
+# -- Quick Look-identical resize (W9 8px border strip + W10 outer ring) -----
+# Same zones, cursors, clamp idiom, and D2/D4 guards as quick-look
+# ``resize.py``; S3 has no nav arrows (no W11 branches) and repins through
+# its own clamp/repin (S3 floor 900×440, no preview relayout).
+S3_RESIZE_BORDER_PX = 8
+
+
+def s3_resize_zone_at(content, pos) -> str | None:
+    """Hit-test a _content-local point against the 8px border strip."""
+    try:
+        from sli_ui_toolkit.managers import scaled_px
+
+        strip = scaled_px(S3_RESIZE_BORDER_PX)
+        w = content.width()
+        h = content.height()
+        x = pos.x()
+        y = pos.y()
+        left = x < strip
+        right = x >= w - strip
+        top = y < strip
+        bottom = y >= h - strip
+        if top and left:
+            return "top_left"
+        if top and right:
+            return "top_right"
+        if bottom and left:
+            return "bottom_left"
+        if bottom and right:
+            return "bottom_right"
+        if left:
+            return "left"
+        if right:
+            return "right"
+        if top:
+            return "top"
+        if bottom:
+            return "bottom"
+        return None
+    except Exception:
+        return None
+
+
+def s3_ring_zone_at(overlay, pos) -> str | None:
+    """Hit-test an OVERLAY-local point against the 8px ring OUTSIDE the card."""
+    try:
+        from sli_ui_toolkit.managers import scaled_px
+
+        content = getattr(overlay, "_content", None)
+        if content is None:
+            return None
+        try:
+            card = content.geometry()
+        except Exception:
+            return None
+        try:
+            x = pos.x()
+            y = pos.y()
+        except Exception:
+            return None
+        try:
+            if card.adjusted(1, 1, -1, -1).contains(pos):
+                return None
+        except Exception:
+            pass
+        strip = scaled_px(S3_RESIZE_BORDER_PX)
+        left = card.x() - strip <= x <= card.x()
+        right = card.x() + card.width() - 1 <= x < card.x() + card.width() + strip
+        top = card.y() - strip <= y <= card.y()
+        bottom = card.y() + card.height() - 1 <= y < card.y() + card.height() + strip
+        v_span = card.y() - strip <= y < card.y() + card.height() + strip
+        h_span = card.x() - strip <= x < card.x() + card.width() + strip
+        if (left or right) and not v_span:
+            return None
+        if (top or bottom) and not h_span:
+            return None
+        if top and left:
+            return "top_left"
+        if top and right:
+            return "top_right"
+        if bottom and left:
+            return "bottom_left"
+        if bottom and right:
+            return "bottom_right"
+        if left:
+            return "left"
+        if right:
+            return "right"
+        if top:
+            return "top"
+        if bottom:
+            return "bottom"
+        return None
+    except Exception:
+        return None
+
+
+def s3_resize_cursor_for(zone: str | None):
+    """Hover/drag cursor for a resize zone. None → default arrow."""
+    try:
+        from PySide6.QtCore import Qt
+
+        mapping = {
+            "left": Qt.CursorShape.SizeHorCursor,
+            "right": Qt.CursorShape.SizeHorCursor,
+            "top": Qt.CursorShape.SizeVerCursor,
+            "bottom": Qt.CursorShape.SizeVerCursor,
+            "top_left": Qt.CursorShape.SizeFDiagCursor,
+            "bottom_right": Qt.CursorShape.SizeFDiagCursor,
+            "top_right": Qt.CursorShape.SizeBDiagCursor,
+            "bottom_left": Qt.CursorShape.SizeBDiagCursor,
+        }
+        return mapping.get(zone if zone is not None else "")
+    except Exception:
+        return None
+
+
+def _s3_apply_cursor(target, cursor) -> None:
+    try:
+        if cursor is None:
+            target.unsetCursor()
+        else:
+            target.setCursor(cursor)
+    except Exception:
+        pass
+
+
+def s3_handle_border_press(overlay, event) -> bool:
+    """Start a full-border drag on left-press inside the strip."""
+    try:
+        from PySide6.QtCore import Qt
+
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        # D4: a second press while a drag is live must not re-anchor it.
+        if getattr(overlay, "_border_drag", None) is not None:
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True
+        content = getattr(overlay, "_content", None)
+        if content is None:
+            return False
+        try:
+            local = event.position().toPoint()
+        except Exception:
+            return False
+        zone = s3_resize_zone_at(content, local)
+        if zone is None:
+            return False
+        try:
+            start_global = event.globalPosition().toPoint()
+        except Exception:
+            return False
+        overlay._border_drag = (zone, start_global, content.geometry())
+        _s3_apply_cursor(content, s3_resize_cursor_for(zone))
+        try:
+            event.accept()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def s3_handle_border_move(overlay, event) -> bool:
+    """Hover cursors + live border drag. True when consumed."""
+    try:
+        from PySide6.QtCore import Qt
+
+        content = getattr(overlay, "_content", None)
+        if content is None:
+            return False
+        drag = getattr(overlay, "_border_drag", None)
+        if drag is not None:
+            # D2: no grabMouse is used (Wayland-safe), so a release landing
+            # outside the window strands _border_drag. A button-free move
+            # cancels instead of resizing.
+            try:
+                held = event.buttons()
+            except Exception:
+                held = Qt.MouseButton.NoButton
+            if held == Qt.MouseButton.NoButton:
+                overlay._border_drag = None
+                try:
+                    _s3_apply_cursor(overlay, None)
+                    _s3_apply_cursor(content, None)
+                except Exception:
+                    pass
+                return False
+            try:
+                cur = event.globalPosition().toPoint()
+            except Exception:
+                return False
+            zone, start_global, start_geom = drag
+            dx = cur.x() - start_global.x()
+            dy = cur.y() - start_global.y()
+            want_w = start_geom.width()
+            want_h = start_geom.height()
+            if "left" in zone:
+                want_w = start_geom.width() - dx
+            elif "right" in zone:
+                want_w = start_geom.width() + dx
+            if "top" in zone:
+                want_h = start_geom.height() - dy
+            elif "bottom" in zone:
+                want_h = start_geom.height() + dy
+            new_w, new_h = _clamp_clean_review_size(overlay, want_w, want_h)
+            try:
+                # Anchor the opposite edge: left/top drags move the card
+                # so the edge under the cursor tracks it (right/bottom
+                # drags keep the top-left anchor).
+                new_x = start_geom.x() + (start_geom.width() - new_w) if "left" in zone else start_geom.x()
+                new_y = start_geom.y() + (start_geom.height() - new_h) if "top" in zone else start_geom.y()
+                if new_x != start_geom.x() or new_y != start_geom.y():
+                    content.move(new_x, new_y)
+                content.resize(new_w, new_h)
+            except Exception:
+                pass
+            reposition_clean_review_grip(overlay)
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True
+        # Hover (no buttons): cursor-only affordance, never consumed.
+        try:
+            buttons = event.buttons()
+        except Exception:
+            buttons = Qt.MouseButton.NoButton
+        if buttons != Qt.MouseButton.NoButton:
+            return False
+        try:
+            local = event.position().toPoint()
+        except Exception:
+            return False
+        _s3_apply_cursor(content, s3_resize_cursor_for(s3_resize_zone_at(content, local)))
+        return False
+    except Exception:
+        return False
+
+
+def s3_handle_border_release(overlay, event) -> bool:
+    """End a full-border drag. True when a drag was active."""
+    try:
+        if getattr(overlay, "_border_drag", None) is None:
+            return False
+        overlay._border_drag = None
+        reposition_clean_review_grip(overlay)
+        try:
+            content = getattr(overlay, "_content", None)
+            if content is not None:
+                _s3_apply_cursor(content, None)
+        except Exception:
+            pass
+        try:
+            _s3_apply_cursor(overlay, None)
+        except Exception:
+            pass
+        try:
+            event.accept()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def s3_handle_ring_press(overlay, event) -> bool:
+    """Start a border drag from the OUTER ring. Plain veil clicks (zone None)
+    return False so the base veil dismiss still fires (W6 holds)."""
+    try:
+        from PySide6.QtCore import Qt
+
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        # D4: never re-anchor a live drag.
+        if getattr(overlay, "_border_drag", None) is not None:
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True
+        content = getattr(overlay, "_content", None)
+        if content is None:
+            return False
+        try:
+            local = event.position().toPoint()
+        except Exception:
+            return False
+        zone = s3_ring_zone_at(overlay, local)
+        if zone is None:
+            return False
+        try:
+            start_global = event.globalPosition().toPoint()
+        except Exception:
+            return False
+        overlay._border_drag = (zone, start_global, content.geometry())
+        _s3_apply_cursor(overlay, s3_resize_cursor_for(zone))
+        try:
+            event.accept()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def s3_handle_ring_hover(overlay, event) -> bool:
+    """Hover cursors over the outer ring. Never consumed."""
+    try:
+        from PySide6.QtCore import Qt
+
+        if getattr(overlay, "_border_drag", None) is not None:
+            return False
+        try:
+            buttons = event.buttons()
+        except Exception:
+            buttons = Qt.MouseButton.NoButton
+        if buttons != Qt.MouseButton.NoButton:
+            return False
+        try:
+            local = event.position().toPoint()
+        except Exception:
+            return False
+        # Moves over ignoring plate children propagate here: deep interior
+        # (not the strip) clears a stale plate cursor; the strip itself is
+        # owned by the plate filter.
+        try:
+            content = getattr(overlay, "_content", None)
+            if content is not None:
+                try:
+                    mapped = content.mapFrom(overlay, local)
+                except Exception:
+                    mapped = None
+                if mapped is not None:
+                    try:
+                        inside = 0 <= mapped.x() < content.width() and 0 <= mapped.y() < content.height()
+                    except Exception:
+                        inside = False
+                    if inside and s3_resize_zone_at(content, mapped) is None:
+                        _s3_apply_cursor(content, None)
+        except Exception:
+            pass
+        _s3_apply_cursor(overlay, s3_resize_cursor_for(s3_ring_zone_at(overlay, local)))
+        return False
+    except Exception:
+        return False
+
+
+def s3_handle_ring_release(overlay, event) -> bool:
+    """End an outer-ring drag. True when a drag was active."""
+    try:
+        if getattr(overlay, "_border_drag", None) is None:
+            return False
+        overlay._border_drag = None
+        reposition_clean_review_grip(overlay)
+        _s3_apply_cursor(overlay, None)
+        try:
+            content = getattr(overlay, "_content", None)
+            if content is not None:
+                _s3_apply_cursor(content, None)
+        except Exception:
+            pass
+        try:
+            event.accept()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
 
 
 class _CleanReviewResizeGrip(QWidget):
@@ -489,7 +899,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         # S3-1: reassurance subtitle under the title — safety promise before
         # the move (mockup v3). Muted via the toolkit ``caption`` variant
         # (12 px secondary/status text) — no hand-coloring, tokens own color.
-        self._subtitle = Label("", pixel_size=12, variant="caption", parent=self._content)
+        self._subtitle = Label("", pixel_size=14, variant="caption", parent=self._content)
         self._subtitle.setObjectName("clean_review_subtitle")
         self._subtitle.setWordWrap(True)
         self._subtitle.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -536,7 +946,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
 
         # S3 provenance line — BELOW the filmstrip per mockup v3 (svg:100
         # draws it under the thumbs, above the bottom action bar).
-        self._provenance_label = Label("", pixel_size=11, parent=self._content)
+        self._provenance_label = Label("", pixel_size=13, parent=self._content)
         self._provenance_label.setObjectName("clean_review_provenance")
         self._provenance_label.setWordWrap(True)
         self._provenance_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -568,7 +978,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
 
         bar_layout.addStretch(1)
 
-        self._size_label = Label("", pixel_size=11, parent=bar)
+        self._size_label = Label("", pixel_size=13, parent=bar)
         self._size_label.setObjectName("clean_review_size_label")
         self._size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar_layout.addWidget(self._size_label)
@@ -597,6 +1007,12 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             self._move_btn.set_override_bg_color(accent)
             self._move_btn.setBorderColor(accent)
             self._move_btn.setForegroundColor(_QC("#ffffff"))
+            # Hover would stack the light surface wash over the accent
+            # (white button, invisible white text) — pin a darker accent.
+            try:
+                self._move_btn.set_hover_color(accent.darker(120))
+            except Exception:
+                pass
         except Exception:
             pass
         bar_layout.addWidget(self._move_btn)
@@ -612,6 +1028,11 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             pass
         # Quick Look parity: corner resize grip (absolute child of the
         # plate, repinned on every resize) + content Resize filter.
+        self._border_drag = None
+        try:
+            self._content.setMouseTracking(True)
+        except Exception:
+            pass
         self._resize_grip = _CleanReviewResizeGrip(self, self._content)
         self._resize_grip.raise_()
         try:
@@ -699,17 +1120,68 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         )
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        # Card-plate resizes (user drag via the corner grip) re-pin the
-        # grip (Quick Look idiom: _content Resize filter).
+        # Card-plate resizes re-pin the grip; presses/moves/releases on the
+        # plate drive the W9 border drag with hover cursors (Quick Look idiom).
         try:
             from PySide6.QtCore import QEvent
 
             if watched is getattr(self, "_content", None):
-                if event.type() == QEvent.Type.Resize:
+                t = event.type()
+                if t == QEvent.Type.Resize:
                     reposition_clean_review_grip(self)
+                elif t == QEvent.Type.MouseButtonPress:
+                    if s3_handle_border_press(self, event):
+                        return True
+                elif t == QEvent.Type.MouseMove:
+                    if s3_handle_border_move(self, event):
+                        return True
+                elif t == QEvent.Type.MouseButtonRelease:
+                    if s3_handle_border_release(self, event):
+                        return True
+                elif t == QEvent.Type.Leave:
+                    if getattr(self, "_border_drag", None) is None:
+                        _s3_apply_cursor(self._content, None)
         except Exception:
             pass
         return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        # Outer-ring (W10) presses start a drag; open-veil presses fall
+        # through to the base veil dismiss (children eat their own presses).
+        try:
+            if s3_handle_ring_press(self, event):
+                return
+        except Exception:
+            pass
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        # Veil-level moves continue a live ring drag, else paint ring hovers.
+        try:
+            if getattr(self, "_border_drag", None) is not None:
+                if s3_handle_border_move(self, event):
+                    return
+            else:
+                s3_handle_ring_hover(self, event)
+        except Exception:
+            pass
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        try:
+            if s3_handle_ring_release(self, event):
+                return
+        except Exception:
+            pass
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        try:
+            if getattr(self, "_border_drag", None) is None:
+                _s3_apply_cursor(self, None)
+        except Exception:
+            pass
+        super().leaveEvent(event)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         # Base recenters the card; the grip re-pins after.
@@ -776,8 +1248,7 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         # Title + S3-1 reassurance subtitle (mockup v3 copy: numbers live in
         # the subtitle; folder short form — real path when known, else the
         # ``<folder>`` literal as drawn in the mockup).
-        folder = getattr(getattr(owner, "state", None), "folder", None)
-        folder_name = str(folder) if folder is not None else "<folder>"
+        folder_name = _display_folder_for_items(owner, items)
         try:
             self._title.setText("Review rejected files")
         except Exception:
@@ -815,14 +1286,14 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
                 cnt = len(by_series[sid])
                 if sid == "__ungrouped__":
                     hub = "UNGROUPED"
-                    parts.append(f"SERIES {idx} · {hub} ({cnt})" if len(sorted_sids) > 1 else f"UNGROUPED ({cnt})")
+                    parts.append(_with_count(hub, cnt) if len(sorted_sids) == 1 else _with_count(f"SERIES {idx} · {hub}", cnt))
                 else:
                     hub = _hub_name_for_series(owner, sid)
                     if hub:
-                        parts.append(f"SERIES {idx} · {hub} ({cnt})")
+                        parts.append(_with_count(f"SERIES {idx} · {hub}", cnt))
                     else:
                         # Fallback without hub
-                        parts.append(f"SERIES {idx} ({cnt})")
+                        parts.append(_with_count(f"SERIES {idx}", cnt))
             # Use sorted order enumeration for display but keep original sid for resolver.
             # Rebuild with actual enumeration based on sorted order where hub exists.
             # For ungrouped, use UNGROUPED label.
@@ -837,9 +1308,11 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         except Exception:
             pass
 
-        # Move button variant primary, size label total MB.
+        # Move button variant primary, size label total MB. The title names
+        # the destination folder (basename — full path lives in the subtitle).
         try:
-            self._move_btn.setText(f"Move {n} to _rejected/")
+            folder_short = Path(folder_name).name or folder_name
+            self._move_btn.setText(f"Move {n} to {folder_short}/_rejected/")
             self._move_btn.setEnabled(n > 0)
         except Exception:
             pass
