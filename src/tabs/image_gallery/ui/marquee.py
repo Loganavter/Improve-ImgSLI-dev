@@ -228,6 +228,18 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
 
 def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
     """Commit selection when the band finishes."""
+    try:
+        _mdbg(
+            "marquee FINISH rect=(%d,%d %dx%d) empty=%s additive=%s",
+            rect.x(),
+            rect.y(),
+            rect.width(),
+            rect.height(),
+            rect.isEmpty(),
+            bool(getattr(view, "_marquee_additive", False)),
+        )
+    except Exception:
+        pass
     if rect.isEmpty():
         additive = bool(getattr(view, "_marquee_additive", False))
         if not additive:
@@ -286,6 +298,16 @@ def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
         pass
 
 
+def _mdbg(msg: str, *args) -> None:
+    """Marquee trace via gallery_debug (env-gated, fail-open)."""
+    try:
+        from tabs.image_gallery.debug import gallery_debug as _dbg
+
+        _dbg(msg, *args)
+    except Exception:
+        pass
+
+
 def host_mouse_press(view, event: QMouseEvent) -> bool:  # type: ignore[no-untyped-def]
     if event.button() != Qt.MouseButton.LeftButton:
         return False
@@ -319,9 +341,19 @@ def host_mouse_press(view, event: QMouseEvent) -> bool:  # type: ignore[no-untyp
     gesture = ensure_marquee_gesture(view)
     try:
         if not gesture.start(event.position().toPoint()):
+            _mdbg("marquee press IGNORED (gesture refused) pos=%s", event.position().toPoint())
             return False
-    except Exception:
+    except Exception as exc:
+        _mdbg("marquee press FAILED err=%r", exc)
         return False
+    try:
+        _mdbg(
+            "marquee press START pos=%s additive=%s",
+            event.position().toPoint(),
+            bool(getattr(view, "_marquee_additive", False)),
+        )
+    except Exception:
+        pass
     # Live preview clear for non-additive.
     cb = getattr(view, "_on_marquee_preview", None)
     if callable(cb):

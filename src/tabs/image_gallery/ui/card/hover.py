@@ -46,6 +46,46 @@ def _capsule_suppressed(owner, card=None) -> bool:
     return False
 
 
+def _event_pos(event) -> str:
+    """Position carried BY the event (trustworthy).
+
+    Unlike polled ``QCursor.pos()`` (stale on Wayland, wrong moment), the
+    event's own position is the boundary witness: where Qt says the cursor
+    was when this Enter/Leave was synthesized.
+    """
+    for attr in ("position", "globalPosition", "pos"):
+        try:
+            p = getattr(event, attr, None)
+            v = p() if callable(p) else p
+            if v is not None:
+                try:
+                    return "%d,%d" % (int(v.x()), int(v.y()))
+                except Exception:
+                    return str(v)
+        except Exception:
+            continue
+    return "?"
+
+
+def _mouse_buttons_int() -> int:
+    """Live mouse buttons bitmask (fail-open, -1 on error).
+
+    Distinguishes real hover (0) from press-drag (≠0, e.g. marquee band):
+    while a button is held Qt routes moves to the press receiver and the
+    card never gets Enter.
+    """
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        b = QApplication.mouseButtons()
+        try:
+            return int(getattr(b, "value", b))
+        except Exception:
+            return int(b)
+    except Exception:
+        return -1
+
+
 def _hdbg(msg: str, *args) -> None:
     """One-line hover trace (env-gated, fail-open)."""
     try:
@@ -143,9 +183,11 @@ class _CardHoverFilter(QObject):
         if watched is self._card:
             if event.type() == QEvent.Type.Enter:
                 _hdbg(
-                    "card hover enter card=%s suppressed=%s",
+                    "card hover enter card=%s suppressed=%s buttons=%s ev_pos=%s",
                     getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
                     _capsule_suppressed(self._owner, self._card),
+                    _mouse_buttons_int(),
+                    _event_pos(event),
                 )
                 try:
                     # Hover FX is the translucent shelf-style wash
@@ -190,17 +232,21 @@ class _CardHoverFilter(QObject):
                     over = bool(_over_del(self._card))
                     if not over:
                         _hdbg(
-                            "card hover leave hide-reason=LEAVE_OUTSIDE card=%s over_delete=%s",
+                            "card hover leave hide-reason=LEAVE_OUTSIDE card=%s over_delete=%s buttons=%s ev_pos=%s",
                             getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
                             over,
+                            _mouse_buttons_int(),
+                            _event_pos(event),
                         )
                         hide_gallery_card_flyout(self._card)
                         _hide_del(self._card)
                     else:
                         _hdbg(
-                            "card hover leave keep hide-reason=LEAVE_TOWARD_BADGE card=%s over_delete=%s",
+                            "card hover leave keep hide-reason=LEAVE_TOWARD_BADGE card=%s over_delete=%s buttons=%s ev_pos=%s",
                             getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
                             over,
+                            _mouse_buttons_int(),
+                            _event_pos(event),
                         )
                 except Exception as exc:
                     _hdbg("card hover leave FAILED err=%r", exc)
