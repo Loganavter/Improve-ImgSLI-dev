@@ -160,15 +160,15 @@ class _CardHoverFilter(QObject):
 
                     self._card._gallery_delete_hovered = True  # type: ignore[attr-defined]
                     _sync_del(self._card)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _hdbg("delete sync on Enter FAILED err=%r", exc)
                 try:
                     if _capsule_suppressed(self._owner, self._card):
-                        _hdbg("capsule show suppressed (post-action window)")
+                        _hdbg("capsule NOT shown hide-reason=SUPPRESSED path=%s", getattr(getattr(self._card, "_gallery_item", None), "path", "?"))
                     else:
                         show_gallery_card_flyout(self._card, self._owner)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _hdbg("capsule show on Enter FAILED err=%r", exc)
             elif event.type() == QEvent.Type.Leave:
                 try:
                     _hide_card_hover_underline(self._card)
@@ -189,15 +189,21 @@ class _CardHoverFilter(QObject):
                     self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
                     over = bool(_over_del(self._card))
                     if not over:
+                        _hdbg(
+                            "card hover leave hide-reason=LEAVE_OUTSIDE card=%s over_delete=%s",
+                            getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
+                            over,
+                        )
                         hide_gallery_card_flyout(self._card)
                         _hide_del(self._card)
-                    _hdbg(
-                        "card hover leave card=%s over_delete=%s",
-                        getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
-                        over,
-                    )
-                except Exception:
-                    pass
+                    else:
+                        _hdbg(
+                            "card hover leave keep hide-reason=LEAVE_TOWARD_BADGE card=%s over_delete=%s",
+                            getattr(getattr(self._card, "_gallery_item", None), "path", "?"),
+                            over,
+                        )
+                except Exception as exc:
+                    _hdbg("card hover leave FAILED err=%r", exc)
         return False
 
 
@@ -278,7 +284,9 @@ def ensure_gallery_card_flyout(parent: QWidget):  # type: ignore[no-untyped-def]
                 import shiboken6
 
                 if shiboken6.isValid(existing):
+                    _hdbg("capsule ensure reuse path=%s", getattr(getattr(parent, "_gallery_item", None), "path", "?"))
                     return existing
+                _hdbg("capsule ensure stale (invalid) — recreating path=%s", getattr(getattr(parent, "_gallery_item", None), "path", "?"))
             except Exception:
                 return existing
         flyout = IconActionFlyout(parent, button_size=22, icon_size=14)
@@ -292,8 +300,10 @@ def ensure_gallery_card_flyout(parent: QWidget):  # type: ignore[no-untyped-def]
             parent._gallery_card_flyout = flyout  # type: ignore[attr-defined]
         except Exception:
             pass
+        _hdbg("capsule ensure created path=%s", getattr(getattr(parent, "_gallery_item", None), "path", "?"))
         return flyout
-    except Exception:
+    except Exception as exc:
+        _hdbg("capsule ensure FAILED hide-reason=ENSURE_FAIL path=%s err=%r", getattr(getattr(parent, "_gallery_item", None), "path", "?"), exc)
         return None
 
 
@@ -302,6 +312,10 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
     try:
         flyout = ensure_gallery_card_flyout(card)
         if flyout is None:
+            _hdbg(
+                "capsule NOT shown hide-reason=ENSURE_FAIL path=%s",
+                getattr(getattr(card, "_gallery_item", None), "path", "?"),
+            )
             return
 
         # Fidelity mode adds "Set as source" to the capsule (A2 spec).
@@ -319,8 +333,14 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
             except Exception:
                 _include = False
             flyout.set_actions(_gallery_card_actions_spec(include_source=_include))
-        except Exception:
-            pass
+            _hdbg(
+                "capsule mode mode=%r include_source=%d path=%s",
+                ms,
+                1 if _include else 0,
+                getattr(getattr(card, "_gallery_item", None), "path", "?"),
+            )
+        except Exception as exc:
+            _hdbg("capsule mode-resolve FAILED err=%r", exc)
 
         # S2 tri-color capsule icons: star gold · cross red · swap accent
         # (painter-pipeline foreground, no QSS).
@@ -432,17 +452,28 @@ def show_gallery_card_flyout(card, owner=None) -> None:  # type: ignore[no-untyp
                 flyout.raise_()
             except Exception:
                 pass
-            _hdbg("capsule shown path=%s", getattr(getattr(card, "_gallery_item", None), "path", "?"))
-        except Exception:
+            _hdbg(
+                "capsule shown path=%s pos=(%s,%s) size=(%s,%s)",
+                getattr(getattr(card, "_gallery_item", None), "path", "?"),
+                flyout.x(),
+                flyout.y(),
+                flyout.width(),
+                flyout.height(),
+            )
+        except Exception as exc:
+            _hdbg("capsule show FAILED fallback path=%s err=%r", getattr(getattr(card, "_gallery_item", None), "path", "?"), exc)
             try:
                 flyout.show_above(card)
-            except Exception:
+                _hdbg("capsule shown via show_above path=%s", getattr(getattr(card, "_gallery_item", None), "path", "?"))
+            except Exception as exc2:
+                _hdbg("capsule show_above FAILED err=%r", exc2)
                 try:
                     flyout.show_for_button(card)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-    except Exception:
-        pass
+                    _hdbg("capsule shown via show_for_button path=%s", getattr(getattr(card, "_gallery_item", None), "path", "?"))
+                except Exception as exc3:
+                    _hdbg("capsule NOT shown hide-reason=SHOW_FAIL path=%s err=%r", getattr(getattr(card, "_gallery_item", None), "path", "?"), exc3)
+    except Exception as exc:
+        _hdbg("capsule show outer FAILED hide-reason=SHOW_FAIL err=%r", exc)
 
 
 def _after_card_action(card, owner, notice: str | None = None) -> None:
@@ -453,22 +484,29 @@ def _after_card_action(card, owner, notice: str | None = None) -> None:
     """
     try:
         hide_gallery_card_flyout(card)
-    except Exception:
-        pass
+    except Exception as exc:
+        _hdbg("capsule hide-after-action FAILED err=%r", exc)
     _suppress_capsule(owner, card)
+    try:
+        until = float(getattr(owner, "_gallery_capsule_suppress_until", 0.0) or 0.0)
+    except Exception:
+        until = 0.0
     if notice:
         _notify_owner_hud(owner, notice)
-    _hdbg("capsule action done notice=%r", notice)
+    _hdbg("capsule action done hide-reason=POST_ACTION_SUPPRESS suppress_until=%.3f notice=%r", until, notice)
 
 
 def hide_gallery_card_flyout(card) -> None:  # type: ignore[no-untyped-def]
     try:
         flyout = ensure_gallery_card_flyout(card)
-        if flyout is not None and flyout.isVisible():
+        _path = getattr(getattr(card, "_gallery_item", None), "path", "?")
+        if flyout is None:
+            _hdbg("capsule hide skip hide-reason=ENSURE_FAIL path=%s", _path)
+            return
+        if flyout.isVisible():
             flyout.hide()
-            _hdbg(
-                "capsule hidden path=%s",
-                getattr(getattr(card, "_gallery_item", None), "path", "?"),
-            )
-    except Exception:
-        pass
+            _hdbg("capsule hidden hide-reason=LEAVE path=%s", _path)
+        else:
+            _hdbg("capsule hide skip hide-reason=ALREADY_HIDDEN path=%s", _path)
+    except Exception as exc:
+        _hdbg("capsule hide FAILED err=%r", exc)

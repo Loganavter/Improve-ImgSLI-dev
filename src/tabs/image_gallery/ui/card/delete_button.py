@@ -50,7 +50,15 @@ def hide_card_delete_button(card) -> None:
     try:
         btn = getattr(card, "_gallery_delete_btn", None)
         if btn is not None:
+            was = bool(btn.isVisible())
             btn.hide()
+            _log_hover(
+                "delete direct-hide hide-reason=DIRECT_HIDE was_visible=%s",
+                card,
+                was,
+            )
+        else:
+            _log_hover("delete direct-hide skip hide-reason=NO_BTN", card)
     except Exception:
         pass
 
@@ -73,6 +81,8 @@ class _CardDeletePin(QObject):
                 QEvent.Type.Hide,
                 QEvent.Type.ParentChange,
             ):
+                if event.type() in (QEvent.Type.Show, QEvent.Type.Hide, QEvent.Type.ParentChange):
+                    _log_hover("delete pin event=%s — resync" % event.type(), self._card)
                 sync_card_delete_button(self._card)
         except Exception:
             pass
@@ -102,7 +112,7 @@ class _DeleteHoverFilter(QObject):
                         pass
                     sync_card_delete_button(self._card)
                     _show_capsule_for_card(self._card)
-                    _log_hover("delete hover enter", self._card)
+                    _log_hover("delete hover enter hide-reason=KEEP_BADGE_HOVER", self._card)
                 elif event.type() == QEvent.Type.Leave:
                     try:
                         self._card._gallery_delete_hovered = False  # type: ignore[attr-defined]
@@ -110,9 +120,11 @@ class _DeleteHoverFilter(QObject):
                         pass
                     over_card = widget_contains_cursor(self._card)
                     if not over_card:
+                        _log_hover("delete hover leave hide-reason=LEAVE_OUTSIDE over_card=%s" % over_card, self._card)
                         hide_card_delete_button(self._card)
                         _hide_capsule_for_card(self._card)
-                    _log_hover(f"delete hover leave over_card={over_card}", self._card)
+                    else:
+                        _log_hover("delete hover leave keep hide-reason=LEAVE_TOWARD_CARD over_card=%s" % over_card, self._card)
         except Exception:
             pass
         return False
@@ -136,6 +148,7 @@ def _show_capsule_for_card(card) -> None:
             except Exception:
                 owner = None
         if bool(_suppressed(owner, card)):
+            _log_hover("capsule NOT shown hide-reason=SUPPRESSED (badge hover)", card)
             return
         _show(card, owner)
     except Exception:
@@ -154,14 +167,18 @@ def _hide_capsule_for_card(card) -> None:
         pass
 
 
-def _log_hover(msg: str, card) -> None:
+def _log_hover(msg: str, card, *args) -> None:
     """One-line hover trace (env-gated, fail-open)."""
     try:
         from tabs.image_gallery.debug import gallery_debug as _dbg
 
+        try:
+            text = msg % args if args else msg
+        except Exception:
+            text = msg
         _dbg(
             "%s card=%s",
-            msg,
+            text,
             getattr(getattr(card, "_gallery_item", None), "path", "?"),
         )
     except Exception:
@@ -178,11 +195,16 @@ def sync_card_delete_button(card) -> None:
     try:
         btn = getattr(card, "_gallery_delete_btn", None)
         filt = getattr(card, "_gallery_delete_pin", None)
-        if btn is None or filt is None:
+        if btn is None:
+            _log_hover("delete sync skip hide-reason=NO_BTN", card)
+            return
+        if filt is None:
+            _log_hover("delete sync skip hide-reason=NO_PIN", card)
             return
         import shiboken6
 
         if not shiboken6.isValid(btn):
+            _log_hover("delete sync skip hide-reason=INVALID_BTN", card)
             return
         try:
             size = int(filt._size)
@@ -212,15 +234,28 @@ def sync_card_delete_button(card) -> None:
         except Exception:
             was = False
         if not (in_host and shown and hovered) or rejected:
+            if rejected:
+                reason = "REJECTED"
+            elif not in_host:
+                reason = "NOT_IN_HOST"
+            elif not shown:
+                reason = "NOT_SHOWN"
+            else:
+                reason = "NOT_HOVERED"
             try:
                 btn.hide()
             except Exception:
                 pass
-            if was:
-                _log_hover(
-                    f"delete hide in_host={in_host} shown={shown} hovered={hovered} rejected={rejected}",
-                    card,
-                )
+            _log_hover(
+                "delete hide hide-reason=%s in_host=%s shown=%s hovered=%s rejected=%s was_visible=%s",
+                card,
+                reason,
+                in_host,
+                shown,
+                hovered,
+                rejected,
+                was,
+            )
             return
         try:
             pos = card.pos()
@@ -235,13 +270,20 @@ def sync_card_delete_button(card) -> None:
             btn.raise_()
         except Exception:
             pass
-        if not was:
-            _log_hover(
-                f"delete show in_host={in_host} shown={shown} hovered={hovered} rejected={rejected}",
-                card,
-            )
-    except Exception:
-        pass
+        _log_hover(
+            "delete show in_host=%s shown=%s hovered=%s rejected=%s was_visible=%s",
+            card,
+            in_host,
+            shown,
+            hovered,
+            rejected,
+            was,
+        )
+    except Exception as exc:
+        try:
+            _log_hover("delete sync FAILED err=%r", card, exc)
+        except Exception:
+            pass
 
 
 def wire_card_delete_button(card, owner) -> None:  # type: ignore[no-untyped-def]
@@ -271,13 +313,18 @@ def wire_card_delete_button(card, owner) -> None:  # type: ignore[no-untyped-def
         # No host to overhang from — fall back to an in-card button.
         try:
             host = card
+            _log_hover("delete wire host fallback hide-reason=NO_HOST_PARENT (in-card)", card)
         except Exception:
             return
     try:
         # Round badge: radius = half of the 20px design size (solid fill +
         # border applied below; ghost alone is transparent idle).
         btn = Button(text="✕", variant="ghost", corner_radius=10, parent=host)
-    except Exception:
+    except Exception as exc:
+        try:
+            _log_hover("delete wire FAILED hide-reason=WIRE_FAIL err=%r", card, exc)
+        except Exception:
+            pass
         return
     btn.setObjectName("gallery_card_delete")
     try:
