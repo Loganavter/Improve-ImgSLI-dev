@@ -257,8 +257,183 @@ def _total_bytes_for_items(items: list) -> int:
     return total
 
 
+def _clamp_clean_review_size(overlay, want_w: int, want_h: int) -> tuple[int, int]:
+    """Clamp a wanted S3 card size: floor = content minimum (900×440 plate),
+    ceiling = overlay minus the 16px margin on each side (Quick Look idiom).
+    Session-only, nothing persisted.
+    """
+    try:
+        margin = scaled_px(16)
+        try:
+            bound_w = max(0, overlay.width() - margin * 2)
+            bound_h = max(0, overlay.height() - margin * 2)
+        except Exception:
+            bound_w, bound_h = 0, 0
+        content = getattr(overlay, "_content", None)
+        try:
+            floor_w = int(content.minimumWidth()) if content is not None else 0
+            floor_h = int(content.minimumHeight()) if content is not None else 0
+        except Exception:
+            floor_w, floor_h = 0, 0
+        new_w = max(floor_w, int(want_w))
+        new_h = max(floor_h, int(want_h))
+        if bound_w > 0:
+            new_w = min(new_w, bound_w)
+        if bound_h > 0:
+            new_h = min(new_h, bound_h)
+        return new_w, new_h
+    except Exception:
+        return int(want_w), int(want_h)
+
+
+def reposition_clean_review_grip(overlay) -> None:
+    """Pin the drag-resize grip to the S3 card's bottom-right corner.
+
+    Runs from the ``_content`` Resize filter, ``resizeEvent``, and after
+    ``show_overlay`` (mirrors quick-look ``reposition_grip``).
+    """
+    try:
+        content = getattr(overlay, "_content", None)
+        grip = getattr(overlay, "_resize_grip", None)
+        if content is None or grip is None:
+            return
+        grip.move(
+            max(0, content.width() - grip.width()),
+            max(0, content.height() - grip.height()),
+        )
+        try:
+            grip.raise_()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+class _CleanReviewResizeGrip(QWidget):
+    """Bottom-right drag handle for the resizable S3 card (Quick Look parity).
+
+    Painter-painted diagonal grip lines in the ``separator.color`` token,
+    theme-subscribed — no QSS, no palette. Dragging resizes the card plate
+    in place (top-left anchored) through ``_clamp_clean_review_size``.
+    """
+
+    GRIP_PX = 20
+
+    def __init__(self, overlay, parent=None) -> None:
+        super().__init__(parent)
+        self._overlay_ref = overlay
+        self.setFixedSize(scaled_px(self.GRIP_PX), scaled_px(self.GRIP_PX))
+        self.setObjectName("clean_review_resize_grip")
+        try:
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        except Exception:
+            pass
+        self._color = self._resolve_color()
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
+        except Exception:
+            pass
+        self._drag_start = None
+        self._drag_size = None
+
+    @staticmethod
+    def _resolve_color():
+        try:
+            from sli_ui_toolkit.managers import ThemeManager
+
+            from ui.theming import try_resolve_theme_color
+
+            c = try_resolve_theme_color(ThemeManager.get_instance(), "separator.color")
+            if c is not None:
+                return c if isinstance(c, QColor) else QColor(c)
+        except Exception:
+            pass
+        return QColor("#e5e5e5")
+
+    def _on_theme_changed(self) -> None:
+        try:
+            self._color = self._resolve_color()
+        except Exception:
+            pass
+        try:
+            self.update()
+        except Exception:
+            pass
+
+    def on_theme_changed(self) -> None:
+        self._on_theme_changed()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        try:
+            from PySide6.QtGui import QPen
+
+            p = QPainter(self)
+            try:
+                color = self._color
+                pen = QPen(color if color is not None else QColor(0, 0, 0, 0))
+                pen.setWidthF(max(1.0, scaled_px(1)))
+                p.setPen(pen)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                w = self.width()
+                h = self.height()
+                step = scaled_px(4)
+                for i in range(3):
+                    off = step * (i + 1)
+                    p.drawLine(w - off, h, w, h - off)
+            finally:
+                p.end()
+        except Exception:
+            pass
+        try:
+            super().paintEvent(event)
+        except Exception:
+            pass
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        try:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._drag_start = event.globalPosition().toPoint()
+                content = getattr(self._overlay_ref, "_content", None)
+                if content is not None:
+                    self._drag_size = content.size()
+                event.accept()
+                return
+        except Exception:
+            pass
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        try:
+            if self._drag_start is not None and self._drag_size is not None:
+                overlay = self._overlay_ref
+                content = getattr(overlay, "_content", None)
+                if content is not None:
+                    delta = event.globalPosition().toPoint() - self._drag_start
+                    want_w = self._drag_size.width() + delta.x()
+                    want_h = self._drag_size.height() + delta.y()
+                    new_w, new_h = _clamp_clean_review_size(overlay, want_w, want_h)
+                    content.resize(new_w, new_h)
+                    reposition_clean_review_grip(overlay)
+                event.accept()
+                return
+        except Exception:
+            pass
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_start = None
+        self._drag_size = None
+        super().mouseReleaseEvent(event)
+
+
 class CleanReviewOverlay(TopLevelInWindowOverlay):
     """Modal listing rejected files with restore + move.
+
+    Close/resize parity with Quick Look: veil click, Esc, and the top-right
+    ✕ close; minimize/focus loss stay pinned (tab-lifetime paths in
+    ``tab.py`` still hide explicitly); the corner grip resizes the card.
 
     Use ``show_for(owner)`` to populate and show.
     Emits ``cleaned(list)`` after a successful move batch (for tests).
@@ -268,11 +443,15 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
     dismissed = Signal()  # shadow TopLevelInWindowOverlay.dismissed for compat
 
     def __init__(self, parent: QWidget, owner=None) -> None:
+        # Quick Look parity: veil click + Esc close, minimize/deactivate
+        # stays pinned (WindowDeactivate fires on minimize — with True the
+        # menu would die with the window; tab on_deactivated/on_session_closed
+        # hide it explicitly instead).
         super().__init__(
             parent,
             close_on_background=True,
             close_on_escape=True,
-            close_on_deactivate=True,
+            close_on_deactivate=False,
         )
         self._owner = owner
         self._content = _ReviewPlate(self)
@@ -295,10 +474,17 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         # muted subtitle + divider rule. Bold goes through the Label
         # constructor (QL overlay_build.py:487 — setBold after would
         # re-run Label's pixel-based _apply_style and revert sizing).
+        # Quick Look parity: top row is title/subtitle + top-right ✕.
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(scaled_px(8))
+        title_col = QVBoxLayout()
+        title_col.setContentsMargins(0, 0, 0, 0)
+        title_col.setSpacing(scaled_px(2))
         self._title = Label("", pixel_size=16, bold=True, parent=self._content)
         self._title.setObjectName("clean_review_title")
         self._title.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        outer.addWidget(self._title)
+        title_col.addWidget(self._title)
 
         # S3-1: reassurance subtitle under the title — safety promise before
         # the move (mockup v3). Muted via the toolkit ``caption`` variant
@@ -307,7 +493,13 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
         self._subtitle.setObjectName("clean_review_subtitle")
         self._subtitle.setWordWrap(True)
         self._subtitle.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        outer.addWidget(self._subtitle)
+        title_col.addWidget(self._subtitle)
+        header_row.addLayout(title_col, 1)
+        self._close_btn = Button(text="✕", variant="surface", size=(28, 28), parent=self._content)
+        self._close_btn.setObjectName("clean_review_close")
+        self._close_btn.clicked.connect(self.hide)
+        header_row.addWidget(self._close_btn, 0, Qt.AlignmentFlag.AlignTop)
+        outer.addLayout(header_row)
 
         # Phase 2 — header divider under the subtitle (mockup v3 svg:45):
         # reuse the quick-look ``_RuleWidget`` (painted 1px rule,
@@ -418,6 +610,15 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             self._content.setMinimumHeight(scaled_px(REVIEW_CARD_HEIGHT_PX))
         except Exception:
             pass
+        # Quick Look parity: corner resize grip (absolute child of the
+        # plate, repinned on every resize) + content Resize filter.
+        self._resize_grip = _CleanReviewResizeGrip(self, self._content)
+        self._resize_grip.raise_()
+        try:
+            self._content.installEventFilter(self)
+        except Exception:
+            pass
+        reposition_clean_review_grip(self)
         self._row_widgets: list[QWidget] = []
         self._toast_manager: ToastManager | None = None
 
@@ -476,6 +677,10 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             self.show_overlay()
         except Exception:
             pass
+        try:
+            reposition_clean_review_grip(self)
+        except Exception:
+            pass
         _t3 = time.perf_counter()
         try:
             _n = len(self._rejected_items(owner))
@@ -492,6 +697,27 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
             int((_t3 - _t2) * 1000),
             _n,
         )
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        # Card-plate resizes (user drag via the corner grip) re-pin the
+        # grip (Quick Look idiom: _content Resize filter).
+        try:
+            from PySide6.QtCore import QEvent
+
+            if watched is getattr(self, "_content", None):
+                if event.type() == QEvent.Type.Resize:
+                    reposition_clean_review_grip(self)
+        except Exception:
+            pass
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        # Base recenters the card; the grip re-pins after.
+        super().resizeEvent(event)
+        try:
+            reposition_clean_review_grip(self)
+        except Exception:
+            pass
 
     def hideEvent(self, event) -> None:  # noqa: N802
         # Restore HUD suppression after overlay hides.

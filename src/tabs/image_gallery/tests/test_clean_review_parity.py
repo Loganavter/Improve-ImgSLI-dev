@@ -132,9 +132,26 @@ def test_header_divider_present_and_ordered(qtbot, tmp_path):
     assert isinstance(rule, _RuleWidget)
     assert rule.isVisibleTo(overlay)
     layout = overlay._content.layout()
-    assert layout.indexOf(overlay._title) < layout.indexOf(overlay._subtitle)
-    assert layout.indexOf(overlay._subtitle) < layout.indexOf(rule)
-    assert layout.indexOf(rule) < layout.indexOf(overlay._scroll)
+    # Header row (title + subtitle + ✕) precedes the divider rule precedes
+    # the strip; title precedes subtitle inside the header's title column.
+    header_pos = rule_pos = scroll_pos = None
+    header = None
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item.widget() is rule:
+            rule_pos = i
+        elif item.widget() is overlay._scroll:
+            scroll_pos = i
+        elif item.layout() is not None and item.layout().indexOf(overlay._close_btn) >= 0:
+            header_pos = i
+            header = item.layout()
+    assert header_pos is not None and rule_pos is not None and scroll_pos is not None
+    assert header_pos < rule_pos < scroll_pos
+    assert header is not None
+    title_col = header.itemAt(0).layout()
+    assert title_col is not None
+    assert title_col.itemAt(0).widget() is overlay._title
+    assert title_col.itemAt(1).widget() is overlay._subtitle
 
 
 # -- S3-2 -----------------------------------------------------------
@@ -825,4 +842,132 @@ def test_thumb_cell_has_no_provenance_sublabel(qtbot, tmp_path):
     overlay.show_for(owner)
     assert overlay.findChild(QWidget, "clean_review_row_provenance") is None
     assert overlay.findChild(QWidget, "clean_review_row_name") is not None
+    overlay.hide()
+
+
+# -- Quick Look behavior parity -------------------------------------------
+# Close paths (veil click, Esc, top-right ✕) close; minimize/focus loss
+# stay pinned; the corner grip resizes the card.
+
+
+def test_close_policy_matches_quick_look(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    assert overlay._close_on_background is True
+    assert overlay._close_on_escape is True
+    assert overlay._close_on_deactivate is False
+    overlay.hide()
+
+
+def test_close_button_hides_overlay(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+    assert overlay.isVisible()
+    qtbot.mouseClick(overlay._close_btn, Qt.MouseButton.LeftButton)
+    assert not overlay.isVisible()
+
+
+def test_veil_click_dismisses_overlay(qtbot, tmp_path):
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+    assert overlay.isVisible()
+    from PySide6.QtCore import QPoint, QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    pos = QPoint(4, 4)  # veil: outside the centered card
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        pos,
+        overlay.mapToGlobal(pos),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    overlay.mousePressEvent(press)
+    assert press.isAccepted()
+    assert not overlay.isVisible()
+
+
+def test_minimize_hide_does_not_dismiss(qtbot, tmp_path):
+    """Ancestor-driven hides (window minimize) are not a dismiss."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+    parent = overlay.parentWidget()
+    assert parent is not None
+    parent.hide()  # ancestor hide: overlay.isHidden() stays False
+    assert not overlay.isHidden()
+    parent.show()
+    qtbot.waitExposed(overlay)
+    assert overlay.isVisible()
+    # A real WindowDeactivate (what minimize delivers) must not dismiss
+    # either — close_on_deactivate stays False, Quick Look parity.
+    app = QApplication.instance()
+    assert app is not None
+    app.sendEvent(parent, QEvent(QEvent.Type.WindowDeactivate))
+    qtbot.wait(50)
+    assert not overlay.isHidden()
+    assert overlay.isVisible()
+    overlay.hide()
+
+
+def test_resize_grip_drags_card(qtbot, tmp_path):
+    from PySide6.QtCore import QPoint, QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    parent = overlay.parentWidget()
+    assert parent is not None
+    parent.resize(1400, 900)
+    overlay.show_for(owner)
+    qtbot.waitExposed(overlay)
+    content = overlay._content
+    grip = overlay._resize_grip
+    start_size = content.size()
+    assert start_size.width() >= 1 and start_size.height() >= 1
+
+    center = grip.rect().center()
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        center,
+        grip.mapToGlobal(center),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    grip.mousePressEvent(press)
+    assert press.isAccepted()
+    moved = center + QPoint(120, 80)
+    move = QMouseEvent(
+        QEvent.Type.MouseMove,
+        moved,
+        grip.mapToGlobal(moved),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    grip.mouseMoveEvent(move)
+    release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        moved,
+        grip.mapToGlobal(moved),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    grip.mouseReleaseEvent(release)
+    grown = content.size()
+    assert grown.width() == start_size.width() + 120
+    assert grown.height() == start_size.height() + 80
+    # Grip stays pinned to the card's bottom-right corner.
+    assert grip.pos() == content.rect().bottomRight() - grip.rect().bottomRight()
     overlay.hide()

@@ -46,8 +46,8 @@ def _card_border_color() -> QColor:
 
     Frozen seam: tokens only via ``try_resolve_theme_color``. Rule A: fallback
     keyed on ``is_dark()`` (light default) — ``#e2e4e8`` light / white@0.12
-    dark (mockup 1px card edges, v2/v3/v4-light). BEST accent 2px and the
-    rejected/danger paths are untouched — only default borders route here.
+    dark (mockup 1px card edges, v2/v3/v4-light). The rejected/danger paths
+    are untouched — only default borders route here.
     """
     try:
         from sli_ui_toolkit.managers import ThemeManager
@@ -160,18 +160,21 @@ def _apply_rejected_visuals(card: Button, item: GalleryItem) -> None:
             except Exception:
                 pass
         elif is_best or (not rejected and not tie_pending and getattr(item, "rank", None) == 1) or (not rejected and not tie_pending and getattr(item, "crown_rank", None) == 1):
-            # Left top per spec — overlay for leader (is_best or rank 1), clear toolkit right badge + accent border 2px
+            # Left top per spec — overlay for leader (is_best or rank 1), clear toolkit right badge.
+            # No accent outline: best is signaled by the ★ BEST pill alone,
+            # the frame stays the default card border.
             try:
                 card.setBadge(None)
             except Exception:
                 pass
             try:
                 card._gallery_badge = "★ BEST"  # type: ignore[attr-defined]
-                card._gallery_badge_style = (True, _accent_color(), _accent_color(), _token_qcolor("button.primary.text", "#ffffff"))  # type: ignore[attr-defined]
-                # Accent border 2px for BEST
+                # Pill text is always white: the "primary.text"/"stats.text"
+                # tokens resolve to black in the light theme (black on blue).
+                card._gallery_badge_style = (True, _accent_color(), _accent_color(), QColor("#ffffff"))  # type: ignore[attr-defined]
                 try:
-                    card.setBorderColor(_accent_color())
-                    card.setProperty("borderWidth", 2)
+                    card.setBorderColor(_card_border_color())
+                    card.setProperty("borderWidth", 1)
                 except Exception:
                     pass
             except Exception:
@@ -191,7 +194,7 @@ def _apply_rejected_visuals(card: Button, item: GalleryItem) -> None:
                 try:
                     card._gallery_badge = badge_text  # type: ignore[attr-defined]
                     rank_bg = _token_qcolor("button.toggle.background.checked", "#555555")
-                    card._gallery_badge_style = (True, rank_bg, rank_bg, _token_qcolor("gallery.stats.text", "#dfdfdf"))  # type: ignore[attr-defined]
+                    card._gallery_badge_style = (True, rank_bg, rank_bg, QColor("#ffffff"))  # type: ignore[attr-defined]
                     card.setBorderColor(_card_border_color())
                 except Exception:
                     pass

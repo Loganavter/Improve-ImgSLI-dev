@@ -240,7 +240,23 @@ def test_tie_break_badge_is_accent_stroked_not_gray_filled(qapp, _production_dar
     card.deleteLater()
 
 
-def test_rank_badge_text_is_muted_not_white(qapp):
+def test_best_card_has_no_accent_outline(qapp, _production_dark_palettes):
+    from tabs.image_gallery.ui.card.visuals import _card_border_color
+
+    item = _item(is_best=True)
+    card = build_gallery_card(item, parent=None)
+    qapp.processEvents()
+    _apply_rejected_visuals(card, item)
+    # The ★ BEST pill marks the leader; the frame stays default.
+    assert getattr(card, "_gallery_badge", None) == "★ BEST"
+    _filled, _bg, _bd, txt = card._gallery_badge_style
+    assert txt.name().lower() == "#ffffff"
+    assert card.property("borderWidth") == 1
+    assert card.borderColor().name().lower() == _card_border_color().name().lower()
+    card.deleteLater()
+
+
+def test_rank_badge_text_is_white(qapp):
     from types import SimpleNamespace
 
     card = build_gallery_card(_item(), parent=None)
@@ -251,7 +267,7 @@ def test_rank_badge_text_is_muted_not_white(qapp):
     )
     assert getattr(card, "_gallery_badge", None) == "#3"
     _filled, _bg, _bd, txt = card._gallery_badge_style
-    assert txt.name().lower() == "#dfdfdf"
+    assert txt.name().lower() == "#ffffff"
     card.deleteLater()
 
 
