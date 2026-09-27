@@ -19,7 +19,7 @@ parity + theme-token hygiene. Tab already exists (Stage 1–2 live); this is a
 parity close-out, not a rewrite.
 
 **Non-goals:**
-- list view (S2-8 stays a grid-only stub);
+- list view (S2-8 stays a grid-only stub — снято 2026-09-27: режим внутри GalleryGridView);
 - real `Find similar` (HUD button stays a stub);
 - unified S1–S4 state machine refactor;
 - VLM Pass-2 expansion (briefs/tie-break stay as-is);

@@ -103,7 +103,7 @@ Status: `Audited → фиксы применены` (см. «Статус пра
    `services/artifacts.py` выходы в `models.GalleryItem.artifacts`, если ещё
    не прокинуты).
 4. Toolkit hygiene: перевод инлетов на painter pipeline (S4-10, S3-2, QLabel).
-5. Заглушки: S2-8 (list view) — оставить до отдельной задачи.
+5. Заглушки: S2-8 (list view) — оставить до отдельной задачи (выполнено 2026-09-27: режим внутри GalleryGridView, билдеры ui/list_card.py).
 
 
 ## Статус правок (прогон 2026-08-27)
