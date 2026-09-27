@@ -129,6 +129,12 @@ class GalleryController:
                     widget._grid_view._owner = self  # type: ignore[attr-defined]
             except Exception:
                 pass
+            # Same owner for the list view marquee (same commit path).
+            try:
+                if hasattr(widget, "_list_view") and widget._list_view is not None:
+                    widget._list_view._owner = self  # type: ignore[attr-defined]
+            except Exception:
+                pass
             # Also expose on window when widget reparented.
             try:
                 win = widget.window()
@@ -378,6 +384,12 @@ class GalleryController:
                         grid.apply_selection(set(self.state.selected_paths))
                 except Exception:
                     pass
+                try:
+                    lst = getattr(self.widget, "_list_view", None)
+                    if lst is not None and hasattr(lst, "apply_selection"):
+                        lst.apply_selection(set(self.state.selected_paths))
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
@@ -443,6 +455,12 @@ class GalleryController:
             grid = getattr(self.widget, "_grid_view", None)
             if grid is not None and hasattr(grid, "apply_selection"):
                 grid.apply_selection(set(self.state.selected_paths))
+        except Exception:
+            pass
+        try:
+            lst = getattr(self.widget, "_list_view", None)
+            if lst is not None and hasattr(lst, "apply_selection"):
+                lst.apply_selection(set(self.state.selected_paths))
         except Exception:
             pass
 

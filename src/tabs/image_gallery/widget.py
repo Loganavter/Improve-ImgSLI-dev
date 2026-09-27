@@ -190,6 +190,25 @@ class ImageGalleryWidget(QWidget):
         self._grid = self._grid_view.items_layout
         # Wire grid toggle -> analyze_requested (card click) and context menu
         self._grid_view.configure(on_toggle=self._on_card_toggle, on_context_menu=self._on_card_context)
+        # List view (S2-8): row-based alternative sharing the same callbacks.
+        # Grid stays the single source of truth for series/selection state —
+        # the list mirrors it via _sync_list_view (see rebuild paths below).
+        try:
+            from tabs.image_gallery.ui.list_view import GalleryListView
+        except Exception:
+            GalleryListView = None  # type: ignore[assignment]
+        self._list_view = None
+        if GalleryListView is not None:
+            try:
+                self._list_view = GalleryListView(self)
+                self._list_view.setObjectName("image_gallery_list_view")
+                self._list_view.configure(
+                    on_toggle=self._on_card_toggle,
+                    on_context_menu=self._on_card_context,
+                )
+            except Exception:
+                self._list_view = None
+        self._view_mode = False  # False grid, True list (toolbar view switch)
         # Content stack — avoids QVBoxLayout stretch bug where hidden 1054h EmptyState pushes toolbar
         from PySide6.QtWidgets import QStackedWidget
 
@@ -201,6 +220,11 @@ class ImageGalleryWidget(QWidget):
             pass
         self._content_stack.addWidget(self._empty_state)
         self._content_stack.addWidget(self._grid_view)
+        if self._list_view is not None:
+            try:
+                self._content_stack.addWidget(self._list_view)
+            except Exception:
+                pass
         root.addWidget(self._content_stack, 1)
         # Default: empty
         try:
@@ -432,6 +456,12 @@ class ImageGalleryWidget(QWidget):
         except Exception:
             pass
         try:
+            lv_sel = getattr(self, "_list_view", None)
+            if lv_sel is not None:
+                lv_sel.apply_selection(set(wanted))
+        except Exception:
+            pass
+        try:
             hud = getattr(self, "_selection_hud", None)
             if hud is not None:
                 n = len(wanted)
@@ -645,15 +675,79 @@ class ImageGalleryWidget(QWidget):
         return None
 
     def _on_view_toggled(self, checked: bool) -> None:
-        # View switch toggle (grid/list) — view-local only (no GALLERY_*
-        # action in the frozen seam); keep state for future parity.
+        # View switch toggle (grid/list) — swaps the stack widget; series,
+        # selection and triage state are shared (list mirrors grid state).
         try:
             self._view_mode = bool(checked)
         except Exception:
             pass
-        # No layout change for Stage 2 — placeholder for parity with mockup toggle.
+        try:
+            self._show_content_view()
+        except Exception:
+            pass
         try:
             _dbg("view toggled %s", bool(checked))
+        except Exception:
+            pass
+
+    def _show_content_view(self) -> None:
+        """Show empty/grid/list per items + view mode (single choke point)."""
+        try:
+            items = list(self._items or [])
+        except Exception:
+            items = []
+        try:
+            if not items:
+                target = self._empty_state
+            elif bool(getattr(self, "_view_mode", False)) and getattr(self, "_list_view", None) is not None:
+                target = self._list_view
+            else:
+                target = self._grid_view
+        except Exception:
+            target = self._grid_view
+        try:
+            if hasattr(self, "_content_stack"):
+                self._content_stack.setCurrentWidget(target)
+        except Exception:
+            pass
+
+    def _sync_list_view(self, items=None) -> None:
+        """Mirror grid state into the list view (grid is source of truth).
+
+        Flat pools rebuild rows; series state (clusters/hubs/collapsed) is
+        copied verbatim from the grid so both views agree. Selection follows
+        the grid's current set.
+        """
+        try:
+            lv = getattr(self, "_list_view", None)
+            gv = getattr(self, "_grid_view", None)
+            if lv is None or gv is None:
+                return
+            pool = list(self._items or []) if items is None else list(items)
+            if not pool:
+                try:
+                    lv.rebuild([])
+                except Exception:
+                    pass
+                return
+            try:
+                lv.rebuild(pool)
+            except Exception:
+                return
+            try:
+                series = getattr(gv, "_series", None)
+                if series is not None:
+                    lv.set_series(
+                        list(series),
+                        hub_names=list(getattr(gv, "_hub_names", []) or []),
+                        collapsed=dict(getattr(gv, "_collapsed", {}) or {}),
+                    )
+            except Exception:
+                pass
+            try:
+                lv.apply_selection(set(getattr(gv, "_selection", None) or set()))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -708,6 +802,16 @@ class ImageGalleryWidget(QWidget):
             if _dbg_on:
                 _t_owner = _time.perf_counter()
             card = self._grid_view.card_for(path) if hasattr(self, "_grid_view") else None
+            # Prefer the active view's widget as menu anchor (list row in list mode).
+            try:
+                if bool(getattr(self, "_view_mode", False)):
+                    lv_anchor = getattr(self, "_list_view", None)
+                    if lv_anchor is not None:
+                        row = lv_anchor.row_for(path)
+                        if row is not None:
+                            card = row
+            except Exception:
+                pass
             anchor = card if card is not None else self
             if _dbg_on:
                 _dbg(
@@ -962,6 +1066,15 @@ class ImageGalleryWidget(QWidget):
                                 self._install_quick_look_hooks()
                             except Exception:
                                 pass
+                            try:
+                                lv_fast = getattr(self, "_list_view", None)
+                                if lv_fast is not None:
+                                    lv_fast.append_items(fresh)
+                                    lv_fast.apply_selection(
+                                        set(getattr(gv_fast, "_selection", None) or set())
+                                    )
+                            except Exception:
+                                pass
                             return
         except Exception:
             pass
@@ -1006,17 +1119,24 @@ class ImageGalleryWidget(QWidget):
                 self._grid_view.rebuild_grid([])
             except Exception:
                 pass
+            try:
+                self._sync_list_view([])
+            except Exception:
+                pass
             return
         self._empty_state.set_state("ready")
         self._empty_label.hide()
         try:
-            if hasattr(self, "_content_stack"):
-                self._content_stack.setCurrentWidget(self._grid_view)
-            else:
-                self._empty_state.hide()
-                self._grid_view.show()
+            self._show_content_view()
         except Exception:
-            pass
+            try:
+                if hasattr(self, "_content_stack"):
+                    self._content_stack.setCurrentWidget(self._grid_view)
+                else:
+                    self._empty_state.hide()
+                    self._grid_view.show()
+            except Exception:
+                pass
         try:
             try:
                 self._grid_view.rebuild_grid(items, paint_selection=saved_series is None)
@@ -1051,6 +1171,11 @@ class ImageGalleryWidget(QWidget):
                 self._install_quick_look_hooks()
             except Exception:
                 pass
+        # Mirror grid state (incl. restored series) into the list view.
+        try:
+            self._sync_list_view()
+        except Exception:
+            pass
 
     def _restore_series_view(self, saved, pre_paths=None) -> bool:
         """Re-apply a series view snapshot taken before the flat rebuild.
@@ -1240,6 +1365,12 @@ class ImageGalleryWidget(QWidget):
             self._grid_view.refresh_card(item)
         except Exception:
             pass
+        try:
+            lv_ref = getattr(self, "_list_view", None)
+            if lv_ref is not None:
+                lv_ref.refresh_row(item)
+        except Exception:
+            pass
         # Also handle legacy QLabel thumb path if present (for tests that inspect thumb)
         thumb = self._card_labels.get(item.path)
         # If thumb is actually a Button, grid_view already handled pixmap; no QLabel logic needed.
@@ -1283,6 +1414,12 @@ class ImageGalleryWidget(QWidget):
                 self._grid_view.apply_selection(None)
             except Exception:
                 pass
+            try:
+                lv_sweep = getattr(self, "_list_view", None)
+                if lv_sweep is not None:
+                    lv_sweep.apply_selection(None)
+            except Exception:
+                pass
 
     def refresh_cards(self, items) -> None:
         """Batch passthrough to ``grid_view.refresh_cards`` (single selection sweep).
@@ -1295,12 +1432,22 @@ class ImageGalleryWidget(QWidget):
             batch = getattr(self._grid_view, "refresh_cards", None)
             if callable(batch):
                 batch(items)
-                return
+            else:
+                raise AttributeError("no grid batch")
         except Exception:
-            pass
+            try:
+                for item in list(items or []):
+                    self.refresh_card(item)
+                return
+            except Exception:
+                pass
+        # Mirror the batch into the list view (single sweep there too).
         try:
-            for item in list(items or []):
-                self.refresh_card(item)
+            lv_batch = getattr(self, "_list_view", None)
+            if lv_batch is not None:
+                batch_lv = getattr(lv_batch, "refresh_rows", None)
+                if callable(batch_lv):
+                    batch_lv(items)
         except Exception:
             pass
 
@@ -1464,18 +1611,33 @@ class ImageGalleryWidget(QWidget):
                     self._collapsed = dict(getattr(self._grid_view, "_collapsed", {}) or collapsed)
                 except Exception:
                     pass
+                try:
+                    lv_series = getattr(self, "_list_view", None)
+                    if lv_series is not None:
+                        lv_series.set_series(norm_series, hub_names=hub_names, collapsed=collapsed)
+                except Exception:
+                    pass
             else:
                 # No series: show UNGROUPED header for all items (real_design.md:59)
                 self._grid_view.set_series([], hub_names=[], collapsed=collapsed)
+                try:
+                    lv_flat = getattr(self, "_list_view", None)
+                    if lv_flat is not None:
+                        lv_flat.set_series([], hub_names=[], collapsed=collapsed)
+                except Exception:
+                    pass
             # set_scanning hid the grid for S1 — S2 content exists again, show it
             if self._items or norm_series:
                 try:
-                    if hasattr(self, "_content_stack"):
-                        self._content_stack.setCurrentWidget(self._grid_view)
-                    else:
-                        self._grid_view.show()
+                    self._show_content_view()
                 except Exception:
-                    pass
+                    try:
+                        if hasattr(self, "_content_stack"):
+                            self._content_stack.setCurrentWidget(self._grid_view)
+                        else:
+                            self._grid_view.show()
+                    except Exception:
+                        pass
             # Keep compat dicts in sync after series rebuild
             self._cards.clear()
             self._card_labels.clear()
