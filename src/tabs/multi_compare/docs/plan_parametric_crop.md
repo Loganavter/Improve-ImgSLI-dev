@@ -1,6 +1,6 @@
 # Plan: MC parametric crop — context-menu crop like IC, no baked re-decode
 
-Status: `Approved for fleet` — baked-crop approach (per-slot re-decode, cache key dimension, reload orchestration) superseded 2026-09-29 after engine survey.
+Status: `Done` — fleet completed 2026-09-29 (lanes engine/state/render/export merged into `int/mc-crop`; state lane salvaged+verified by supervisor after a runner kill).
 Area: `src/tabs/multi_compare/` (menu, render passes, export), `src/engine/store/crop_window.py` (new)
 Related: `src/tabs/image_compare/ui/context_menu.py:105` (IC Crop entry, the parity target), `src/tabs/image_compare/canvas/texture_parts/crop_clip.py` (IC render-time clip concept), `docs/dev/plan_shared_pixel_registry.md` (full-frame decodes share best under key `None`)
 Skills: `skills/imgsli-devtools/SKILL.md` (contracts `./launcher.sh test tests/contracts -q`, `QT_QPA_PLATFORM=offscreen pytest`)
