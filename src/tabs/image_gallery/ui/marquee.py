@@ -206,6 +206,14 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
         view._marquee_last_update_sig = sig  # type: ignore[attr-defined]
     except Exception:
         pass
+    try:
+        _mdbg(
+            "marquee UPDATE rect=(%d,%d %dx%d) paths=%d additive=%s",
+            rect.x(), rect.y(), rect.width(), rect.height(),
+            len(paths), additive,
+        )
+    except Exception:
+        pass
     # Prefer owner's preview helper if view delegates to an owner.
     owner = getattr(view, "_owner", None) or getattr(view, "owner", None)
     if owner is not None:
