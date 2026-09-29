@@ -6,15 +6,16 @@ gallery grid. Functions take the grid view as first arg and read/write its
 the session picker pattern.
 
 Public API:
-  ensure_marquee_gesture(view) -> MarqueeBandGesture
+  ensure_marquee_gesture(view) -> MarqueeState
   paths_for_rect(view, rect) -> set[Path]
   on_rect_update(view, rect)
   on_rect_finish(view, rect)
   event_filter(view, watched, event) -> bool  (host mouse press → start band)
   host_mouse_press(view, event) -> bool
 
-The gesture uses ``MarqueeBandGesture`` + ``MarqueeBandOverlay`` (Wayland-safe
-app event filter, no grabMouse) and clips against the scroll viewport.
+The state holder paints the band in the content host's own paint pass
+(``MarqueeHost``, Dolphin-style in-paint band) — no overlay widget, no
+restack, no window round-trip on the gallery path.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from PySide6.QtCore import QEvent, QObject, QRect, Qt
 from PySide6.QtGui import QMouseEvent
 
 from sli_ui_toolkit.managers import scaled_px
-from sli_ui_toolkit.widgets import MarqueeBandGesture
+from tabs.image_gallery.ui.marquee_band import MarqueeState
 
 try:
     from tabs.image_gallery.ui.grid_view import GRID_COLUMNS, GRID_MARGIN, GRID_SPACING, GALLERY_CARD_W, GALLERY_CARD_H
@@ -117,8 +118,8 @@ def paths_for_rect(view, rect: QRect) -> set[Path]:  # type: ignore[no-untyped-d
 
     Uses live ``card.geometry()`` per card (header-aware via host layout) with
     fixed-grid fallback for offscreen/pooled cards (``_card_geometry_rect``).
-    ``rect`` is host-local from ``MarqueeBandGesture``; overlay itself is
-    ``MarqueeBandOverlay`` (Wayland-safe, no grabMouse).
+    ``rect`` is host-local from ``MarqueeState``; the band paints in the
+    host's own paint pass (``MarqueeHost``).
     """
     if rect.isEmpty():
         return set()
@@ -147,21 +148,23 @@ def paths_for_marquee_rect(view, rect: QRect) -> set[Path]:  # type: ignore[no-u
     return paths_for_rect(view, rect)
 
 
-def ensure_marquee_gesture(view) -> MarqueeBandGesture:  # type: ignore[no-untyped-def]
-    """Lazily create (or re-clip) the MarqueeBandGesture for *view*."""
+def ensure_marquee_gesture(view) -> MarqueeState:  # type: ignore[no-untyped-def]
+    """Lazily create the in-paint ``MarqueeState`` holder for *view*."""
     gesture = getattr(view, "_marquee_gesture", None)
     host = getattr(view, "items_host", None)
-    viewport = None
-    try:
-        viewport = view.scroll_area.viewport()
-    except Exception:
-        viewport = None
+    if gesture is not None and not isinstance(gesture, MarqueeState):
+        # Pre-refactor holder (toolkit overlay gesture): drop it so the
+        # gallery path never mixes overlay and in-paint visuals.
+        try:
+            gesture.cancel()
+        except Exception:
+            pass
+        gesture = None
     accent = getattr(view, "_selection_accent", None)
     if gesture is None:
-        gesture = MarqueeBandGesture(
+        gesture = MarqueeState(
             host,
             parent=view,
-            clip_widget=viewport,
             on_update=lambda r: on_rect_update(view, r),
             on_finish=lambda r: on_rect_finish(view, r),
         )
@@ -170,6 +173,10 @@ def ensure_marquee_gesture(view) -> MarqueeBandGesture:  # type: ignore[no-untyp
         except Exception:
             pass
     else:
+        try:
+            viewport = view.scroll_area.viewport()
+        except Exception:
+            viewport = None
         try:
             gesture.set_clip_widget(viewport)
         except Exception:
