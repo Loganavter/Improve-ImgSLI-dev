@@ -99,6 +99,23 @@ Forbidden: `tabs/image_gallery/**` (Lane A2), toolkit.
 Acceptance: recent-selection suite FULLY green (including the rewritten test);
 no other session_picker suites broken.
 
+## Execution notes (2026-09-29, supervisor)
+
+- Lane A2 deviation: `marquee_band.py` kept as a THIN host shell
+  (`MarqueeHost` + toolkit paint helper) instead of DELETE — the host half
+  is consumer-owned by design (Dolphin: view paints itself); only the
+  tracker was deduplicated. Same pattern in Lane S (`recent/marquee_host.py`).
+- Headless-worker env lessons (4 dead attempts before takeover): never
+  reference files outside the clone (session-root plan copy poisoned run 1);
+  never send workers to inspect site-packages/pip (jail `external_directory`
+  auto-reject kills them — run 2); toolkit cells MUST prefix test commands
+  with `PYTHONPATH=<clone>/src` or pytest imports the supervisor's editable
+  install (false green — caught in run 2). App cells are immune (imports
+  resolve inside the clone).
+- Wave 1 worker contributed the salvageable `MarqueeState` (+`on_trace`
+  injection solving the logger two-gate trap); supervisor took over after
+  attempt 2 per timebox rule and finished T/A2/S directly.
+
 ## Integration (supervisor)
 
 One integration branch per repo (`int/marquee-unify` app; toolkit feat
