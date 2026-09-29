@@ -283,11 +283,10 @@ def _dots_overlay_painter(painter, ctx, tm) -> None:  # type: ignore[no-untyped-
         # Hovered blue bar 234×3 r1.5 at 8,159 inside card per svg x874 y359 (card 250×170, 8 left/right, 3 height)
         try:
             if getattr(widget, "_hover_blue_bar", False):
-                try:  # TEMPORARY doubling probe, kill: never fires on menu card
+                try:  # B1: selection fill already signals selection — skip the bar on locked cards
                     if bool(widget.is_bg_locked()):
-                        from tabs.image_gallery.debug import gallery_debug as _pdbg
-                        _pdbg("card paint DOUBLESEL-HOVERBAR")
-                except Exception:  # noqa: BLE001 - probe must stay fail-open
+                        return
+                except Exception:  # noqa: BLE001 - fail-open: paint bar if lock state unknown
                     pass
                 from PySide6.QtCore import QRectF as _QRF2
                 painter.save()
