@@ -170,3 +170,102 @@ def test_release_passes_through_while_finishing(qtbot) -> None:
         Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
     )
     assert gesture.eventFilter(host, release) is False  # pass-through, still finishes
+
+
+# -- A2: in-paint path (content-space identity + host pixels) ----------------
+
+def _detached_state(origin=None):
+    """MarqueeState without widgets: pure mapping, no QApplication needed."""
+    from PySide6.QtCore import QObject
+    from PySide6.QtWidgets import QWidget
+
+    from tabs.image_gallery.ui.marquee_band import MarqueeState
+
+    updated: list[QRect] = []
+    finished: list[QRect] = []
+    holder = QObject()
+    host = SimpleNamespace(set_band_rect=lambda rect: None)
+    state = MarqueeState(
+        host,  # type: ignore[arg-type]
+        parent=holder,
+        on_update=lambda r: updated.append(QRect(r)),
+        on_finish=lambda r: finished.append(QRect(r)),
+    )
+    state._test_holder = holder  # keep the QObject parent alive
+    return state, updated, finished
+
+
+def test_state_band_is_content_space_identity() -> None:
+    """No window round-trip: band == QRect(origin, pos).normalized()."""
+    from PySide6.QtCore import QPoint
+
+    state, updated, _ = _detached_state()
+    origin = QPoint(30, 40)
+    assert state.start(origin) is True
+    assert state.active is True
+    assert state.update_at(QPoint(120, 10)) == QRect(origin, QPoint(120, 10)).normalized()
+    assert state.update_at(QPoint(150, 90)) == QRect(30, 40, 121, 51)
+    assert updated == [QRect(30, 40, 1, 1)]  # start() emits the degenerate band
+
+
+def test_state_tiny_finish_is_empty_rect() -> None:
+    """Degenerate drags finish as QRect() (same min_drag_px=3 rule)."""
+    from PySide6.QtCore import QPoint
+
+    state, _, finished = _detached_state()
+    assert state.start(QPoint(10, 10)) is True
+    assert state.finish_at(QPoint(10, 10)) == QRect()  # 1x1 degenerate
+    assert state.finish_at(QPoint(11, 11)) == QRect()  # 2x2 still tiny
+    band = state.finish_at(QPoint(10, 30))  # 1px wide but 21 tall: not tiny
+    assert not band.isEmpty() and (band.width(), band.height()) == (1, 21)
+
+
+def test_state_cancel_clears_without_finish() -> None:
+    from PySide6.QtCore import QPoint
+
+    state, _, finished = _detached_state()
+    assert state.start(QPoint(5, 5)) is True
+    state.cancel()
+    assert state.active is False
+    assert finished == []
+
+
+def test_host_band_pixel_at_cursor(qtbot) -> None:
+    """Offscreen: band paints accent-blended pixels inside the set rect."""
+    from tabs.image_gallery.ui.grid_view import GalleryGridView
+
+    view = GalleryGridView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.show()
+    qtbot.wait(50)
+    host = view.items_host
+    band = QRect(100, 100, 200, 120)
+    host.set_band_rect(QRect(band))
+    assert host.band_rect == band
+    img = host.grab().toImage()
+    inside = img.pixelColor(band.center()).getRgb()
+    outside = img.pixelColor(5, 5).getRgb()
+    assert inside != outside
+
+
+def test_host_shrink_clears_exposed_region(qtbot) -> None:
+    """Big→small: the exposed region returns to substrate (no stale band)."""
+    from tabs.image_gallery.ui.grid_view import GalleryGridView
+
+    view = GalleryGridView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.show()
+    qtbot.wait(50)
+    host = view.items_host
+    host.set_band_rect(QRect(100, 100, 300, 200))
+    qtbot.wait(20)
+    small = QRect(100, 100, 60, 50)
+    host.set_band_rect(QRect(small))
+    assert host.band_rect == small
+    img = host.grab().toImage()
+    exposed = img.pixelColor(350, 250).getRgb()  # inside big, outside small
+    substrate = img.pixelColor(5, 5).getRgb()
+    assert exposed == substrate
+    assert img.pixelColor(small.center()).getRgb() != substrate
