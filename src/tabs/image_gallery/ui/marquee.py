@@ -213,6 +213,10 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
     except Exception:
         sig = None
     if sig is not None and getattr(view, "_marquee_last_update_sig", None) == sig:
+        try:
+            _mdbg("marquee UPDATE-skip identical membership")
+        except Exception:
+            pass
         return
     try:
         view._marquee_last_update_sig = sig  # type: ignore[attr-defined]
@@ -310,20 +314,27 @@ def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
         additive = bool(getattr(view, "_marquee_additive", False))
         if not additive:
             # Empty band with no additive → clear preview? Commit empty only if not additive.
+            # Tiny-drag (< min_drag_px on both axes, see toolkit gesture) lands
+            # here too — this line distinguishes "shrink to click clears"
+            # from "shrink kept (additive)".
             owner = getattr(view, "_owner", None) or getattr(view, "owner", None)
             if owner is not None:
                 try:
                     import tabs.image_gallery.use_cases.selection as sel
 
                     sel.commit(owner, set(), additive=False)
+                    _mdbg("marquee finish COMMIT-EMPTY via owner (cleared, non-additive)")
                     return
                 except Exception:
                     pass
             try:
                 base = getattr(view, "_marquee_base", set()) or set()
                 view.apply_selection(set(base))
+                _mdbg("marquee finish RESTORE-BASE n=%d (no owner)", len(set(base)))
             except Exception:
                 pass
+        else:
+            _mdbg("marquee finish EMPTY-KEPT (additive, no clear)")
         return
     paths = paths_for_rect(view, rect)
     additive = bool(getattr(view, "_marquee_additive", False))
@@ -334,6 +345,7 @@ def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
             import tabs.image_gallery.use_cases.selection as sel
 
             sel.commit(owner, paths, additive=additive)
+            _mdbg("marquee finish COMMIT via owner paths=%d additive=%s", len(paths), additive)
             return
         except Exception:
             pass
@@ -341,6 +353,7 @@ def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
     if callable(cb):
         try:
             cb(paths, additive)
+            _mdbg("marquee finish COMMIT via hook paths=%d additive=%s", len(paths), additive)
             return
         except Exception:
             pass
@@ -395,15 +408,22 @@ def host_mouse_press(view, event: QMouseEvent) -> bool:  # type: ignore[no-untyp
         _mdbg("marquee press SKIP (elimination gate IMGSLI_GALLERY_NO_MARQUEE=1)")
         return False
     if event.button() != Qt.MouseButton.LeftButton:
+        _mdbg("marquee press REFUSE button=%s (not Left)", event.button())
         return False
     host = getattr(view, "items_host", None)
     if host is None:
+        _mdbg("marquee press REFUSE reason=no-host")
         return False
     try:
-        child = host.childAt(event.position().toPoint())
+        press_pos = event.position().toPoint()
+    except Exception:
+        press_pos = None
+    try:
+        child = host.childAt(press_pos) if press_pos is not None else None
     except Exception:
         child = None
     if child is not None:
+        _mdbg("marquee press REFUSE pos=%s child=%s (not empty host)", press_pos, type(child).__name__)
         return False
     try:
         view._marquee_additive = bool(_ctrl_held(event.modifiers()))  # type: ignore[attr-defined]
@@ -439,9 +459,11 @@ def host_mouse_press(view, event: QMouseEvent) -> bool:  # type: ignore[no-untyp
         return False
     try:
         _mdbg(
-            "marquee press START pos=%s additive=%s",
+            "marquee press START pos=%s additive=%s base_n=%s gesture_active=%s",
             event.position().toPoint(),
             bool(getattr(view, "_marquee_additive", False)),
+            len(getattr(view, "_marquee_base", set()) or set()),
+            bool(getattr(gesture, "active", False)),
         )
     except Exception:
         pass
