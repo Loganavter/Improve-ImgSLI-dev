@@ -194,7 +194,19 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
     and ``on_rect_finish`` always recomputes, so a mid-drag layout shift
     can delay one preview frame at most, never a commit.
     """
+    try:
+        import time as _time
+
+        _t_hit_start = _time.perf_counter()
+    except Exception:
+        _t_hit_start = None  # type: ignore[assignment]
     paths = paths_for_rect(view, rect)
+    try:
+        _t_hit_ms = (_time.perf_counter() - _t_hit_start) * 1000.0  # type: ignore[operator]
+        _t_apply_start = _time.perf_counter()
+    except Exception:
+        _t_hit_ms = -1.0
+        _t_apply_start = None  # type: ignore[assignment]
     additive = bool(getattr(view, "_marquee_additive", False))
     try:
         sig = (frozenset(str(p) for p in paths), additive)
@@ -208,9 +220,9 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
         pass
     try:
         _mdbg(
-            "marquee UPDATE rect=(%d,%d %dx%d) paths=%d additive=%s",
+            "marquee UPDATE rect=(%d,%d %dx%d) paths=%d additive=%s hit=%.1fms",
             rect.x(), rect.y(), rect.width(), rect.height(),
-            len(paths), additive,
+            len(paths), additive, _t_hit_ms,
         )
     except Exception:
         pass
@@ -225,6 +237,15 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
                 mod = importlib.import_module(mod_name)
                 if hasattr(mod, "commit_preview"):
                     mod.commit_preview(owner, paths, additive=additive)
+                    try:
+                        import time as _time3
+
+                        _mdbg(
+                            "marquee UPDATE-COST apply(owner)=%.1fms",
+                            (_time3.perf_counter() - _t_apply_start) * 1000.0,  # type: ignore[operator]
+                        )
+                    except Exception:
+                        pass
                     return
             except Exception:
                 pass
@@ -252,6 +273,15 @@ def on_rect_update(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
             cb(paths, additive)
         except Exception:
             pass
+    try:
+        import time as _time2
+
+        _mdbg(
+            "marquee UPDATE-COST apply=%.1fms",
+            (_time2.perf_counter() - _t_apply_start) * 1000.0,  # type: ignore[operator]
+        )
+    except Exception:
+        pass
 
 
 def on_rect_finish(view, rect: QRect) -> None:  # type: ignore[no-untyped-def]
