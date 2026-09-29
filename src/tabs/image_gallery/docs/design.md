@@ -200,7 +200,7 @@ Verification loop after any UI change here:
 | Card | `Button(regions=[cover pixmap image_fill="cover", text rows], split=VerticalSplit)`, `setBadge` for rank/AI |
 | Hover capsule | `IconActionFlyout` pattern, `FlyoutManager` group `gallery_card` |
 | Selection HUD | `BaseFlyout` glass capsule pinned bottom-center, group `gallery_selection` |
-| Marquee | `MarqueeBandOverlay` + `MarqueeBandGesture` (session_picker precedent) |
+| Marquee | `MarqueeState` + `MarqueeHost` in-paint band (Dolphin-style; ex-`MarqueeBandOverlay`/`MarqueeBandGesture`, kept in session_picker) |
 | Context menu | `ContextMenu` + `popup_context_menu_for_anchor` |
 | Quick look / clean review | `TopLevelInWindowOverlay` |
 | Empty state | `DragDropOverlay` + `DropZoneLabel` |
