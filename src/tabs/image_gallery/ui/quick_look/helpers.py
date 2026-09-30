@@ -36,7 +36,6 @@ from tabs.image_gallery.ui.quick_look.preview import (
     _thumb_pixmap,
     _fast_image_size,
     _load_scaled_pixmap,
-    _rescale_preview_to_host,
     _source_dimensions,
     populate_preview,
 )
@@ -100,7 +99,6 @@ __all__ = [
     "_thumb_pixmap",
     "_fast_image_size",
     "_load_scaled_pixmap",
-    "_rescale_preview_to_host",
     "_source_dimensions",
     "populate_preview",
     "populate_source_inset",
