@@ -40,7 +40,6 @@ DIM_VEIL_ALPHA = round(0.45 * 255)  # 115
 # Re-export for tests
 try:
     from tabs.image_gallery.ui.quick_look.helpers import (
-        _load_preview_pixmap,
         _set_colored_text,
         _source_dimensions,
         _theme_color,
@@ -48,7 +47,7 @@ try:
         _token_color,
     )
 except Exception:
-    _load_preview_pixmap = _thumb_pixmap = _theme_color = _token_color = _set_colored_text = _source_dimensions = None  # type: ignore
+    _thumb_pixmap = _theme_color = _token_color = _set_colored_text = _source_dimensions = None  # type: ignore
 try:
     from tabs.image_gallery.ui.quick_look.bars import _BarWidget, _DualRestoredInventedBar
     from tabs.image_gallery.ui.quick_look.histograms import _BandingCombHistogram, _GenericHistogram, _HistogramStub

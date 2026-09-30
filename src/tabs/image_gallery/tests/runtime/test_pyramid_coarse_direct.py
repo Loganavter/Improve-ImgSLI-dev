@@ -92,8 +92,6 @@ def test_populate_preview_missing_source_shows_placeholder(qtbot, tmp_path):
     """Quicklook gap path: no preview, never stale/wrong pixels."""
     overlay = SimpleNamespace(
         _preview_full=None,
-        _preview_scaled_for=None,
-        _preview_scaled_smooth=False,
     )
     item = SimpleNamespace(path=str(tmp_path / "missing.png"), thumbnail=None)
     populate_preview(overlay, item)  # must not raise
@@ -106,8 +104,6 @@ def test_populate_preview_binds_own_pixels(qtbot, tmp_path):
     red = _solid(tmp_path / "red.png", (255, 0, 0))
     overlay = SimpleNamespace(
         _preview_full=None,
-        _preview_scaled_for=None,
-        _preview_scaled_smooth=False,
         _preview_canvas=_FakeCanvas(),
     )
     populate_preview(overlay, SimpleNamespace(path=str(red), thumbnail=None))

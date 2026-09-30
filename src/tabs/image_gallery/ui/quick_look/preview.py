@@ -21,26 +21,6 @@ from PySide6.QtGui import QPixmap
 _PREVIEW_FULL_DECODE_EDGE = 2048
 
 
-def _load_preview_pixmap(path: Path, target_w: int = 640, target_h: int = 456) -> QPixmap | None:
-    """Preview pixmap for *path* without ever full-decoding a huge source."""
-    try:
-        dims = _fast_image_size(path)
-        if dims is not None and max(int(dims[0]), int(dims[1])) > _PREVIEW_FULL_DECODE_EDGE:
-            got = _load_scaled_pixmap(path, int(target_w), int(target_h))
-            if got is not None and not got.isNull():
-                return got
-        pm = QPixmap(str(path))
-        if pm.isNull():
-            return None
-        w = pm.width()
-        h = pm.height()
-        if w <= 0 or h <= 0:
-            return pm
-        return pm.scaled(target_w, target_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-    except Exception:
-        return None
-
-
 def _thumb_pixmap(item, w: int = 66, h: int = 44) -> QPixmap | None:
     """Series-strip thumb: cover-scale to w×h, then center-crop to exactly w×h.
 
@@ -296,20 +276,14 @@ def _stash_preview_source(overlay, item) -> None:
     """Stash the bounded source pixmap in ``overlay._preview_full``.
 
     The first-frame cover re-derives its plate from it at the live slot
-    size; ``_preview_scaled_for`` marks the fit cache stale. Coarse-direct
-    first (bounded pyramid sample — no full-frame decode), then a
-    ``QPixmap`` read, then the item thumbnail. NEVER raises.
+    size. Coarse-direct first (bounded pyramid sample — no full-frame
+    decode), then a ``QPixmap`` read, then the item thumbnail. NEVER raises.
     """
     try:
         from PySide6.QtGui import QPixmap
 
         try:
             overlay._preview_full = None
-        except Exception:
-            pass
-        try:
-            overlay._preview_scaled_for = None
-            overlay._preview_scaled_smooth = False
         except Exception:
             pass
         try:

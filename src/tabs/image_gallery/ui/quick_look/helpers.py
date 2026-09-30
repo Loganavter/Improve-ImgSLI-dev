@@ -32,7 +32,6 @@ from tabs.image_gallery.ui.quick_look.overlay_build import (
     build_overlay_ui,
 )
 from tabs.image_gallery.ui.quick_look.preview import (
-    _load_preview_pixmap,
     _thumb_pixmap,
     _fast_image_size,
     _load_scaled_pixmap,
@@ -95,7 +94,6 @@ __all__ = [
     "_CardPlate",
     "_RuleWidget",
     "build_overlay_ui",
-    "_load_preview_pixmap",
     "_thumb_pixmap",
     "_fast_image_size",
     "_load_scaled_pixmap",

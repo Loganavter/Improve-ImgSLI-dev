@@ -1,10 +1,11 @@
 """Quick-look GPU preview hosting — canvas slot lifecycle (no owner state).
-Audit-Meta: pattern=thin-owner-target size=exempt reason="one canvas-slot lifecycle: cover/fallback/label-repopulate share one GPU-path attribution"
+Audit-Meta: pattern=thin-owner-target size=exempt reason="one canvas-slot lifecycle: canvas/cover share one GPU-path attribution"
 
-Split from ``preview.py`` (500-line contract gate): the QLabel preview
-stays there, everything canvas-shaped lives here. All functions fail
-open to the QLabel path — import this module lazily and treat ``None``
-/ ``False`` as "no GPU today".
+Split from ``preview.py`` (500-line contract gate): the canvas slot
+lifecycle lives here, preview pixmaps stay there. The QRhiWidget canvas is
+the only live image surface; the cover plate is a static pre-first-frame
+fallback (kept when no frame ever presents). All functions fail open —
+import this module lazily and treat ``None`` / ``False`` as "no GPU today".
 """
 
 from __future__ import annotations
@@ -122,7 +123,8 @@ def _coarse_store_for(path, *, long_edge: int = 1024):
 
     ``PyramidPixelStore.coarse_from_source`` never materializes a full
     frame (shrink-on-load / bounded scaled read); None on any miss so
-    callers degrade to the QLabel ladder. No second LOD entry, no
+    callers keep the cover plate and never feed the canvas. No second LOD
+    entry, no
     ``TiledPixelStore.from_path`` full decode on this path.
     """
     try:
@@ -437,7 +439,7 @@ def _cover_until_first_frame(overlay, canvas) -> None:
         try:
             # Opaque plate fill under the pixmap: letterbox margins (and a
             # null pixmap) show card background, never the desktop through
-            # an unpresented canvas. Same tone as the QLabel-path margins.
+            # an unpresented canvas. Same tone as the card background.
             from tabs.image_gallery.ui.quick_look.labels_theme import _token_color
 
             bg = _token_color("gallery.card.background", "#ffffff")
