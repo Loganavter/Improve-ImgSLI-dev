@@ -66,7 +66,7 @@ from typing import Callable, Sequence
 
 from PySide6.QtGui import QRhiBuffer, QShader
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ImproveImgSLI")
 
 from engine.cache.draw_plans import (
     build_slot_plan_tiles,
