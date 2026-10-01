@@ -415,10 +415,17 @@ class QuickLookCanvasWidget(QRhiWidget):
                 return None
             from PySide6.QtGui import QRhiSampler
 
+            import os as _os
+
+            _mip = (
+                QRhiSampler.Filter.None_
+                if _os.environ.get("IMGSLI_QL_NO_MIPS")
+                else QRhiSampler.Filter.Linear
+            )
             sampler = rhi.newSampler(
                 QRhiSampler.Filter.Linear,
                 QRhiSampler.Filter.Linear,
-                QRhiSampler.Filter.Linear,
+                _mip,
                 QRhiSampler.AddressMode.ClampToEdge,
                 QRhiSampler.AddressMode.ClampToEdge,
             )

@@ -1116,15 +1116,30 @@ class SingleImageTiledView:
                 _mvp = struct.unpack("<16f", uniform_bytes[:64])
                 _rest = struct.unpack("<4f2f2f2f2f", uniform_bytes[64:112])
                 _sz = target.pixelSize()
+                _arr = self.resources.tile_arrays
+                _a0 = _arr[0] if _arr else None
+                try:
+                    _a0info = (
+                        (int(_a0.pixelSize().width()), int(_a0.pixelSize().height()),
+                         int(_a0.mipLevels()))
+                        if _a0 is not None else None
+                    )
+                except Exception:
+                    _a0info = "err"
                 logger.warning(
                     "tiled-view debug n=%d target=%dx%d clear=%s "
                     "mvp0=(%.3f,%.3f,%.3f,%.3f) letterbox=%s pan=%s zoom=%s "
-                    "fit=%s inst0 rect1=%s cs=%s bbox=%s layer=%d",
+                    "fit=%s inst0 rect1=%s cs=%s bbox=%s layer=%d | "
+                    "arrays=%d a0(w,h,mips)=%s srb=%s pipe=%s dirty=%s",
                     len(instances), int(_sz.width()), int(_sz.height()),
                     clear_color.getRgb()[:3] if hasattr(clear_color, "getRgb") else clear_color,
                     _mvp[0], _mvp[1], _mvp[2], _mvp[3],
                     _rest[0:4], _rest[4:6], _rest[6:8], _rest[8:10],
                     i0.rect1, i0.content_scale, i0.bbox, i0.layer1,
+                    len(_arr), _a0info,
+                    self.resources.array_srb is not None,
+                    self.resources.array_pipeline is not None,
+                    sorted(self._dirty_layers.keys()),
                 )
             except Exception:
                 logger.warning("tiled-view debug failed", exc_info=True)
