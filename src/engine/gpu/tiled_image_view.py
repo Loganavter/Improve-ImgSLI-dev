@@ -588,6 +588,7 @@ class SingleImageTiledView:
     def _release_gpu(self) -> None:
         self._dirty_layers = {}
         self._realizer.last_uploaded = set()
+        self._dbg_logged = False
         self._render_level = None
         self._fallback_level = None
         self._settle_target_level = None
@@ -1105,8 +1106,12 @@ class SingleImageTiledView:
             extra=extra,
             clip_matrix=self._clip_matrix(),
         )
-        if os.environ.get("IMGSLI_TILED_VIEW_DEBUG"):
+        if (
+            os.environ.get("IMGSLI_TILED_VIEW_DEBUG")
+            or os.environ.get("IMGSLI_QL_COVER_DEBUG")
+        ) and not getattr(self, "_dbg_logged", False):
             try:
+                self._dbg_logged = True
                 i0 = instances[0]
                 _mvp = struct.unpack("<16f", uniform_bytes[:64])
                 _rest = struct.unpack("<4f2f2f2f2f", uniform_bytes[64:112])
