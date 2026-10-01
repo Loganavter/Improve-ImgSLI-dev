@@ -23,7 +23,7 @@ Composition order per ``render`` (mirrors the compare tabs' established
 sequence, which the mip cascade requires): visible-rect -> residency
 (``TileResidencyRealizerBase.realize_specs``, never a private upload loop) ->
 submit ``updates`` -> ``MipCascadeGenerator.generate_all_dirty_mips`` ->
-instance build (shared ``ArrayInstance`` layout) -> one uniform pack ->
+instance build (shared ``SlotInstance`` layout) -> one uniform pack ->
 ``record_array_draw`` (with the caller's feature hooks) -> ``TiledViewResult``.
 
 Content identity fails CLOSED: a visible tile with no array slot yet is
@@ -31,18 +31,16 @@ skipped (never substituted by a neighbour); each instance samples the layer
 resolved from its own ``(row, col)``. Geometry derives solely from the store
 size and the framebuffer size -- never from arrival order.
 
-Uniform block ``UBuf`` (std140, binding 0) for the ``tiled_image_array``
-shaders -- header is 112 bytes, followed by ``_UNIFORM_EXTRA_CAPACITY``
-reserved bytes for tab feature/diff uniforms (E2+), so the block size is
-constant regardless of these extras::
+The draw is the shared, proven engine slot-array pass
+(``engine.gpu.array_draw.SLOT_INSTANCE_*`` / ``slot_array.*``): the per-tile
+``pan``/``fit``/``zoom``/``tileRect``/``slotRect`` travel per instance, and
+the uniform block ``UBuf`` (std140, binding 0) is just::
 
     mat4 mvp          @0    64   clip-space correction (rhi.clipSpaceCorrMatrix)
     vec4 letterbox    @64   16   (x, y, w, h) framebuffer-fraction image slot
-    vec2 pan          @80    8
-    vec2 zoom         @88    8
-    vec2 fit          @96    8   contain-fit fraction per axis at zoom 1
-    vec2 _pad         @104   8
-    = 112-byte header + _UNIFORM_EXTRA_CAPACITY reserved extra bytes
+    = 80 bytes
+
+The single source is one full-canvas slot (``slotRect`` identity).
 
 The frag chain (also mirrored by ``slot_visible_rect``)::
 
@@ -65,8 +63,6 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from PySide6.QtGui import QRhiBuffer, QShader
-
-logger = logging.getLogger("ImproveImgSLI")
 
 from engine.cache.draw_plans import (
     build_slot_plan_tiles,
@@ -98,6 +94,8 @@ from engine.gpu.array_draw import (
 )
 from engine.gpu.array_resources import TileArrayResourcesBase
 from engine.gpu.mip_cascade import MipCascadeGenerator
+
+logger = logging.getLogger("ImproveImgSLI")
 
 Rect = tuple[float, float, float, float]
 TileIndex = tuple[int, int]
