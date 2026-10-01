@@ -307,7 +307,9 @@ def record_array_draw(
         # Ensure the instance's sampler SRB before the pass opens (resource
         # creation is illegal inside an open pass). ``draw_array_instances``
         # re-ensures the same name inside the pass, which is a cache hit.
-        resources.ensure_array_srb(instances[0].sampler_name)
+        # Pair instances carry ``sampler_name``; slot instances use the
+        # resources' own default sampler (``None`` -> default).
+        resources.ensure_array_srb(getattr(instances[0], "sampler_name", None))
 
     command_buffer.beginPass(
         target,
@@ -322,7 +324,7 @@ def record_array_draw(
             resources=resources,
             vertex_buffer=vertex_buffer,
             instance_count=len(instances),
-            sampler_name=instances[0].sampler_name,
+            sampler_name=getattr(instances[0], "sampler_name", None),
             viewport_size=(size.width(), size.height()),
         )
     if in_pass is not None:
