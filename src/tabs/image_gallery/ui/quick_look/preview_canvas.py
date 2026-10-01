@@ -44,6 +44,7 @@ from engine.gpu.tiled_image_view import (
     SingleImageTiledView,
     TiledImageSource,
     TiledImageView,
+    contain_fit_scale,
     load_tiled_image_shader,
 )
 from engine.overlay import TexturedOverlayBinding, TexturedOverlayShell
@@ -1339,10 +1340,19 @@ class QuickLookCanvasWidget(QRhiWidget):
                 try:
                     from tabs.image_gallery.debug import ql_cover
 
+                    _sw, _sh = renderer.store_size()
+                    _fit = contain_fit_scale((_sw, _sh), int(fb_w), int(fb_h))
+                    _z = float(getattr(self, "_zoom", 1.0) or 1.0)
+                    _px = float(getattr(self, "_pan_x", 0.0) or 0.0)
+                    _py = float(getattr(self, "_pan_y", 0.0) or 0.0)
                     ql_cover(
-                        "tiled handover: covered=True instances=%s resident=%s",
+                        "tiled handover: covered=True instances=%s resident=%s "
+                        "store=%sx%s fb=%sx%s fit=(%.4f,%.4f) zoom=%.4f "
+                        "pan=(%.4f,%.4f)",
                         getattr(result, "instances", None),
                         getattr(result, "resident", None),
+                        _sw, _sh, int(fb_w), int(fb_h),
+                        _fit[0], _fit[1], _z, _px, _py,
                     )
                 except Exception:
                     pass
