@@ -5,9 +5,19 @@ GPU array resources, mip cascade, ``record_array_draw``), but every surface
 used to re-assemble residency + instance build + uniforms + draw + coverage in
 its own tab code. ``SingleImageTiledView`` composes those primitives into one
 per-frame call; anything genuinely surface-specific (letterbox/slot rect,
-feature/diff uniforms, feature passes, LOD policy -- reserved) is a declared
-hook. One source, no pairing/diff logic; the compare tabs stay on their own
-paths until they migrate onto the hooks.
+feature/diff uniforms, feature passes, LOD policy) is a declared hook. One
+source, no pairing/diff logic; the compare tabs stay on their own paths until
+they migrate onto the hooks.
+
+Multi-level sources (E2) register every pyramid level through the one
+``TileTextureService`` under a level-scoped key, pick the target level with
+``engine.cache.lod.select_level`` (``LodPolicy`` immediate/settle), and keep
+the last fully-drawable level drawable underneath a not-yet-complete target
+via the shared ``resolve_fallback_lod`` + ``drop_covered_fallback_tiles`` --
+never a neighbour tile. ``covered`` is honest: it is true only when the target
+level's visible set is resident and the mip cascade has drained, and false
+whenever fallback content is being drawn. ``TiledViewResult.drawn`` stays
+true whenever any target *or* fallback instance is recorded.
 
 Composition order per ``render`` (mirrors the compare tabs' established
 sequence, which the mip cascade requires): visible-rect -> residency
@@ -46,6 +56,8 @@ Audit-Meta: pattern=state-machine size=exempt reason="one tile-array render life
 from __future__ import annotations
 
 import struct
+import time
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Sequence
@@ -55,8 +67,11 @@ from PySide6.QtGui import QRhiBuffer, QShader
 from engine.cache.draw_plans import (
     build_slot_plan_tiles,
     content_scale_for,
+    drop_covered_fallback_tiles,
     slot_visible_rect,
 )
+from engine.cache.fallback_lod import resolve_fallback_lod
+from engine.cache.lod import select_level
 from engine.cache.residency import ResidencySpec, TileResidencyRealizerBase
 from engine.cache.tile_constants import (
     LIVE_TILE_EXTENT,
@@ -274,18 +289,97 @@ def pack_tiled_image_view_uniforms(
 
 
 @dataclass(frozen=True)
+class LodPolicy:
+    """How the view picks among a multi-level source's pyramid levels.
+
+    ``mode``:
+
+    - ``"immediate"``: the selected level is drawn every frame. Falls back
+      under its own still-resident previous level while it fills in.
+    - ``"settle"``: the currently drawn level is held until the newly
+      selected target level's visible tiles are all resident (and its mip
+      cascade has drained); the held level keeps being drawn meanwhile.
+
+    ``settle_ms`` is a minimum hold, in milliseconds, before a resident
+    target is promoted to drawn (a debounce against level flapping). ``0``
+    promotes as soon as the target is resident; it is measured with
+    ``time.perf_counter`` (never used for any residency/budget decision --
+    that stays on the shared ``realize_specs`` loop).
+    """
+
+    mode: str = "immediate"
+    settle_ms: int = 0
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("immediate", "settle"):
+            raise ValueError(
+                f"LodPolicy.mode must be 'immediate' or 'settle', got {self.mode!r}"
+            )
+        if int(self.settle_ms) < 0:
+            raise ValueError("LodPolicy.settle_ms must be >= 0")
+
+
+@dataclass(frozen=True)
 class TiledImageSource:
-    """The single source a view draws.
+    """The source a view draws, optionally as a pyramid of levels.
 
     ``store`` is any pixel source ``crop_apron_tile`` accepts (a
-    ``TiledPixelStore`` or a PIL-like ``.size``/``.crop()`` object).
-    ``level_key`` is reserved for E2 (pyramid-level sources); E1 registers
-    and resolves everything under ``key``.
+    ``TiledPixelStore`` or a PIL-like ``.size``/``.crop()`` object) and is
+    the single-level/level-0 form. ``levels`` (E2) is an optional complete,
+    ordered pyramid description -- a mapping or sequence of
+    ``(level_key, store)`` pairs, **coarsest first, finest last**, so the
+    last entry is level 0. Position in that sequence fixes the level number
+    (``level_count - 1 - index``); a ``None`` ``level_key`` defaults to
+    ``key`` for level 0 and ``(key, level)`` for coarser levels. When
+    ``levels`` is ``None`` the view is byte-identical to E1 (one level).
     """
 
     key: object
     store: object
     level_key: object | None = None
+    levels: (
+        tuple[tuple[object, object], ...] | Mapping[object, object] | None
+    ) = None
+
+
+@dataclass(frozen=True)
+class _LevelTile:
+    """One drawable tile of a specific pyramid level (needed so fallback and
+    target instances can share one draw call while each resolves its own
+    level-scoped array layer)."""
+
+    level: int
+    key: object
+    rect: Rect
+    index: TileIndex
+
+
+def _normalize_levels(
+    source: TiledImageSource,
+) -> list[tuple[int, object, object]]:
+    """``[(level, source_key, store), ...]`` ascending by level (0 = base).
+
+    ``None``/empty ``levels`` is the E1 single-level form. Otherwise the
+    sequence/mapping is read coarsest-first/finest-last and indexed from the
+    end, so the finest entry is level 0.
+    """
+    raw = source.levels
+    if raw:
+        if isinstance(raw, Mapping):
+            pairs = list(raw.items())
+        else:
+            pairs = [tuple(pair) for pair in raw]
+    else:
+        pairs = [(source.key, source.store)]
+    count = len(pairs)
+    normalized: list[tuple[int, object, object]] = []
+    for position, (level_key, store) in enumerate(pairs):
+        level = count - 1 - position
+        if level_key is None:
+            level_key = source.key if level == 0 else (source.key, level)
+        normalized.append((level, level_key, store))
+    normalized.sort(key=lambda entry: entry[0])
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -303,8 +397,8 @@ class TiledImageView:
 class TiledViewHooks:
     """Optional per-surface hooks. ``None`` = single-image / no extras."""
 
-    #: Reserved for E2 (LOD policy). Accepted, ignored in E1.
-    lods: object | None = None
+    #: Multi-level LOD policy (see ``LodPolicy``); ``None`` = immediate.
+    lods: LodPolicy | None = None
     #: Per-source letterbox/slot rect in framebuffer fractions.
     letterbox: Callable[[], Rect] | None = None
     #: Tab feature/diff uniforms appended after the view header.
@@ -408,6 +502,18 @@ class SingleImageTiledView:
         self._source: TiledImageSource | None = None
         self._vertex_buffer = None
         self._dirty_layers: dict[int, set[int]] = {}
+        # Multi-level (E2) state. ``_level_count <= 1`` keeps the E1 path.
+        self._level_count: int = 0
+        self._level_keys: dict[int, object] = {}
+        self._level_stores: dict[int, object] = {}
+        self._key_levels: dict[object, int] = {}
+        #: Last level whose visible set was fully drawable (fallback baseline).
+        self._fallback_level: int | None = None
+        #: Level currently drawn (settle mode holds it until the target lands).
+        self._render_level: int | None = None
+        #: Settle debounce bookkeeping (level + perf_counter seconds).
+        self._settle_target_level: int | None = None
+        self._settle_since: float = 0.0
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -438,7 +544,8 @@ class SingleImageTiledView:
             return (0, 0)
 
     def set_source(self, source: TiledImageSource) -> None:
-        """Adopt a source and register its tile grid. Any previous source's
+        """Adopt a source (single- or multi-level) and register every level's
+        tile grid through one ``TileTextureService``. Any previous source's
         residency is dropped first (a fresh service), so no stale layer can be
         sampled for the new content."""
         self._release_gpu()
@@ -447,19 +554,40 @@ class SingleImageTiledView:
             max_tile_extent=_LIVE_TILE_EXTENT,
             max_array_size=_ARRAY_CAPACITY,
         )
-        width, height = self._store_size(source.store)
-        service.register_source(source.key, (max(1, width), max(1, height)))
+        self._level_keys = {}
+        self._level_stores = {}
+        self._key_levels = {}
+        levels = _normalize_levels(source)
+        for level, level_key, store in levels:
+            width, height = self._store_size(store)
+            service.register_source(level_key, (max(1, width), max(1, height)))
+            self._level_keys[level] = level_key
+            self._level_stores[level] = store
+            self._key_levels[level_key] = level
+        self._level_count = len(levels)
         self.tile_service = service
+        self._render_level = None
+        self._fallback_level = None
+        self._settle_target_level = None
+        self._settle_since = 0.0
 
     def clear_source(self) -> None:
         """Drop the current source + its GPU-side dirty bookkeeping. Idempotent."""
         self._release_gpu()
         self._source = None
         self.tile_service = None
+        self._level_count = 0
+        self._level_keys = {}
+        self._level_stores = {}
+        self._key_levels = {}
 
     def _release_gpu(self) -> None:
         self._dirty_layers = {}
         self._realizer.last_uploaded = set()
+        self._render_level = None
+        self._fallback_level = None
+        self._settle_target_level = None
+        self._settle_since = 0.0
         try:
             self._mip_cascade.release()
         except Exception:
@@ -490,7 +618,25 @@ class SingleImageTiledView:
     def store_size(self) -> tuple[int, int]:
         if self._source is None:
             return (0, 0)
-        return self._store_size(self._source.store)
+        store = self._level_stores.get(0)
+        if store is None:
+            store = self._source.store
+        return self._store_size(store)
+
+    def _level_key(self, level: int) -> object:
+        return self._level_keys[level]
+
+    def _level_store(self, level: int) -> object:
+        return self._level_stores[level]
+
+    def _level_for_key(self, key: object) -> int | None:
+        try:
+            return self._key_levels.get(key)
+        except TypeError:
+            return None
+
+    def _now_ms(self) -> float:
+        return float(time.perf_counter()) * 1000.0
 
     def _ensure_vertex_buffer(self) -> None:
         if self._vertex_buffer is not None:
@@ -521,13 +667,14 @@ class SingleImageTiledView:
 
         An empty visible set or a not-yet-resident one records nothing and
         returns ``drawn=False``; the caller keeps its own raster/cover batch.
+        Multi-level sources (``TiledImageSource.levels``) route through the
+        LOD/fallback path; a single level keeps E1's exact behaviour.
         """
         if self._source is None or self.tile_service is None:
             return TiledViewResult(False, False, 0, 0)
         if target is None or command_buffer is None:
             return TiledViewResult(False, False, 0, 0)
         hooks = hooks or TiledViewHooks()
-        key = self._source.key
         store_w, store_h = self.store_size()
         if store_w <= 0 or store_h <= 0:
             return TiledViewResult(False, False, 0, 0)
@@ -553,6 +700,52 @@ class SingleImageTiledView:
         if len(letterbox) != 4:
             letterbox = _IDENTITY_LETTERBOX
 
+        if self._level_count > 1:
+            return self._render_multi_level(
+                command_buffer,
+                updates=updates,
+                target=target,
+                clear_color=clear_color,
+                view=view,
+                hooks=hooks,
+                effective_view=effective_view,
+                pan=pan,
+                fit=fit,
+                zoom=zoom,
+                letterbox=letterbox,
+            )
+        return self._render_single_level(
+            command_buffer,
+            updates=updates,
+            target=target,
+            clear_color=clear_color,
+            view=view,
+            hooks=hooks,
+            effective_view=effective_view,
+            pan=pan,
+            fit=fit,
+            zoom=zoom,
+            letterbox=letterbox,
+        )
+
+    def _render_single_level(
+        self,
+        command_buffer,
+        *,
+        updates,
+        target,
+        clear_color,
+        view: TiledImageView,
+        hooks: TiledViewHooks,
+        effective_view: TiledImageView,
+        pan: tuple[float, float],
+        fit: tuple[float, float],
+        zoom: float,
+        letterbox: Rect,
+    ) -> TiledViewResult:
+        """E1 single-level path: one source key, ``covered`` = every visible
+        tile resident (mip-cascade state is not part of ``covered`` here)."""
+        key = self._source.key
         service = self.tile_service
         grid = service.grid_for(key)
         plan = build_slot_plan_tiles(service, key, pan, fit, zoom)
@@ -601,6 +794,302 @@ class SingleImageTiledView:
                 drawn=False, covered=covered, instances=0, resident=resident
             )
 
+        self._draw_instances(
+            command_buffer,
+            instances,
+            target=target,
+            clear_color=clear_color,
+            hooks=hooks,
+            effective_view=effective_view,
+            letterbox=letterbox,
+        )
+        return TiledViewResult(
+            drawn=True,
+            covered=covered,
+            instances=len(instances),
+            resident=resident,
+        )
+
+    def _render_multi_level(
+        self,
+        command_buffer,
+        *,
+        updates,
+        target,
+        clear_color,
+        view: TiledImageView,
+        hooks: TiledViewHooks,
+        effective_view: TiledImageView,
+        pan: tuple[float, float],
+        fit: tuple[float, float],
+        zoom: float,
+        letterbox: Rect,
+    ) -> TiledViewResult:
+        """E2 path: pick a pyramid level, realize the target *and* the
+        fallback baseline in one ``realize_specs`` call, then draw the target
+        (or its held level) with the previous fully-drawable level underneath
+        wherever the target does not already cover it."""
+        service = self.tile_service
+        self._ensure_vertex_buffer()
+        store_w, store_h = self._store_size(self._level_store(0))
+        fb_w = max(1, int(view.fb_size[0]))
+        fb_h = max(1, int(view.fb_size[1]))
+        disp_w = fb_w * letterbox[2] * fit[0] * zoom
+        disp_h = fb_h * letterbox[3] * fit[1] * zoom
+        dest_scale = max(
+            disp_w / float(max(1, store_w)), disp_h / float(max(1, store_h))
+        )
+        target_level = select_level(dest_scale, self._level_count)
+        policy = hooks.lods if isinstance(hooks.lods, LodPolicy) else LodPolicy()
+
+        # Settle debounce: the clock only gates *when* an already-resident
+        # target is promoted to drawn; it never drives residency/budget.
+        if policy.mode == "settle":
+            if target_level != self._settle_target_level:
+                self._settle_target_level = target_level
+                self._settle_since = self._now_ms()
+            if int(policy.settle_ms) > 0:
+                debounce_ok = (self._now_ms() - self._settle_since) >= float(
+                    policy.settle_ms
+                )
+            else:
+                debounce_ok = True
+        else:
+            self._settle_target_level = target_level
+            debounce_ok = True
+
+        # One realize call for the target level plus the fallback baseline
+        # (deduplicated), never a second service or upload loop.
+        spec_levels: list[int] = []
+        for level in (target_level, self._fallback_level):
+            if level is None or level in spec_levels or level not in self._level_keys:
+                continue
+            spec_levels.append(level)
+        specs: list[ResidencySpec] = []
+        for level in spec_levels:
+            level_key = self._level_key(level)
+            grid = service.grid_for(level_key)
+            if grid is None:
+                continue
+            specs.append(
+                ResidencySpec(
+                    key=level_key,
+                    grid=grid,
+                    visible_rect=slot_visible_rect(pan, fit, zoom, grid),
+                    crop_source=self._level_store(level),
+                )
+            )
+        if updates is not None and specs:
+            self._realizer.last_uploaded = set()
+            self._realizer.realize_specs(
+                service, specs, updates, dirty_layers=self._dirty_layers
+            )
+            if hooks.on_uploaded is not None:
+                hooks.on_uploaded(set(self._realizer.last_uploaded))
+
+        # Submit tile uploads BEFORE the mip cascade reads them back (same
+        # ordering contract as the single-level path).
+        if updates is not None:
+            command_buffer.resourceUpdate(updates)
+
+        dirty_layers = self._dirty_layers
+        self._dirty_layers = {}
+        cascade_pending = False
+        if dirty_layers:
+            deferred = self._mip_cascade.generate_all_dirty_mips(
+                command_buffer,
+                self._vertex_buffer,
+                dirty_layers,
+                MIPS_CASCADE_TIME_BUDGET_MS,
+            )
+            if deferred:
+                self._dirty_layers = deferred
+                cascade_pending = True
+
+        _, target_fully_resident = self._plan_residency(
+            target_level, pan, fit, zoom
+        )
+        target_tiles = self._resident_items(target_level, pan, fit, zoom)
+
+        # Settle hold: keep drawing the current level until the target is
+        # fully resident, cascade-drained, and the debounce has elapsed.
+        if policy.mode == "settle":
+            if self._render_level is None:
+                self._render_level = target_level
+            elif (
+                target_level != self._render_level
+                and target_fully_resident
+                and not cascade_pending
+                and debounce_ok
+            ):
+                self._render_level = target_level
+        else:
+            self._render_level = target_level
+        render_level = self._render_level
+
+        if render_level == target_level:
+            render_fully_resident = target_fully_resident
+        else:
+            _, render_fully_resident = self._plan_residency(
+                render_level, pan, fit, zoom
+            )
+        render_tiles = self._resident_items(render_level, pan, fit, zoom)
+        render_key = self._level_key(render_level)
+        baseline_level = self._fallback_level
+        baseline_key = (
+            self._level_key(baseline_level)
+            if baseline_level in self._level_keys
+            else None
+        )
+
+        def build_fallback_items(prior_key):
+            prior_level = self._level_for_key(prior_key)
+            if prior_level is None:
+                return []
+            return self._resident_items(prior_level, pan, fit, zoom)
+
+        def drop_covered(fallback_items, current_items):
+            keep = drop_covered_fallback_tiles(
+                [item.rect for item in fallback_items],
+                [item.rect for item in current_items],
+            )
+            return [fallback_items[i] for i in keep]
+
+        new_baseline_key, draw_plan = resolve_fallback_lod(
+            key=render_key,
+            current_items=render_tiles,
+            more_pending=not render_fully_resident,
+            last_good_key=baseline_key,
+            build_fallback_items=build_fallback_items,
+            drop_covered=drop_covered,
+            cascade_pending=cascade_pending,
+        )
+        self._fallback_level = (
+            self._level_for_key(new_baseline_key)
+            if new_baseline_key is not None
+            else None
+        )
+
+        instances = self._build_level_instances(
+            draw_plan, pan=pan, fit=fit, zoom=zoom, letterbox=letterbox
+        )
+        fallback_drawn = any(item.level != render_level for item in draw_plan)
+        # Honest coverage: only the selected target, only when fully resident
+        # and the cascade has drained, and never while fallback is drawn.
+        covered = (
+            render_level == target_level
+            and bool(target_tiles)
+            and target_fully_resident
+            and not cascade_pending
+            and not fallback_drawn
+        )
+        resident = sum(
+            len(service.resident_tiles(level_key))
+            for level_key in self._key_levels
+        )
+        if not instances:
+            return TiledViewResult(
+                drawn=False, covered=covered, instances=0, resident=resident
+            )
+
+        drawn, count = self._draw_instances(
+            command_buffer,
+            instances,
+            target=target,
+            clear_color=clear_color,
+            hooks=hooks,
+            effective_view=effective_view,
+            letterbox=letterbox,
+        )
+        return TiledViewResult(
+            drawn=drawn,
+            covered=covered,
+            instances=count,
+            resident=resident,
+        )
+
+    def _plan_residency(
+        self, level: int, pan, fit, zoom
+    ) -> tuple[list, bool]:
+        """This level's visible tile plan and whether every tile is resident."""
+        service = self.tile_service
+        level_key = self._level_key(level)
+        plan = build_slot_plan_tiles(service, level_key, pan, fit, zoom)
+        fully_resident = bool(plan) and all(
+            service.is_resident(level_key, tile.index) for tile in plan
+        )
+        return plan, fully_resident
+
+    def _resident_items(
+        self, level: int, pan, fit, zoom
+    ) -> list[_LevelTile]:
+        """The drawable (slot-resolved) subset of ``level``'s visible tiles."""
+        service = self.tile_service
+        level_key = self._level_key(level)
+        plan = build_slot_plan_tiles(service, level_key, pan, fit, zoom)
+        return [
+            _LevelTile(
+                level=level, key=level_key, rect=tile.rect, index=tile.index
+            )
+            for tile in plan
+            if service.is_resident(level_key, tile.index)
+            and service.slot_for(level_key, tile.index) is not None
+        ]
+
+    def _build_level_instances(
+        self,
+        items,
+        *,
+        pan,
+        fit,
+        zoom,
+        letterbox: Rect,
+    ) -> list[ArrayInstance]:
+        """Instances for a mixed fallback/target plan; each item resolves its
+        own ``(level, index)`` array layer (fail-closed, no substitution)."""
+        service = self.tile_service
+        layer_px = float(_ARRAY_LAYER_PX)
+        instances: list[ArrayInstance] = []
+        for item in items:
+            slot = service.slot_for(item.key, item.index)
+            if slot is None:
+                continue
+            _array_index, layer = slot
+            scale = content_scale_for(
+                service.content_size_for(item.key, item.index), layer_px
+            )
+            content_scale = (scale[0], scale[1], scale[0], scale[1])
+            bbox = tile_screen_bbox(
+                item.rect, pan=pan, fit=fit, zoom=zoom, letterbox=letterbox
+            )
+            instances.append(
+                ArrayInstance(
+                    rect1=item.rect,
+                    rect2=item.rect,
+                    content_scale=content_scale,
+                    content_scale_diff=(1.0, 1.0),
+                    layer1=layer,
+                    layer2=layer,
+                    layer_diff=0,
+                    bbox=bbox,
+                    rect_diff=(0.0, 0.0, 1.0, 1.0),
+                    sampler_name="linear",
+                )
+            )
+        return instances
+
+    def _draw_instances(
+        self,
+        command_buffer,
+        instances,
+        *,
+        target,
+        clear_color,
+        hooks,
+        effective_view,
+        letterbox,
+    ) -> tuple[bool, int]:
+        """One uniform pack + one ``record_array_draw`` for a frame."""
         extra = b""
         if hooks.uniform_extra is not None:
             hook_extra = hooks.uniform_extra()
@@ -625,12 +1114,7 @@ class SingleImageTiledView:
             pre_begin=hooks.feature_prepare,
             in_pass=hooks.feature_record,
         )
-        return TiledViewResult(
-            drawn=True,
-            covered=covered,
-            instances=len(instances),
-            resident=resident,
-        )
+        return True, len(instances)
 
     def _build_instances(
         self,

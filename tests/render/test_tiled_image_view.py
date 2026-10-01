@@ -26,9 +26,11 @@ from engine.cache.residency import TileResidencyRealizerBase
 from engine.gpu.tiled_image_view import (
     _UNIFORM_BLOCK_SIZE,
     _UNIFORM_EXTRA_CAPACITY,
+    LodPolicy,
     SingleImageTiledView,
     TiledImageSource,
     TiledImageView,
+    TiledViewHooks,
     contain_fit_scale,
     pack_tiled_image_view_uniforms,
 )
@@ -101,6 +103,216 @@ def _install_realize_spy(monkeypatch):
 
     monkeypatch.setattr(TileResidencyRealizerBase, "realize_specs", spy)
     return calls
+
+
+# --- E2: LOD policy + fallback-under-tiles ---------------------------------
+
+_LEVEL1_KEY = "src1"
+
+
+def _multi_source() -> TiledImageSource:
+    """16x16 base (level 0, 4x4 grid at extent 4) + 8x8 level 1 (2x2 grid).
+
+    ``levels`` is coarsest-first/finest-last; the last entry is level 0 and
+    reuses the base key so the finest level is the single-level key.
+    """
+    store0 = Image.new("RGBA", (16, 16))
+    store1 = Image.new("RGBA", (8, 8))
+    return TiledImageSource(
+        key="src0",
+        store=store0,
+        levels=((_LEVEL1_KEY, store1), ("src0", store0)),
+    )
+
+
+def _install_keyed_upload_stub(view, *, allow=None, on_upload=None):
+    uploaded: list = []
+
+    def stub(tile_service, key, index, tile_image, updates, dirty_layers, region):
+        if allow is not None and not allow(key, index):
+            return
+        tile_service.mark_resident(key, index, byte_size=16, content_size=(2, 2))
+        uploaded.append((key, index))
+        if on_upload is not None:
+            on_upload(key, index, dirty_layers)
+
+    view._realizer._upload_tile = stub
+    return uploaded
+
+
+def _layers_for(view, key) -> set:
+    service = view.tile_service
+    return {service.slot_for(key, index)[1] for index in service.resident_tiles(key)}
+
+
+def _render_at(view, zoom, policy=None):
+    return view.render(
+        _FakeCommandBuffer(),
+        updates=object(),
+        target=object(),
+        clear_color=None,
+        view=TiledImageView(zoom=zoom, pan=(0.0, 0.0), fb_size=(16, 16)),
+        hooks=TiledViewHooks(lods=policy),
+    )
+
+
+def test_multi_level_immediate_picks_level_for_zoom(monkeypatch):
+    view, _ = _make_view(monkeypatch)
+    view.set_source(_multi_source())
+    _install_keyed_upload_stub(view)
+    draw_calls = _install_draw_spy(monkeypatch)
+
+    near = _render_at(view, 1.0, LodPolicy("immediate"))
+    service = view.tile_service
+    assert service.resident_tiles(_LEVEL1_KEY) == set()
+    assert near.covered is True
+    assert {inst.layer1 for inst in draw_calls[-1]["instances"]} == _layers_for(
+        view, "src0"
+    )
+
+    far = _render_at(view, 0.25, LodPolicy("immediate"))
+    assert len(service.resident_tiles(_LEVEL1_KEY)) == 4
+    assert {inst.layer1 for inst in draw_calls[-1]["instances"]} == _layers_for(
+        view, _LEVEL1_KEY
+    )
+    assert far.covered is True
+
+
+def test_multi_level_settle_holds_until_target_resident(monkeypatch):
+    view, _ = _make_view(monkeypatch)
+    view.set_source(_multi_source())
+    allowed = {"src0"}
+    _install_keyed_upload_stub(view, allow=lambda key, index: key in allowed)
+    draw_calls = _install_draw_spy(monkeypatch)
+    policy = LodPolicy("settle", 0)
+
+    _render_at(view, 1.0, policy)
+    held = _render_at(view, 0.25, policy)
+
+    service = view.tile_service
+    assert service.resident_tiles(_LEVEL1_KEY) == set()
+    assert {inst.layer1 for inst in draw_calls[-1]["instances"]} <= _layers_for(
+        view, "src0"
+    )
+    assert held.covered is False  # target (level 1) not resident -> held level
+
+    allowed.add(_LEVEL1_KEY)
+    settled = _render_at(view, 0.25, policy)
+    assert len(service.resident_tiles(_LEVEL1_KEY)) == 4
+    assert {inst.layer1 for inst in draw_calls[-1]["instances"]} == _layers_for(
+        view, _LEVEL1_KEY
+    )
+    assert settled.covered is True
+
+
+def test_multi_level_fallback_under_incomplete_target(monkeypatch):
+    view, _ = _make_view(monkeypatch)
+    view.set_source(_multi_source())
+    # Level 1's (1, 1) tile can never upload -> target stays incomplete.
+    _install_keyed_upload_stub(
+        view,
+        allow=lambda key, index: key != _LEVEL1_KEY or index != (1, 1),
+    )
+    draw_calls = _install_draw_spy(monkeypatch)
+
+    _render_at(view, 1.0, LodPolicy("immediate"))
+    partial = _render_at(view, 0.25, LodPolicy("immediate"))
+
+    service = view.tile_service
+    assert len(service.resident_tiles(_LEVEL1_KEY)) == 3
+    drawn_layers = {inst.layer1 for inst in draw_calls[-1]["instances"]}
+    assert drawn_layers & _layers_for(view, _LEVEL1_KEY)  # partial target
+    assert drawn_layers & _layers_for(view, "src0")  # fallback underneath
+    assert partial.drawn is True
+    assert partial.covered is False
+
+
+def test_settle_ms_debounces_target_promotion(monkeypatch):
+    view, _ = _make_view(monkeypatch)
+    view.set_source(_multi_source())
+    _install_keyed_upload_stub(view)
+    _install_draw_spy(monkeypatch)
+
+    clock = {"seconds": 1000.0}
+    monkeypatch.setattr(tiv.time, "perf_counter", lambda: clock["seconds"])
+
+    policy = LodPolicy("settle", 50)
+    _render_at(view, 1.0, policy)
+    assert view._render_level == 0
+
+    held = _render_at(view, 0.25, policy)  # target resident, debounce not met
+    assert held.covered is False
+    assert view._render_level == 0
+
+    clock["seconds"] += 0.06  # > 50 ms
+    settled = _render_at(view, 0.25, policy)
+    assert settled.covered is True
+    assert view._render_level == 1
+
+
+def test_multi_level_realizes_target_and_fallback_in_one_call(monkeypatch):
+    view, _ = _make_view(monkeypatch)
+    view.set_source(_multi_source())
+    _install_keyed_upload_stub(
+        view,
+        allow=lambda key, index: key != _LEVEL1_KEY or index != (1, 1),
+    )
+    _install_draw_spy(monkeypatch)
+    realize_calls = _install_realize_spy(monkeypatch)
+
+    _render_at(view, 1.0, LodPolicy("immediate"))
+    _render_at(view, 0.25, LodPolicy("immediate"))
+
+    assert len(realize_calls) == 2
+    assert {spec.key for spec in realize_calls[1]} == {"src0", _LEVEL1_KEY}
+    assert len(realize_calls[1]) == 2
+
+    source = Path(tiv.__file__).read_text(encoding="utf-8")
+    assert "time.monotonic" not in source
+    assert "select_upload_batch" not in source
+    assert "_upload_visible_tiles" not in source
+
+
+def test_multi_level_promotion_requires_cascade_drained(monkeypatch):
+    view, _ = _make_view(monkeypatch)
+    view.set_source(_multi_source())
+    _install_keyed_upload_stub(
+        view,
+        on_upload=lambda key, index, dirty_layers: dirty_layers.setdefault(
+            0, set()
+        ).add(0),
+    )
+    _install_draw_spy(monkeypatch)
+
+    state = {"deferred": True}
+
+    def fake_mips(command_buffer, vertex_buffer, dirty_layers, budget):
+        return {0: {0}} if state["deferred"] else {}
+
+    monkeypatch.setattr(
+        view._mip_cascade, "generate_all_dirty_mips", fake_mips
+    )
+
+    # Level 0 uploads with deferred mips -> cascade pending -> not covered,
+    # no baseline promoted yet.
+    assert _render_at(view, 1.0, LodPolicy("immediate")).covered is False
+    assert view._fallback_level is None
+
+    state["deferred"] = False
+    assert _render_at(view, 1.0, LodPolicy("immediate")).covered is True
+    assert view._fallback_level == 0
+
+    # Target level 1 fully resident but its mips deferred -> must NOT promote
+    # the baseline and must not report covered.
+    state["deferred"] = True
+    deferred = _render_at(view, 0.25, LodPolicy("immediate"))
+    assert deferred.covered is False
+    assert view._fallback_level == 0
+
+    state["deferred"] = False
+    promoted = _render_at(view, 0.25, LodPolicy("immediate"))
+    assert promoted.covered is True
+    assert view._fallback_level == 1
 
 
 def test_render_one_instance_per_visible_tile_and_one_draw(monkeypatch):
