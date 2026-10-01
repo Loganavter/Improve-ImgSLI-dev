@@ -86,12 +86,14 @@ from engine.cache.tile_texture_service import (
     DEFAULT_MAX_ARRAY_SIZE,
     TileTextureService,
 )
-from engine.cache.uniform_layout import assert_uniform_size
 from engine.gpu.array_draw import (
-    ARRAY_INSTANCE_ATTRIBUTES,
-    ARRAY_INSTANCE_STRIDE,
-    ArrayInstance,
+    SLOT_INSTANCE_ATTRIBUTES,
+    SLOT_INSTANCE_STRIDE,
+    SLOT_UNIFORM_BLOCK_SIZE,
+    SlotInstance,
     array_layer_px,
+    pack_slot_array_uniforms,
+    pack_slot_instance,
     record_array_draw,
 )
 from engine.gpu.array_resources import TileArrayResourcesBase
@@ -131,24 +133,13 @@ _IDENTITY_MATRIX16 = (
 )
 _IDENTITY_LETTERBOX: Rect = (0.0, 0.0, 1.0, 1.0)
 
-# std140 header format: mat4(16f) + vec4 letterbox(4f) + vec2 pan(2f) +
-# vec2 zoom(2f) + vec2 fit(2f) + vec2 _pad(2f) = 28 floats = 112 bytes.
-_UNIFORM_HEADER_FMT = "<16f4f2f2f2f2f"
-_UNIFORM_HEADER_SIZE = 112
-#: Reserved trailing bytes for tab feature/diff uniforms; the block size is
-#: constant (header + capacity) so a caller never has to resize the GPU
-#: buffer when it starts passing ``TiledViewHooks.uniform_extra``.
-_UNIFORM_EXTRA_CAPACITY = 64
-_UNIFORM_BLOCK_SIZE = _UNIFORM_HEADER_SIZE + _UNIFORM_EXTRA_CAPACITY
-assert_uniform_size(
-    _UNIFORM_HEADER_FMT,
-    _UNIFORM_HEADER_SIZE,
-    label="pack_tiled_image_view_uniforms",
-)
+# The slot pass's uniform block is mat4 + vec4 letterbox (engine.gpu.array_draw
+# SLOT_UNIFORM_*); the shader is the shared, proven slot_array.*.
+_UNIFORM_BLOCK_SIZE = SLOT_UNIFORM_BLOCK_SIZE
 
 
 def load_tiled_image_shader(name: str) -> QShader:
-    """Load one of the engine's baked ``tiled_image_array.*.qsb`` shaders.
+    """Load one of the engine's baked ``slot_array.*.qsb`` shaders.
 
     Consumers may pass this as ``load_shader`` when constructing the view;
     tests can pass a fake because no shader is built without a live target.
@@ -243,16 +234,14 @@ def pack_tiled_image_view_uniforms(
     view: TiledImageView,
     *,
     letterbox: Rect | None = None,
-    extra: bytes = b"",
     clip_matrix: Sequence[float] | None = None,
 ) -> bytes:
-    """Bytes for one tiled frame's ``UBuf`` (see the module docstring layout).
+    """Bytes for one tiled frame's slot-pass ``UBuf`` (``mat4 + vec4``).
 
     ``clip_matrix`` is the backend clip-space correction
     (``rhi.clipSpaceCorrMatrix()``); the view has no RHI of its own, so the
-    render path supplies it and the default is identity. ``extra`` (tab
-    feature/diff uniforms) is zero-padded to ``_UNIFORM_EXTRA_CAPACITY`` so
-    the returned block is always ``_UNIFORM_BLOCK_SIZE`` bytes.
+    render path supplies it and the default is identity. The per-tile
+    transform lives in the instance layout, not here.
     """
     matrix = tuple(
         float(value)
@@ -267,24 +256,7 @@ def pack_tiled_image_view_uniforms(
     lb = letterbox if letterbox is not None else _IDENTITY_LETTERBOX
     if len(lb) != 4:
         raise ValueError(f"letterbox must have 4 floats, got {len(lb)}")
-    zoom = float(view.zoom)
-    pan_x, pan_y = float(view.pan[0]), float(view.pan[1])
-    fit = view.fit if view.fit is not None else (1.0, 1.0)
-    header = struct.pack(
-        _UNIFORM_HEADER_FMT,
-        *matrix,
-        float(lb[0]), float(lb[1]), float(lb[2]), float(lb[3]),
-        pan_x, pan_y,
-        zoom, zoom,
-        float(fit[0]), float(fit[1]),
-        0.0, 0.0,
-    )
-    if len(extra) > _UNIFORM_EXTRA_CAPACITY:
-        raise ValueError(
-            f"extra uniform bytes {len(extra)} exceed reserved capacity "
-            f"{_UNIFORM_EXTRA_CAPACITY}"
-        )
-    return header + bytes(extra) + b"\x00" * (_UNIFORM_EXTRA_CAPACITY - len(extra))
+    return pack_slot_array_uniforms(matrix, lb)
 
 
 # ---------------------------------------------------------------------------
@@ -440,11 +412,11 @@ class _TiledImageArrayResources(TileArrayResourcesBase):
             layer_px=_ARRAY_LAYER_PX,
             array_capacity=_ARRAY_CAPACITY,
             name_prefix=name_prefix,
-            instance_stride=ARRAY_INSTANCE_STRIDE,
+            instance_stride=SLOT_INSTANCE_STRIDE,
             uniform_block_size=_UNIFORM_BLOCK_SIZE,
-            instance_attributes=ARRAY_INSTANCE_ATTRIBUTES,
-            vertex_shader_name="tiled_image_array.vert.qsb",
-            fragment_shader_name="tiled_image_array.frag.qsb",
+            instance_attributes=SLOT_INSTANCE_ATTRIBUTES,
+            vertex_shader_name="slot_array.vert.qsb",
+            fragment_shader_name="slot_array.frag.qsb",
             default_sampler_name="linear",
         )
 
@@ -1049,12 +1021,12 @@ class SingleImageTiledView:
         fit,
         zoom,
         letterbox: Rect,
-    ) -> list[ArrayInstance]:
+    ) -> list[SlotInstance]:
         """Instances for a mixed fallback/target plan; each item resolves its
         own ``(level, index)`` array layer (fail-closed, no substitution)."""
         service = self.tile_service
         layer_px = float(_ARRAY_LAYER_PX)
-        instances: list[ArrayInstance] = []
+        instances: list[SlotInstance] = []
         for item in items:
             slot = service.slot_for(item.key, item.index)
             if slot is None:
@@ -1063,23 +1035,11 @@ class SingleImageTiledView:
             scale = content_scale_for(
                 service.content_size_for(item.key, item.index), layer_px
             )
-            content_scale = (scale[0], scale[1], scale[0], scale[1])
             bbox = tile_screen_bbox(
                 item.rect, pan=pan, fit=fit, zoom=zoom, letterbox=letterbox
             )
             instances.append(
-                ArrayInstance(
-                    rect1=item.rect,
-                    rect2=item.rect,
-                    content_scale=content_scale,
-                    content_scale_diff=(1.0, 1.0),
-                    layer1=layer,
-                    layer2=layer,
-                    layer_diff=0,
-                    bbox=bbox,
-                    rect_diff=(0.0, 0.0, 1.0, 1.0),
-                    sampler_name="linear",
-                )
+                self._slot_instance(item.rect, layer, scale, bbox, pan, fit, zoom)
             )
         return instances
 
@@ -1095,15 +1055,9 @@ class SingleImageTiledView:
         letterbox,
     ) -> tuple[bool, int]:
         """One uniform pack + one ``record_array_draw`` for a frame."""
-        extra = b""
-        if hooks.uniform_extra is not None:
-            hook_extra = hooks.uniform_extra()
-            if hook_extra is not None:
-                extra = bytes(hook_extra)
         uniform_bytes = pack_tiled_image_view_uniforms(
             effective_view,
             letterbox=letterbox,
-            extra=extra,
             clip_matrix=self._clip_matrix(),
         )
         if (
@@ -1114,7 +1068,7 @@ class SingleImageTiledView:
                 self._dbg_logged = True
                 i0 = instances[0]
                 _mvp = struct.unpack("<16f", uniform_bytes[:64])
-                _rest = struct.unpack("<4f2f2f2f2f", uniform_bytes[64:112])
+                _lb = struct.unpack("<4f", uniform_bytes[64:80])
                 _sz = target.pixelSize()
                 _arr = self.resources.tile_arrays
                 _a0 = _arr[0] if _arr else None
@@ -1128,14 +1082,15 @@ class SingleImageTiledView:
                     _a0info = "err"
                 logger.warning(
                     "tiled-view debug n=%d target=%dx%d clear=%s "
-                    "mvp0=(%.3f,%.3f,%.3f,%.3f) letterbox=%s pan=%s zoom=%s "
-                    "fit=%s inst0 rect1=%s cs=%s bbox=%s layer=%d | "
+                    "mvp0=(%.3f,%.3f,%.3f,%.3f) letterbox=%s "
+                    "inst0 pan_fit=%s zoom=%s tile_rect=%s slot_rect=%s "
+                    "cs=%s bbox=%s layer=%d | "
                     "arrays=%d a0(w,h,mips)=%s srb=%s pipe=%s dirty=%s",
                     len(instances), int(_sz.width()), int(_sz.height()),
                     clear_color.getRgb()[:3] if hasattr(clear_color, "getRgb") else clear_color,
-                    _mvp[0], _mvp[1], _mvp[2], _mvp[3],
-                    _rest[0:4], _rest[4:6], _rest[6:8], _rest[8:10],
-                    i0.rect1, i0.content_scale, i0.bbox, i0.layer1,
+                    _mvp[0], _mvp[1], _mvp[2], _mvp[3], _lb,
+                    i0.pan_fit, i0.zoom, i0.tile_rect, i0.slot_rect,
+                    i0.content_scale, i0.bbox, i0.layer,
                     len(_arr), _a0info,
                     self.resources.array_srb is not None,
                     self.resources.array_pipeline is not None,
@@ -1155,6 +1110,7 @@ class SingleImageTiledView:
             updates=draw_updates,
             pre_begin=hooks.feature_prepare,
             in_pass=hooks.feature_record,
+            pack_instance=pack_slot_instance,
         )
         return True, len(instances)
 
@@ -1165,11 +1121,11 @@ class SingleImageTiledView:
         fit,
         zoom,
         letterbox: Rect,
-    ) -> list[ArrayInstance]:
+    ) -> list[SlotInstance]:
         service = self.tile_service
         key = self._source.key
         layer_px = float(_ARRAY_LAYER_PX)
-        instances: list[ArrayInstance] = []
+        instances: list[SlotInstance] = []
         for tile in plan:
             slot = service.slot_for(key, tile.index)
             if slot is None:
@@ -1180,22 +1136,33 @@ class SingleImageTiledView:
             scale = content_scale_for(
                 service.content_size_for(key, tile.index), layer_px
             )
-            content_scale = (scale[0], scale[1], scale[0], scale[1])
             bbox = tile_screen_bbox(
                 tile.rect, pan=pan, fit=fit, zoom=zoom, letterbox=letterbox
             )
             instances.append(
-                ArrayInstance(
-                    rect1=tile.rect,
-                    rect2=tile.rect,
-                    content_scale=content_scale,
-                    content_scale_diff=(1.0, 1.0),
-                    layer1=layer,
-                    layer2=layer,
-                    layer_diff=0,
-                    bbox=bbox,
-                    rect_diff=(0.0, 0.0, 1.0, 1.0),
-                    sampler_name="linear",
-                )
+                self._slot_instance(tile.rect, layer, scale, bbox, pan, fit, zoom)
             )
         return instances
+
+    def _slot_instance(
+        self,
+        tile_rect: Rect,
+        layer: int,
+        scale: tuple[float, float],
+        bbox: Rect,
+        pan: tuple[float, float],
+        fit: tuple[float, float],
+        zoom: float,
+    ) -> SlotInstance:
+        """One tile's slot-pass instance: the single source is one full-canvas
+        slot (``slot_rect`` identity), so pan/fit/zoom are shared by every
+        instance; the shared ``slot_array`` shader applies them per instance."""
+        return SlotInstance(
+            pan_fit=(float(pan[0]), float(pan[1]), float(fit[0]), float(fit[1])),
+            zoom=float(zoom),
+            tile_rect=tile_rect,
+            slot_rect=_IDENTITY_LETTERBOX,
+            content_scale=(float(scale[0]), float(scale[1])),
+            layer=int(layer),
+            bbox=bbox,
+        )

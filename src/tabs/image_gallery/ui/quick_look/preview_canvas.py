@@ -69,17 +69,6 @@ _IDENTITY_CLIP = (
 
 _CLEAR_OPAQUE = QColor(0, 0, 0, 255)
 
-# STOPGAP (2026-10-01): the engine tiled draw currently renders only the
-# clear colour (white canvas) -- a shader/GPU-state bug under investigation.
-# Takeover stays OFF by default so the raster path owns the canvas; set
-# IMGSLI_QL_TILED_TAKEOVER=1 to re-enable once the tiled draw is verified.
-_TILED_TAKEOVER_ENABLED = os.environ.get("IMGSLI_QL_TILED_TAKEOVER", "").strip() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
-
 # No-present watchdog: a canvas that shows no frame within this window is
 # presumed broken (dead RHI, missing shaders) and must yield to QLabel —
 # a transparent widget shows the windows behind it as "garbage".
@@ -1373,16 +1362,8 @@ class QuickLookCanvasWidget(QRhiWidget):
                     )
                 except Exception:
                     pass
-                # STOPGAP (2026-10-01): the engine tiled draw renders the
-                # clear colour only (white canvas) -- a shader/GPU-state bug
-                # under investigation. Takeover stays OFF by default so the
-                # raster path (with the stale-frame safety net) owns the
-                # canvas; set IMGSLI_QL_TILED_TAKEOVER=1 to re-enable once the
-                # tiled draw is verified.
-                if _TILED_TAKEOVER_ENABLED:
-                    self._settle_present()
-                    return True
-                return False
+                self._settle_present()
+                return True
             try:
                 from tabs.image_gallery.debug import ql_cover
 
