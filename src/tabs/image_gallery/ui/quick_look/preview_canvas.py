@@ -33,6 +33,7 @@ they land (``best_pixels`` fails closed to None).
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -67,6 +68,17 @@ _IDENTITY_CLIP = (
 )
 
 _CLEAR_OPAQUE = QColor(0, 0, 0, 255)
+
+# STOPGAP (2026-10-01): the engine tiled draw currently renders only the
+# clear colour (white canvas) -- a shader/GPU-state bug under investigation.
+# Takeover stays OFF by default so the raster path owns the canvas; set
+# IMGSLI_QL_TILED_TAKEOVER=1 to re-enable once the tiled draw is verified.
+_TILED_TAKEOVER_ENABLED = os.environ.get("IMGSLI_QL_TILED_TAKEOVER", "").strip() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 # No-present watchdog: a canvas that shows no frame within this window is
 # presumed broken (dead RHI, missing shaders) and must yield to QLabel —
@@ -415,11 +427,9 @@ class QuickLookCanvasWidget(QRhiWidget):
                 return None
             from PySide6.QtGui import QRhiSampler
 
-            import os as _os
-
             _mip = (
                 QRhiSampler.Filter.None_
-                if _os.environ.get("IMGSLI_QL_NO_MIPS")
+                if os.environ.get("IMGSLI_QL_NO_MIPS")
                 else QRhiSampler.Filter.Linear
             )
             sampler = rhi.newSampler(
@@ -1363,8 +1373,16 @@ class QuickLookCanvasWidget(QRhiWidget):
                     )
                 except Exception:
                     pass
-                self._settle_present()
-                return True
+                # STOPGAP (2026-10-01): the engine tiled draw renders the
+                # clear colour only (white canvas) -- a shader/GPU-state bug
+                # under investigation. Takeover stays OFF by default so the
+                # raster path (with the stale-frame safety net) owns the
+                # canvas; set IMGSLI_QL_TILED_TAKEOVER=1 to re-enable once the
+                # tiled draw is verified.
+                if _TILED_TAKEOVER_ENABLED:
+                    self._settle_present()
+                    return True
+                return False
             try:
                 from tabs.image_gallery.debug import ql_cover
 

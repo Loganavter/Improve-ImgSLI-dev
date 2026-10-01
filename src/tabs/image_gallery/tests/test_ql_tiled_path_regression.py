@@ -172,6 +172,45 @@ def test_raster_frame_reuses_last_good_frame_on_miss():
         app.processEvents()
 
 
+def test_tiled_takeover_stopgap_off_by_default():
+    """STOPGAP: while the engine tiled draw renders white, takeover is off.
+
+    A covered frame must NOT take over the canvas by default (the raster path
+    owns it) -- re-enable via ``IMGSLI_QL_TILED_TAKEOVER=1``.
+    """
+    assert _canvas_mod._TILED_TAKEOVER_ENABLED is False
+
+    from engine.gpu.tiled_image_view import TiledViewResult
+
+    from tabs.image_gallery.ui.quick_look.preview_canvas import QuickLookCanvasWidget
+
+    app = QApplication.instance() or QApplication([])
+    canvas = QuickLookCanvasWidget()
+    parent = QWidget()
+    canvas.setParent(parent)
+    try:
+        covered = TiledViewResult(drawn=True, covered=True, instances=4, resident=4)
+
+        class _FakeView:
+            def has_source(self):
+                return True
+
+            def render(self, *_a, **_k):
+                return covered
+
+        canvas._tile_renderer = _FakeView()
+        canvas._tiled_source = ("item", object())
+        canvas._ensure_tile_renderer = lambda: canvas._tile_renderer
+        canvas._settle_present = lambda: (_ for _ in ()).throw(
+            AssertionError("stopgap must not settle on a tiled frame")
+        )
+        assert canvas._render_tiled(object(), object(), None, None, 100, 100) is False
+    finally:
+        canvas.setParent(None)
+        parent.deleteLater()
+        app.processEvents()
+
+
 def test_partial_coverage_keeps_raster_takeover_only_when_covered():
     """Handover fix: takeover keys off ``TiledViewResult.covered``.
 
@@ -215,6 +254,9 @@ def test_partial_coverage_keeps_raster_takeover_only_when_covered():
         assert fake.calls == 1
         assert settled == [], "partial coverage must not take over or settle"
 
+        # Takeover is behind the STOPGAP flag (off by default while the engine
+        # tiled draw renders white); enable it to pin the covered-handover logic.
+        _canvas_mod._TILED_TAKEOVER_ENABLED = True
         assert canvas._render_tiled(object(), object(), None, None, 100, 100) is True
         assert fake.calls == 2
         assert settled == [1], "covered handover settles exactly once"
