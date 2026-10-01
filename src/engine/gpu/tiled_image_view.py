@@ -55,6 +55,8 @@ Audit-Meta: pattern=state-machine size=exempt reason="one tile-array render life
 
 from __future__ import annotations
 
+import logging
+import os
 import struct
 import time
 from collections.abc import Mapping
@@ -63,6 +65,8 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from PySide6.QtGui import QRhiBuffer, QShader
+
+logger = logging.getLogger(__name__)
 
 from engine.cache.draw_plans import (
     build_slot_plan_tiles,
@@ -1101,6 +1105,24 @@ class SingleImageTiledView:
             extra=extra,
             clip_matrix=self._clip_matrix(),
         )
+        if os.environ.get("IMGSLI_TILED_VIEW_DEBUG"):
+            try:
+                i0 = instances[0]
+                _mvp = struct.unpack("<16f", uniform_bytes[:64])
+                _rest = struct.unpack("<4f2f2f2f2f", uniform_bytes[64:112])
+                _sz = target.pixelSize()
+                logger.warning(
+                    "tiled-view debug n=%d target=%dx%d clear=%s "
+                    "mvp0=(%.3f,%.3f,%.3f,%.3f) letterbox=%s pan=%s zoom=%s "
+                    "fit=%s inst0 rect1=%s cs=%s bbox=%s layer=%d",
+                    len(instances), int(_sz.width()), int(_sz.height()),
+                    clear_color.getRgb()[:3] if hasattr(clear_color, "getRgb") else clear_color,
+                    _mvp[0], _mvp[1], _mvp[2], _mvp[3],
+                    _rest[0:4], _rest[4:6], _rest[6:8], _rest[8:10],
+                    i0.rect1, i0.content_scale, i0.bbox, i0.layer1,
+                )
+            except Exception:
+                logger.warning("tiled-view debug failed", exc_info=True)
         draw_updates = self._rhi.nextResourceUpdateBatch()
         record_array_draw(
             command_buffer,
