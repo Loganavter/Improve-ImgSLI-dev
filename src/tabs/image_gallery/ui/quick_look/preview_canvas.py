@@ -1360,6 +1360,19 @@ class QuickLookCanvasWidget(QRhiWidget):
                 )
             except Exception:
                 pass
+            # Keep the residency stream moving: the tiled plan is not yet
+            # ``covered``, so it will only complete if frames keep coming.
+            # Without this, uploads stall until an unrelated repaint (mouse
+            # move) and the coarse raster lingers — or, if the raster also
+            # misses, the canvas stays a hole. Only pump when this frame made
+            # progress (a resident/drawn tile), so a dead store cannot spin.
+            try:
+                if getattr(result, "drawn", False) or int(
+                    getattr(result, "resident", 0) or 0
+                ) > 0:
+                    self._pump_next_frame()
+            except Exception:
+                pass
             return False
         except Exception:
             logger.debug("QuickLook preview: tiled frame failed open", exc_info=True)
@@ -1378,7 +1391,28 @@ class QuickLookCanvasWidget(QRhiWidget):
     # -- frame raster -----------------------------------------------------------
 
     def _raster_frame(self, target) -> tuple[int, int, bytes] | None:
-        """Frame raster: single ResolvedLayer → cache → zoom/pan crop."""
+        """Frame raster, never presenting nothing.
+
+        Wraps ``_compute_raster_frame``: any miss (unbuilt LOD level, empty
+        composition, decode failure) reuses the last good frame instead of
+        returning ``None``. A partial tiled frame is not ``covered`` while it
+        streams, so a ``None`` here would leave the QRhiWidget presenting no
+        pass at all — a see-through hole (``qrhiwidget-cant-alpha-blend`` /
+        "no pinned coarse level → holes by construction"). Stale beats a hole;
+        the frame cache is invalidated on source change, so the reused frame
+        is always the same image. Never raises.
+        """
+        try:
+            frame = self._compute_raster_frame(target)
+        except Exception:
+            logger.debug("QuickLook preview: raster failed open", exc_info=True)
+            frame = None
+        if frame is not None:
+            return frame
+        return self._frame_bytes
+
+    def _compute_raster_frame(self, target) -> tuple[int, int, bytes] | None:
+        """Compute the frame raster: single ResolvedLayer → cache → crop."""
         try:
             composition = self._active_composition
             layers = getattr(composition, "layers", ()) or ()
