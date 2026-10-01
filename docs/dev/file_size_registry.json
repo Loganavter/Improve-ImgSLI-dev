@@ -82,6 +82,18 @@
       }
     },
     {
+      "path": "src/engine/gpu/tiled_image_view.py",
+      "lines": 675,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=state-machine size=exempt reason=\"one tile-array render lifecycle: residency/instance/uniform/draw share one source; splitting threads the source/grid/dirty state through every helper\"",
+      "parsed": {
+        "pattern": "state-machine",
+        "size": "exempt",
+        "reason": "one tile-array render lifecycle: residency/instance/uniform/draw share one source; splitting threads the source/grid/dirty state through every helper"
+      }
+    },
+    {
       "path": "src/engine/store/tiled_pixel_store.py",
       "lines": 983,
       "limit": 500,
