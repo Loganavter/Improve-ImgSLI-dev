@@ -1329,9 +1329,22 @@ def _fit_cover(overlay) -> None:
 
 
 def _drop_cover(overlay, reason: str = "") -> None:
-    """Drop the first-frame cover (fail-open)."""
+    """Drop the first-frame cover (fail-open).
+
+    A close cover (``quicklook_preview_close_cover``, planted on hide to
+    ride out the native canvas unmap) survives every drop except
+    ``"re-cover"``: the hide stack releases several times after planting,
+    and only the next show may clear it — otherwise the hole it was
+    planted for reopens in the same stack.
+    """
     try:
         cover = getattr(overlay, "_preview_cover", None)
+        if cover is not None and reason != "re-cover":
+            try:
+                if cover.objectName() == "quicklook_preview_close_cover":
+                    return
+            except Exception:
+                pass
         try:
             overlay._preview_cover = None
         except Exception:
