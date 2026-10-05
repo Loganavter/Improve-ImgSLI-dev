@@ -612,6 +612,7 @@ def configure_rhi_widget(widget: QRhiWidget, *, watch_failures: bool = True) -> 
                 logger.error(
                     "[rhi-debug] widget=%s size=%s visible=%s hidden=%s "
                     "top=%s top_size=%s top_visible=%s top_exposed=%s "
+                    "top_active=%s "
                     "top_translucent=%s top_flags=%s platform=%s "
                     "surface_type=%s backing_store_type=%s",
                     type(widget).__name__,
@@ -622,6 +623,7 @@ def configure_rhi_widget(widget: QRhiWidget, *, watch_failures: bool = True) -> 
                     top.size() if top is not None else None,
                     top.isVisible() if top is not None else None,
                     wh.isExposed() if wh is not None else None,
+                    top.isActiveWindow() if top is not None else None,
                     top.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
                     if top is not None
                     else None,
