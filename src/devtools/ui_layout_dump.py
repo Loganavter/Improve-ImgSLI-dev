@@ -428,6 +428,54 @@ def dump_ui_layout(root: QWidget, registry: ActionRegistry) -> dict[str, Any]:
     theme = _resolve_theme_tokens(used_families)
     if theme:
         node["theme"] = theme
+    # Live input diagnosis (dead-overlay triage): every top-level (a stuck
+    # invisible popup never appears in a single-root dump) + process-wide
+    # grabber/focus/active. Additive keys only.
+    try:
+        app = QApplication.instance()
+        tops = []
+        if isinstance(app, QApplication):
+            for w in app.topLevelWidgets():
+                try:
+                    g = w.geometry()
+                    tops.append(
+                        {
+                            "class": type(w).__name__,
+                            "object_name": w.objectName(),
+                            "geometry": [g.x(), g.y(), g.width(), g.height()],
+                            "visible": w.isVisible(),
+                        }
+                    )
+                except Exception:
+                    continue
+        node["top_levels"] = tops
+    except Exception:
+        pass
+    try:
+        _input: dict[str, Any] = {}
+        app = QApplication.instance()
+        try:
+            _grabber = QWidget.mouseGrabber()
+            if _grabber is not None:
+                _input["mouse_grabber"] = f"{type(_grabber).__name__}:{_grabber.objectName()}"
+        except Exception:
+            pass
+        try:
+            _fw = app.focusWidget() if app is not None else None
+            if _fw is not None:
+                _input["focus_widget"] = f"{type(_fw).__name__}:{_fw.objectName()}"
+        except Exception:
+            pass
+        try:
+            _aw = app.activeWindow() if app is not None else None
+            if _aw is not None:
+                _input["active_window"] = f"{type(_aw).__name__}:{_aw.objectName()}"
+        except Exception:
+            pass
+        if _input:
+            node["input_state"] = _input
+    except Exception:
+        pass
     return node
 
 
