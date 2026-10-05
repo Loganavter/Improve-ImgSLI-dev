@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, Qt, QEvent
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import scaled_px
-from sli_ui_toolkit.widgets import Button, ButtonRegion, ButtonRow
+from sli_ui_toolkit.widgets import Button, ButtonFamily, ButtonRegion, ButtonRow
 
 
 def _strip_thumb_pitch(overlay) -> int:
@@ -204,12 +204,23 @@ def _strip_rank_text_and_style(m, is_source: bool):
 
 
 def _strip_family(overlay):
-    """Shared-hover family — REMOVED (no toolkit ButtonFamily landed).
+    """Shared-hover family for strip thumbs + rank pills (created once).
 
-    Kept as a None-returning stub so ``_strip_family_add`` stays a no-op;
-    rank pills walk to their item on click without hover-linking.
+    One family for both: hovering a thumb lights its pill (and siblings),
+    hovering a pill lights the thumbs — the strip reads as one control.
     """
-    return None
+    try:
+        fam = getattr(overlay, "_strip_family", None)
+        if fam is None:
+            fam = ButtonFamily(overlay)
+            try:
+                fam.setSharedHover(True)
+            except Exception:
+                pass
+            overlay._strip_family = fam
+        return fam
+    except Exception:
+        return None
 
 
 def _strip_family_add(overlay, button) -> None:
