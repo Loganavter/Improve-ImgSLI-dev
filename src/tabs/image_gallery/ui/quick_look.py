@@ -1,11 +1,12 @@
 """Stage 2 S4 quick look — TopLevelInWindowOverlay with two-panel layout.
 Audit-Meta: pattern=thin-owner reason="thin owner delegating to ui/quick_look/* helpers,bars,histograms,metrics,artifacts,strip"
 
-Left: large preview (pixmap, source inset for fidelity mode, sharpness-crop inset)
+Left: large preview (pixmap, source inset for fidelity mode)
      + prev/next walk the series (←→).
 Right: metric bars per mode (SSIM/sharpness/exposure), artifact rows with
-       mini-visualizations (stub), series strip (SOURCE/viewing/pending/rejected
-       thumbs clickable), bottom bar buttons.
+       mini-visualizations (stub), filename meta + brief (series note, no
+       counts); bottom: full-width series strip (SOURCE/viewing/pending/
+       rejected thumbs clickable), bottom bar buttons.
 Public toolkit only: TopLevelInWindowOverlay, Button variant="surface", Label,
 scaled_px. No setStyleSheet — painter pipeline owns visuals.
 """
