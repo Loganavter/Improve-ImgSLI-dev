@@ -803,11 +803,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/grid_view.py",
-<<<<<<< HEAD
-      "lines": 2268,
-=======
-      "lines": 2917,
->>>>>>> 14d1c680 (feat(gallery): quick look modal grab, pump backoff, resize restore, crop inset removal)
+      "lines": 2914,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"single virtualized grid view — grid_columns/series headers/pool/marquee share one layout lifecycle\"",
