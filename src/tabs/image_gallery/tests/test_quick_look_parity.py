@@ -1001,12 +1001,31 @@ def test_strip_thumbs_use_button_regions(qtbot, tmp_path):
         assert len(regions) == 1
         assert regions[0].pixmap is not None and not regions[0].pixmap.isNull()
         assert regions[0].image_fill == "cover"
-    # Badge contract: SOURCE on source, #N on ranked viewing — toolkit
-    # Button badge (top-right), never Button text.
-    by_path = {b.property("gallery_path"): b for b in buttons}
-    assert by_path[str(p1)]._badge == "SOURCE"
-    assert by_path[str(p2)]._badge == "#2"
-    assert by_path[str(p1)]._text == ""
+    # Pill contract: SOURCE pill on source, #N pill on ranked viewing —
+    # real buttons, never badge paint or Button text on the thumb.
+    thumbs = {b.property("gallery_path"): b for b in buttons}
+    pills = {}
+    for container in list(ov._strip_buttons):
+        thumb = next(
+            (b for b in container.findChildren(Button) if b.objectName().startswith("quicklook_strip_")),
+            None,
+        )
+        pill = next(
+            (b for b in container.findChildren(Button) if b.objectName().startswith("quicklook_rank_")),
+            None,
+        )
+        if thumb is not None:
+            pills[str(thumb.property("gallery_path"))] = pill
+    assert pills[str(p1)] is not None
+    assert pills[str(p2)] is not None
+    for pill, want in ((pills[str(p1)], "SOURCE"), (pills[str(p2)], "#2")):
+        texts = [
+            getattr(row, "text", "")
+            for region in pill.regions()
+            for row in (getattr(region, "rows", None) or [])
+        ]
+        assert want in texts, texts
+    assert thumbs[str(p1)]._text == ""
     ov.hide()
 
 
@@ -1460,8 +1479,9 @@ def test_strip_hint_below_thumbs_not_in_row(qtbot):
 
 
 def test_strip_four_thumbs_fit_296px_column(qtbot):
-    """W6 item 2: 4 svg-pitch thumbs (4x66 + 3x10 = 294) fit the 296px
-    column — no h-scroll, badge/click/dim behavior intact."""
+    """W6 item 2: svg-pitch thumbs stay 66px (4x66 + 3x10 = 294); the strip
+    now rides a full-width bottom row, so the 296px column only needs its
+    own scrollbars hidden — badge/click/dim behavior intact."""
     from PySide6.QtWidgets import QScrollArea
 
     from sli_ui_toolkit.managers import scaled_px
@@ -1485,10 +1505,19 @@ def test_strip_four_thumbs_fit_296px_column(qtbot):
     assert scroll.horizontalScrollBar().isVisible() is False
     assert scroll.verticalScrollBar().maximum() == 0
     assert scroll.verticalScrollBar().isVisible() is False
-    # Badge contract still holds at the new size (toolkit Button badge).
-    by_path = {b.property("gallery_path"): b for b in buttons}
-    assert by_path["/gallery/a.png"]._badge == "#1"
-    assert by_path["/gallery/b.png"]._badge == "#2"
+    # Rank pills still ride each thumb at the new size (real buttons).
+    pills = [
+        b for b in ov._strip_host.findChildren(Button) if b.objectName().startswith("quicklook_rank_")
+    ]
+    assert len(pills) == 4
+    texts = sorted(
+        getattr(row, "text", "")
+        for pill in pills
+        for region in pill.regions()
+        for row in (getattr(region, "rows", None) or [])
+        if getattr(row, "text", "")
+    )
+    assert texts == ["#1", "#2", "#3", "#4"]
     ov.hide()
 
 
