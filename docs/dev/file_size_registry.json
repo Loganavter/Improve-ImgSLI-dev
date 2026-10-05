@@ -1149,7 +1149,7 @@
     },
     {
       "path": "src/ui/canvas_infra/rhi/rhi_backend.py",
-      "lines": 731,
+      "lines": 737,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single RHI backend lifecycle — backend selection + QRhiWidget init\"",

@@ -610,13 +610,14 @@ def configure_rhi_widget(widget: QRhiWidget, *, watch_failures: bool = True) -> 
                 top = widget.window()
                 wh = top.windowHandle() if top is not None else None
                 logger.error(
-                    "[rhi-debug] widget=%s size=%s visible=%s "
+                    "[rhi-debug] widget=%s size=%s visible=%s hidden=%s "
                     "top=%s top_size=%s top_visible=%s top_exposed=%s "
                     "top_translucent=%s top_flags=%s platform=%s "
                     "surface_type=%s backing_store_type=%s",
                     type(widget).__name__,
                     widget.size(),
                     widget.isVisible(),
+                    widget.isHidden(),
                     type(top).__name__ if top is not None else None,
                     top.size() if top is not None else None,
                     top.isVisible() if top is not None else None,
@@ -664,6 +665,10 @@ class _RhiSurfacePrimer(QRhiWidget):
     """
 
     def initialize(self, command_buffer) -> None:  # noqa: N802
+        try:
+            logger.debug("rhi primer: first RHI setup done, self-destructing")
+        except Exception:
+            pass
         try:
             self.deleteLater()
         except Exception:
@@ -713,6 +718,7 @@ def ensure_window_rhi(window) -> None:
         configure_rhi_widget(primer, watch_failures=False)
         primer.setGeometry(0, 0, 1, 1)
         primer.show()
+        logger.debug("rhi primer: installed shown 1x1 on %s", type(window).__name__)
     except Exception:
         logger.exception("ensure_window_rhi: failed to create RHI primer widget")
 
