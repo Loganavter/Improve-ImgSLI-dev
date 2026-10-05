@@ -344,20 +344,25 @@ def _install_memo_probe(overlay, canvas) -> None:
         pass
 
 
-_RHI_HIDDEN_FAIL_THRESHOLD = 3
+_RHI_PREFRAME_FAIL_THRESHOLD = 3
 _RHI_MAX_RECOVERIES = 5
 
 
 def _watch_canvas_rhi(overlay, canvas) -> None:
-    """Recover a canvas whose RHI init failed while hidden (once-ish).
+    """Recover a canvas that keeps failing before its first frame (once-ish).
 
-    A canvas whose first renders fail while hidden (e.g. first render
-    landing before show after a menu-first focus dance) caches the
-    failure and never presents — the overlay then shows the static
-    cover forever. Visible failures are resize storms (existing
-    behavior, untouched): only hidden failures count. On threshold,
-    drop the poisoned canvas (capped); the next populate recreates it
-    fresh, or immediately when the overlay is visible. Fail-open throughout.
+    A canvas whose renders fail before the first settled frame (e.g. first
+    render landing on a surface that cannot mint a QRhi after a menu-first
+    focus dance) caches the failure and never presents — the overlay then
+    shows the static cover forever, across close/reopen (the release path
+    reuses the widget, so reopening alone never heals it). The
+    discriminator is ``canvas._frame_ok`` (set by ``settle_first_frame``
+    on the first settled present, cleared on every ``set_source``): a
+    canvas that presented before fails from resize storms (existing
+    behavior, untouched) — only never-presented failures count. On
+    threshold, drop the poisoned canvas (capped); the next populate
+    recreates it fresh, or immediately when the overlay is visible.
+    Fail-open throughout.
     """
     try:
         if getattr(canvas, "_ql_rhi_watched", False):
@@ -374,18 +379,18 @@ def _watch_canvas_rhi(overlay, canvas) -> None:
 def _on_canvas_rhi_failed(overlay, canvas) -> None:
     try:
         try:
-            hidden = not canvas.isVisible()
+            presented = bool(getattr(canvas, "_frame_ok", False))
         except Exception:
-            hidden = False
-        if not hidden:
             return
-        fails = int(getattr(canvas, "_ql_hidden_fails", 0) or 0) + 1
+        if presented:
+            return  # presented before: resize storms, never poisoned.
+        fails = int(getattr(canvas, "_ql_preframe_fails", 0) or 0) + 1
         try:
-            canvas._ql_hidden_fails = fails
+            canvas._ql_preframe_fails = fails
         except Exception:
             pass
         if _qlc_enabled():
-            _qlc_log("rhi hidden-fail %d/%d", fails, _RHI_HIDDEN_FAIL_THRESHOLD)
+            _qlc_log("rhi preframe-fail %d/%d", fails, _RHI_PREFRAME_FAIL_THRESHOLD)
     except Exception:
         return
     try:
@@ -394,7 +399,7 @@ def _on_canvas_rhi_failed(overlay, canvas) -> None:
         recs = 0
     # Schedule exactly once (on the threshold crossing): later failures
     # must not queue duplicate recoveries.
-    if fails != _RHI_HIDDEN_FAIL_THRESHOLD or recs >= _RHI_MAX_RECOVERIES:
+    if fails != _RHI_PREFRAME_FAIL_THRESHOLD or recs >= _RHI_MAX_RECOVERIES:
         return
     try:
         overlay._ql_rhi_recoveries = recs + 1

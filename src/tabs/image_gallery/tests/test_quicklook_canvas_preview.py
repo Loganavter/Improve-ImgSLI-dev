@@ -1432,11 +1432,11 @@ def test_stale_settle_schedule_skips_metrics_warm(qtbot, tmp_path, monkeypatch):
 
 
 def test_rhi_hidden_failures_drop_poisoned_canvas(qtbot, tmp_path):
-    """Persistently RHI-failed hidden canvas is dropped for recreation.
+    """Persistently RHI-failed never-presented canvas is dropped for recreation.
 
-    A canvas whose first renders fail while hidden caches the failure
-    and never presents (static cover forever). Visible failures are
-    resize storms and must NOT trigger this path.
+    A canvas whose renders fail before the first settled frame caches the
+    failure and never presents (static cover forever, across close/reopen
+    — the release path reuses the widget).
     """
     from tabs.image_gallery.models import Mode
 
@@ -1472,7 +1472,7 @@ def test_rhi_hidden_failures_drop_poisoned_canvas(qtbot, tmp_path):
 
 
 def test_rhi_visible_failures_never_recover(qtbot, tmp_path):
-    """Visible renderFailed (resize storms) must not drop the canvas."""
+    """Visible renderFailed AFTER a presented frame (resize storms) drops nothing."""
     from tabs.image_gallery.models import Mode
 
     pm = QPixmap(200, 100)
@@ -1485,6 +1485,10 @@ def test_rhi_visible_failures_never_recover(qtbot, tmp_path):
     QApplication.processEvents()
     canvas = getattr(ov, "_preview_canvas", None)
     assert canvas is not None and canvas.isVisible()
+    try:
+        canvas._frame_ok = True  # presented before: resize-storm shape.
+    except Exception:
+        pass
     for _ in range(5):
         try:
             canvas.renderFailed.emit()
@@ -1495,4 +1499,41 @@ def test_rhi_visible_failures_never_recover(qtbot, tmp_path):
     QApplication.processEvents()
     assert getattr(ov, "_preview_canvas", None) is canvas
     assert int(getattr(ov, "_ql_rhi_recoveries", 0) or 0) == 0
+    ov.hide()
+
+
+def test_rhi_visible_failures_recover_when_never_presented(qtbot, tmp_path):
+    """Visible renderFailed with NO presented frame drops the canvas (P2 live).
+
+    Live 2026-10-06: close/reopen of a QL overlay whose canvas never
+    presented stays dead — the release path reuses the widget and the old
+    hidden-only classifier ignored its (visible) failures, so recovery
+    never fired. Never-presented + threshold, any visibility → drop.
+    """
+    from tabs.image_gallery.models import Mode
+
+    pm = QPixmap(200, 100)
+    pm.fill(QColor("#3a6ea5"))
+    p = tmp_path / "u.png"
+    assert pm.save(str(p), "PNG")
+    item = GalleryItem(path=p, mtime_ns=1)
+    ov = _make_overlay(qtbot)
+    _show_series(ov, item, [item], Mode.FIDELITY)
+    QApplication.processEvents()
+    canvas = getattr(ov, "_preview_canvas", None)
+    assert canvas is not None and canvas.isVisible()
+    assert not bool(getattr(canvas, "_frame_ok", False))
+    for _ in range(3):
+        try:
+            canvas.renderFailed.emit()
+        except Exception:
+            pass
+    QApplication.processEvents()
+    qtbot.wait(700)
+    QApplication.processEvents()
+    # Overlay is visible here, so the drop repopulates immediately: the
+    # slot holds a FRESH canvas, the poisoned one is gone.
+    fresh = getattr(ov, "_preview_canvas", None)
+    assert fresh is not None and fresh is not canvas
+    assert int(getattr(ov, "_ql_rhi_recoveries", 0) or 0) == 1
     ov.hide()
