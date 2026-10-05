@@ -344,6 +344,102 @@ def _install_memo_probe(overlay, canvas) -> None:
         pass
 
 
+_RHI_HIDDEN_FAIL_THRESHOLD = 3
+_RHI_MAX_RECOVERIES = 5
+
+
+def _watch_canvas_rhi(overlay, canvas) -> None:
+    """Recover a canvas whose RHI init failed while hidden (once-ish).
+
+    A canvas whose first renders fail while hidden (e.g. first render
+    landing before show after a menu-first focus dance) caches the
+    failure and never presents — the overlay then shows the static
+    cover forever. Visible failures are resize storms (existing
+    behavior, untouched): only hidden failures count. On threshold,
+    drop the poisoned canvas (capped); the next populate recreates it
+    fresh, or immediately when the overlay is visible. Fail-open throughout.
+    """
+    try:
+        if getattr(canvas, "_ql_rhi_watched", False):
+            return
+        canvas._ql_rhi_watched = True
+    except Exception:
+        return
+    try:
+        canvas.renderFailed.connect(lambda: _on_canvas_rhi_failed(overlay, canvas))
+    except Exception:
+        pass
+
+
+def _on_canvas_rhi_failed(overlay, canvas) -> None:
+    try:
+        try:
+            hidden = not canvas.isVisible()
+        except Exception:
+            hidden = False
+        if not hidden:
+            return
+        fails = int(getattr(canvas, "_ql_hidden_fails", 0) or 0) + 1
+        try:
+            canvas._ql_hidden_fails = fails
+        except Exception:
+            pass
+        if _qlc_enabled():
+            _qlc_log("rhi hidden-fail %d/%d", fails, _RHI_HIDDEN_FAIL_THRESHOLD)
+    except Exception:
+        return
+    try:
+        recs = int(getattr(overlay, "_ql_rhi_recoveries", 0) or 0)
+    except Exception:
+        recs = 0
+    # Schedule exactly once (on the threshold crossing): later failures
+    # must not queue duplicate recoveries.
+    if fails != _RHI_HIDDEN_FAIL_THRESHOLD or recs >= _RHI_MAX_RECOVERIES:
+        return
+    try:
+        overlay._ql_rhi_recoveries = recs + 1
+    except Exception:
+        pass
+    try:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(500, lambda: _drop_poisoned_canvas(overlay, canvas))
+    except Exception:
+        pass
+
+
+def _drop_poisoned_canvas(overlay, canvas) -> None:
+    """Delete a persistently RHI-failed canvas so populate recreates it."""
+    try:
+        if getattr(overlay, "_preview_canvas", None) is not canvas:
+            return
+        if _qlc_enabled():
+            _qlc_log("rhi recovery: dropping poisoned canvas")
+        try:
+            overlay._ql_tiled_token = int(getattr(overlay, "_ql_tiled_token", 0) or 0) + 1
+        except Exception:
+            pass
+        try:
+            overlay._preview_canvas = None
+        except Exception:
+            pass
+        try:
+            canvas.deleteLater()
+        except Exception:
+            pass
+        try:
+            visible = bool(overlay.isVisible())
+        except Exception:
+            visible = False
+        if visible:
+            try:
+                overlay._populate()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _ensure_preview_canvas(overlay):
     """Create/reuse the canvas child in the preview slot; None if unavailable."""
     try:
@@ -359,6 +455,7 @@ def _ensure_preview_canvas(overlay):
         canvas = getattr(overlay, "_preview_canvas", None)
         if canvas is not None:
             _install_memo_probe(overlay, canvas)
+            _watch_canvas_rhi(overlay, canvas)
             return canvas
         try:
             from tabs.image_gallery.ui.quick_look.preview_canvas import QuickLookCanvasWidget as _Canvas
@@ -384,6 +481,7 @@ def _ensure_preview_canvas(overlay):
             # never joins the layout, so the cover<->canvas swap can never
             # split the slot between two stretched peers.
             overlay._preview_canvas = canvas
+            _watch_canvas_rhi(overlay, canvas)
             _fit_preview_slot(overlay)
         except Exception:
             pass

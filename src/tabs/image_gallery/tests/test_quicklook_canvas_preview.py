@@ -1429,3 +1429,70 @@ def test_stale_settle_schedule_skips_metrics_warm(qtbot, tmp_path, monkeypatch):
         assert dict(getattr(ov, "_metrics_row_cache", None) or {}) == cache_before
     finally:
         ov.hide()
+
+
+def test_rhi_hidden_failures_drop_poisoned_canvas(qtbot, tmp_path):
+    """Persistently RHI-failed hidden canvas is dropped for recreation.
+
+    A canvas whose first renders fail while hidden caches the failure
+    and never presents (static cover forever). Visible failures are
+    resize storms and must NOT trigger this path.
+    """
+    from tabs.image_gallery.models import Mode
+
+    pm = QPixmap(200, 100)
+    pm.fill(QColor("#3a6ea5"))
+    p = tmp_path / "v.png"
+    assert pm.save(str(p), "PNG")
+    item = GalleryItem(path=p, mtime_ns=1)
+    ov = _make_overlay(qtbot)
+    _show_series(ov, item, [item], Mode.FIDELITY)
+    QApplication.processEvents()
+    canvas = getattr(ov, "_preview_canvas", None)
+    assert canvas is not None
+    ov.hide()
+    QApplication.processEvents()
+    assert not canvas.isVisible()
+    for _ in range(3):
+        try:
+            canvas.renderFailed.emit()
+        except Exception:
+            pass
+    QApplication.processEvents()
+    qtbot.wait(700)
+    QApplication.processEvents()
+    assert getattr(ov, "_preview_canvas", None) is None
+    assert int(getattr(ov, "_ql_rhi_recoveries", 0) or 0) == 1
+    # Next show recreates a fresh canvas through the ensure path.
+    _show_series(ov, item, [item], Mode.FIDELITY)
+    QApplication.processEvents()
+    fresh = getattr(ov, "_preview_canvas", None)
+    assert fresh is not None and fresh is not canvas
+    ov.hide()
+
+
+def test_rhi_visible_failures_never_recover(qtbot, tmp_path):
+    """Visible renderFailed (resize storms) must not drop the canvas."""
+    from tabs.image_gallery.models import Mode
+
+    pm = QPixmap(200, 100)
+    pm.fill(QColor("#3a6ea5"))
+    p = tmp_path / "w.png"
+    assert pm.save(str(p), "PNG")
+    item = GalleryItem(path=p, mtime_ns=1)
+    ov = _make_overlay(qtbot)
+    _show_series(ov, item, [item], Mode.FIDELITY)
+    QApplication.processEvents()
+    canvas = getattr(ov, "_preview_canvas", None)
+    assert canvas is not None and canvas.isVisible()
+    for _ in range(5):
+        try:
+            canvas.renderFailed.emit()
+        except Exception:
+            pass
+    QApplication.processEvents()
+    qtbot.wait(700)
+    QApplication.processEvents()
+    assert getattr(ov, "_preview_canvas", None) is canvas
+    assert int(getattr(ov, "_ql_rhi_recoveries", 0) or 0) == 0
+    ov.hide()
