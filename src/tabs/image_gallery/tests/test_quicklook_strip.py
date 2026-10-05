@@ -4,8 +4,10 @@
 - ``regionClicked`` on a strip thumb switches the preview (clicked alone
   never fired: the thumb region id is ``"thumb"``, not ``"_main"``).
 - Card-style badge contract: rejected → no pill, leader → ``#N`` like every
-  ranked item (no BEST pill), ranked → ``#N`` (real pill button in a shared
-  ButtonFamily; pending shows ``…``).
+  ranked item (no BEST pill), ranked → ``#N`` (real pill button;
+  pending shows ``…``). Rank pills are plain Buttons — no shared-hover
+  ButtonFamily anywhere (dropped): pills walk to their item on click
+  with no hover sync.
 """
 
 from __future__ import annotations
@@ -184,8 +186,9 @@ def test_rejected_thumb_has_no_badge(qtbot, tmp_path):
 
 def test_leader_badge_is_rank_like_rest(qtbot, tmp_path):
     """Leader → #N like every ranked item (no BEST pill); ranked → #N as a
-    real pill button under the shared-hover family."""
-    from sli_ui_toolkit.widgets import ButtonFamily
+    real pill button. No shared-hover family anywhere (dropped): pills are
+    plain Buttons that walk to their item on click, hover stays local."""
+    from tabs.image_gallery.ui.quick_look.strip import _strip_family
 
     paths = [_real_png(tmp_path, f"s{i}.png") for i in range(3)]
     leader = GalleryItem(path=paths[0], mtime_ns=1, is_best=True)
@@ -197,16 +200,17 @@ def test_leader_badge_is_rank_like_rest(qtbot, tmp_path):
     assert _pill_text(pills[str(paths[0])]) == "#1"
     assert _pill_text(pills[str(paths[1])]) == "#3"
     assert pills[str(paths[2])] is None
-    # Thumbs + pills live in one shared-hover family, thumbs carry no paint.
-    fam = getattr(ov, "_strip_family", None)
-    assert isinstance(fam, ButtonFamily)
-    assert fam.sharedHover() is True
-    thumbs = [b for b in _strip_buttons(ov)]
-    assert {id(b) for b in fam.buttons()} == {
-        id(pills[str(paths[0])]),
-        id(pills[str(paths[1])]),
-        *[id(b) for b in thumbs],
-    }
+    # No family: the stub returns None, the overlay carries no family attr,
+    # and the toolkit has no ButtonFamily to share hover through.
+    assert _strip_family(ov) is None
+    assert getattr(ov, "_strip_family", None) is None
+    try:
+        from sli_ui_toolkit.widgets import ButtonFamily as _Fam  # noqa: F401
+
+        raise AssertionError("ButtonFamily must stay dropped from the toolkit")
+    except ImportError:
+        pass
+    # Thumbs carry no painted badge.
     for b in _strip_buttons(ov):
         assert b._badge is None
     # Opaque white fill (override layer) + 1px kind-color outline.
@@ -649,9 +653,10 @@ def test_strip_row_spans_full_width_under_mid(qtbot):
     ov.hide()
 
 
-def test_strip_hover_is_shared_both_directions(qtbot, tmp_path):
-    """Shared family hover: thumb hover lights its pill, pill hover lights
-    the thumb — no separate hover per control."""
+def test_strip_hover_stays_local_no_family(qtbot, tmp_path):
+    """No shared-hover family: thumb hover never lights its pill (or the
+    neighbor's), pill hover never lights back — each control hovers alone.
+    Pills still walk to their item on click (see test_rank_pill_click_walk)."""
     from PySide6.QtCore import QPoint
 
     from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
@@ -680,18 +685,18 @@ def test_strip_hover_is_shared_both_directions(qtbot, tmp_path):
     thumbs = {b.property("gallery_path"): b for b in _strip_buttons(ov)}
     t0, q0 = thumbs[str(p1)], pills[str(p1)]
     t1, q1 = thumbs[str(p2)], pills[str(p2)]
-    # Thumb hover reaches the pills.
+    # Thumb hover stays on the thumb — neither pill lights.
     qtbot.mouseMove(t0, QPoint(33, 10))
     QApplication.processEvents()
     assert _hovered(t0)
-    assert _hovered(q0)
-    assert _hovered(q1)
-    # Pill hover reaches back to the thumb.
+    assert not _hovered(q0)
+    assert not _hovered(q1)
+    # Pill hover stays on the pill — neither thumb lights back.
     qtbot.mouseMove(q1, QPoint(17, 8))
     QApplication.processEvents()
-    assert _hovered(t1)
-    assert _hovered(q0)
     assert _hovered(q1)
+    assert not _hovered(t1)
+    assert not _hovered(t0)
     ov.hide()
 
 
