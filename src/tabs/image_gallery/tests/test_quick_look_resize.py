@@ -633,12 +633,17 @@ def test_ring_drag_resizes_card(qtbot):
 
 
 def test_strip_uses_overlay_area_with_autohiding_h_bar(qtbot):
-    """Strip scrolls via toolkit OverlayScrollArea (thin bar, auto-hide)."""
+    """Strip scrolls via toolkit OverlayScrollArea (thin bar, auto-hide).
+
+    The strip rides the full-width bottom row (not the 296px sidebar), so
+    overflow needs a long filmstrip: 16 thumbs (~1206px) exceed the row
+    while 6 would fit without scrolling.
+    """
     from PySide6.QtWidgets import QApplication
 
     from sli_ui_toolkit.widgets import MinimalistScrollBar, OverlayScrollArea
 
-    mates = [_item(f"up{i}.png", rank=i) for i in (1, 2, 3, 4, 5, 6)]
+    mates = [_item(f"up{i}.png", rank=i) for i in range(1, 17)]
     ov = _make_overlay(qtbot)
     _show(ov, mates[0], mates)
     QApplication.processEvents()
@@ -648,7 +653,7 @@ def test_strip_uses_overlay_area_with_autohiding_h_bar(qtbot):
     assert scroll.widgetResizable() is False
     hbar = scroll.custom_h_scrollbar
     assert isinstance(hbar, MinimalistScrollBar)
-    assert hbar.maximum() > hbar.minimum()  # overflow: 6 thumbs
+    assert hbar.maximum() > hbar.minimum()  # overflow: 16 thumbs
     assert hbar.isVisible()
     # Column containment holds (the original 446-vs-329 overflow fix).
     assert ov._report_host.minimumSizeHint().width() <= scroll.viewport().width()
