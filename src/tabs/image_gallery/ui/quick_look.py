@@ -607,6 +607,15 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
             self.setFocus(Qt.FocusReason.PopupFocusReason)
         except Exception:
             pass
+        # Re-assert the modal input grab AFTER show: populate-time rebuilds
+        # must never leave the overlay disabled/transparent (a visible but
+        # hit-test-invisible veil passes every press to the gallery beneath
+        # while looking modal — clicks select behind it, X/veil go dead).
+        try:
+            self.setEnabled(True)
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        except Exception:
+            pass
         if _dbg_on:
             _t_show = _time.perf_counter()
         try:

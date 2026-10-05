@@ -759,11 +759,12 @@ def test_card_resize_smoke_preview_grows_column_stretches(qtbot, monkeypatch):
 
 
 def test_no_resize_grip_border_ring_remain(qtbot):
-    """Fixed card: no W8 corner grip, no border/ring resize drags.
+    """Resizable card: no W8 corner grip widget; border press starts a drag.
 
     The card has no ``quicklook_resize_grip`` child (and ``_resize_grip``
-    is None); a border-strip press is not consumed and never starts a
-    drag — the card keeps its laid-out size, session-only.
+    is None) — resizing rides the border strip/outer ring zones instead.
+    A border-strip press is consumed and arms ``_border_drag``; the press
+    alone moves nothing, session-only.
     """
     from PySide6.QtCore import QEvent, QPoint, Qt
 
@@ -787,9 +788,9 @@ def test_no_resize_grip_border_ring_remain(qtbot):
         QEvent.Type.MouseButtonPress, (content.width() - 4, _ly), (start.x(), start.y()),
         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
     )
-    assert handle_border_press(ov, press) is False
-    assert getattr(ov, "_border_drag", None) is None
-    assert content.geometry() == base_geom
+    assert handle_border_press(ov, press) is True
+    assert getattr(ov, "_border_drag", None) is not None
+    assert content.geometry() == base_geom  # press alone moves nothing
     ov.hide()
 
 
@@ -881,10 +882,12 @@ def test_crop_hidden_in_fidelity(qtbot):
 
 
 def test_crop_visible_in_camera(qtbot):
+    """Sharpness-crop inset removed: hidden in every mode, no decode work."""
     item = _item("cam.png", metrics={"sharpness": 150.0})
     ov = _make_overlay(qtbot)
     _show(ov, item, [item], mode=Mode.CAMERA)
-    assert ov._crop_host.isVisible() is True
+    assert ov._crop_host.isVisible() is False
+    assert ov._crop_pix.region("thumb").pixmap is None
     ov.hide()
 
 
@@ -1197,42 +1200,37 @@ def test_labels_render_at_mockup_point_sizes(qtbot):
 
 
 def test_insets_overlay_bottom_left_over_preview(qtbot):
-    """Source/crop blocks overlay the preview bottom-left (not in the flow):
+    """Source block overlays the preview bottom-left (not in the flow):
     title pill above the pixmap, host parented to the preview label and
-    absent from the preview-host layout, pinned to the bottom-left."""
+    absent from the preview-host layout, pinned to the bottom-left.
+    (The sharpness-crop inset was removed — source only.)"""
     from PySide6.QtWidgets import QWidget as _QW2
 
-    for mode, host_attr, pix_attr in (
-        ("src", "_source_inset_host", "_source_inset_pix"),
-        ("crop", "_crop_host", "_crop_pix"),
-    ):
-        if mode == "src":
-            src = _item("src.png", metrics={"width": 960, "height": 540})
-            item = _item("v.png", metrics={})
-            ov = _make_overlay(qtbot)
-            _show(ov, item, [src, item], source=src.path)
-        else:
-            item = _item("v.png", metrics={})
-            ov = _make_overlay(qtbot)
-            _show(ov, item, [item], mode=Mode.CAMERA)
-        QApplication.processEvents()
-        QApplication.processEvents()
-        try:
-            host = getattr(ov, host_attr)
-            pix = getattr(ov, pix_attr)
-            preview_host = ov._preview_host
-            assert host.parentWidget() is preview_host
-            # Not in the preview-host flow layout.
-            assert preview_host.layout().indexOf(host) == -1
-            # Bottom-left with the 12px margin.
-            from sli_ui_toolkit.managers import scaled_px as _spx
+    src = _item("src.png", metrics={"width": 960, "height": 540})
+    item = _item("v.png", metrics={})
+    ov = _make_overlay(qtbot)
+    _show(ov, item, [src, item], source=src.path)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    try:
+        host = ov._source_inset_host
+        pix = ov._source_inset_pix
+        preview_host = ov._preview_host
+        assert host.parentWidget() is preview_host
+        # Not in the preview-host flow layout.
+        assert preview_host.layout().indexOf(host) == -1
+        # Bottom-left with the 12px margin.
+        from sli_ui_toolkit.managers import scaled_px as _spx
 
-            m = _spx(12)
-            assert host.x() == m
-            assert host.y() + host.height() == preview_host.height() - m
-            assert isinstance(pix, _QW2)
-        finally:
-            ov.hide()
+        m = _spx(12)
+        assert host.x() == m
+        assert host.y() + host.height() == preview_host.height() - m
+        assert isinstance(pix, _QW2)
+        # Crop host still built (attribute lookups stay valid) but hidden.
+        assert ov._crop_host.parentWidget() is preview_host
+        assert ov._crop_host.isVisible() is False
+    finally:
+        ov.hide()
 
 
 def test_inset_thumbs_are_inert_cards(qtbot):
@@ -1715,10 +1713,10 @@ def _w9_mouse_event(kind, local, glob, button, buttons):
 
 
 def test_resize_border_hover_cursor_through_filter(qtbot):
-    """Fixed card: plain moves never show resize cursors (arrow everywhere).
+    """Resizable card: edge/corner hovers show resize cursors, interior arrow.
 
-    The overlay eventFilter still routes plate moves, but with resize
-    disabled the strip, edges and interior all keep the arrow cursor.
+    The overlay eventFilter still routes plate moves; the strip and edges
+    show directional cursors while the interior keeps the arrow.
     """
     from PySide6.QtCore import QEvent, QPoint, Qt
 
@@ -1748,24 +1746,26 @@ def test_resize_border_hover_cursor_through_filter(qtbot):
         QApplication.processEvents()
 
     _move(4, _ly)
-    assert content.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert content.cursor().shape() == Qt.CursorShape.SizeHorCursor
     _move(w // 2, 4)
-    assert content.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert content.cursor().shape() == Qt.CursorShape.SizeVerCursor
     _move(4, 4)
-    assert content.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert content.cursor().shape() == Qt.CursorShape.SizeFDiagCursor
     _move(w // 2, h // 2)
     assert content.cursor().shape() == Qt.CursorShape.ArrowCursor
     ov.hide()
 
 
 def test_resize_border_drag_clamps_and_repins(qtbot):
-    """Fixed card: border presses never start a drag (no clamps needed).
+    """Resizable card: border drags resize within session clamp + repin.
 
-    Strip, edge and corner presses are unconsumed, ``_border_drag`` stays
-    None and the geometry never moves; nav circles stay pinned to the
-    laid-out card edges.
+    Interior presses stay ignored; edge/corner drags grow the card clamped
+    to the session bounds (floor 1040×680, ceiling overlay − 32px); nav
+    circles re-pin to the resized card edges.
     """
     from PySide6.QtCore import QEvent, QPoint, Qt
+
+    from sli_ui_toolkit.managers import scaled_px
 
     src = _item("src.png", metrics={"width": 960, "height": 540})
     item = _item("v.png", metrics={})
@@ -1806,20 +1806,18 @@ def test_resize_border_drag_clamps_and_repins(qtbot):
     assert _press_move_release(w // 2, h // 2, 100, 100) is False
     assert content.geometry() == base_geom
     assert getattr(ov, "_border_drag", None) is None
-    # Former drag origins (right/left edge, corner): still unconsumed,
-    # geometry pinned. (W11: the strip point sits clear of the
-    # nav-circle band — presses inside either arrow rect walk the
-    # series instead.)
-    assert _press_move_release(w - 4, _ly, 1000, 0) is False
-    assert content.geometry() == base_geom
-    assert getattr(ov, "_border_drag", None) is None
-    w2, right2 = content.width(), content.geometry().right()
-    assert _press_move_release(4, _ly, 200, 0) is False
-    assert content.width() == w2
-    assert content.geometry().right() == right2
-    _press_move_release(4, 4, 3000, 3000)
-    assert content.geometry() == base_geom
-    # Nav stays pinned to the laid-out card edges
+    # Right-edge drag grows (clamped to overlay − 32px).
+    max_w = ov.width() - scaled_px(32)
+    assert _press_move_release(w - 4, _ly, 1000, 0) is True
+    assert getattr(ov, "_border_drag", None) is None  # release clears
+    assert content.width() == min(w + 1000, max_w) > w
+    # Corner drag grows both dims (clamped).
+    max_h = ov.height() - scaled_px(32)
+    w2, h2 = content.width(), content.height()
+    _press_move_release(w2 - 4, h2 - 4, 3000, 3000)
+    assert content.width() == max_w
+    assert content.height() == max_h
+    # Nav stays pinned to the resized card edges
     # (W10 overlay coords — centers on the card left/right edges).
     card = content.geometry()
     assert abs(ov._prev_btn.geometry().center().x() - card.x()) <= 2
@@ -1915,10 +1913,10 @@ def test_outer_ring_zones_and_cursors(qtbot):
 
 
 def test_outer_ring_hover_cursor_through_overlay(qtbot):
-    """Fixed card: plain moves over the outer ring keep the arrow cursor.
+    """Resizable card: outer-ring hovers show resize cursors, veil arrow.
 
-    No resize affordance anywhere — ring band and open veil alike show
-    the arrow (nav-arrow rects still do, covered by W11 tests)."""
+    Ring band shows directional cursors (nav-arrow rects still do their
+    own thing, covered by W11 tests); open veil keeps the arrow."""
     from PySide6.QtCore import QEvent, Qt
 
     item = _item("v.png", metrics={})
@@ -1940,22 +1938,21 @@ def test_outer_ring_hover_cursor_through_overlay(qtbot):
     # circle (arrows show the plain cursor) — hover rides the same edge
     # above the arrow band.
     _move(card.x() - 4, _ring_y_clear_of_nav(ov, card))
-    assert ov.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert ov.cursor().shape() == Qt.CursorShape.SizeHorCursor
     _move(card.x() + card.width() // 2, card.y() - 4)
-    assert ov.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert ov.cursor().shape() == Qt.CursorShape.SizeVerCursor
     _move(card.x() - 4, card.y() - 4)
-    assert ov.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert ov.cursor().shape() == Qt.CursorShape.SizeFDiagCursor
     _move(5, 5)
     assert ov.cursor().shape() == Qt.CursorShape.ArrowCursor
     ov.hide()
 
 
 def test_boundary_row_press_starts_ring_drag(qtbot):
-    """Fixed card: boundary-row presses start no drag.
+    """Boundary-row press starts a ring drag (accepted, overlay stays open).
 
-    The edge row belongs to the card: the press is swallowed as content
-    (accepted, overlay stays open), exactly like an interior press —
-    never a resize drag.
+    The edge row belongs to the ring: the press is consumed to arm the
+    drag (accepted, overlay stays open) — never a veil dismiss.
     """
     from PySide6.QtCore import QEvent, Qt
 
@@ -1971,19 +1968,22 @@ def test_boundary_row_press_starts_ring_drag(qtbot):
     )
     ov.mousePressEvent(press)
     assert press.isAccepted()
-    assert getattr(ov, "_border_drag", None) is None
+    assert getattr(ov, "_border_drag", None) is not None
     assert ov.isVisible() is True
     ov.hide()
 
 
 def test_outer_ring_drag_clamps_and_repins(qtbot):
-    """Fixed card: outer-ring presses start no drag — they dismiss.
+    """Resizable card: outer-ring presses start drags (no dismiss).
 
-    Ring-band presses fall through ``handle_ring_press`` (False, nav
-    handled separately) into the veil dismiss: no drag, geometry pinned,
-    overlay hidden. Nav stays pinned to the laid-out card edges.
+    Ring-band presses arm ``_border_drag`` via ``handle_ring_press`` (nav
+    handled separately): the overlay stays open, moves resize the card
+    clamped to the session bounds, release clears the drag. Nav stays
+    pinned to the resized card edges.
     """
     from PySide6.QtCore import QEvent, QPoint, Qt
+
+    from sli_ui_toolkit.managers import scaled_px
 
     src = _item("src.png", metrics={"width": 960, "height": 540})
     item = _item("v.png", metrics={})
@@ -1992,7 +1992,7 @@ def test_outer_ring_drag_clamps_and_repins(qtbot):
     QApplication.processEvents()
     QApplication.processEvents()
 
-    def _ring_press(lx, ly):
+    def _ring_drag(lx, ly, dx, dy):
         _show(ov, item, [src, item], source=src.path)
         QApplication.processEvents()
         geom_before = ov._content.geometry()
@@ -2002,26 +2002,49 @@ def test_outer_ring_drag_clamps_and_repins(qtbot):
         )
         ov.mousePressEvent(press)
         QApplication.processEvents()
+        move = _w10_overlay_event(
+            ov, QEvent.Type.MouseMove, (lx + dx, ly + dy),
+            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
+        )
+        ov.mouseMoveEvent(move)
+        QApplication.processEvents()
+        release = _w10_overlay_event(
+            ov, QEvent.Type.MouseButtonRelease, (lx + dx, ly + dy),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
+        )
+        try:
+            from tabs.image_gallery.ui.quick_look.resize import handle_border_release
+            handle_border_release(ov, release)
+        except Exception:
+            pass
+        QApplication.processEvents()
         return geom_before
 
     content = ov._content
-    card = content.geometry()
+    max_w = ov.width() - scaled_px(32)
+    max_h = ov.height() - scaled_px(32)
     # W11: the mid-edge ring points at card vertical center sit inside the
     # 36px nav circles — presses there walk the series (see W11 tests), so
-    # the dismiss points ride the same edges clear of the arrow band.
+    # the drag points ride the same edges clear of the arrow band.
+    # Right ring: drag arms, overlay stays open, card grows clamped.
+    card = content.geometry()
     ring_y = _ring_y_clear_of_nav(ov, card)
-    # Right ring: dismissed, geometry pinned, no drag.
-    geom_before = _ring_press(card.x() + card.width() + 4, ring_y)
+    geom_before = _ring_drag(card.x() + card.width() + 4, ring_y, 1000, 0)
     assert getattr(ov, "_border_drag", None) is None
-    assert ov.isVisible() is False
-    # Left ring: same.
-    _ring_press(card.x() - 4, ring_y)
+    assert ov.isVisible() is True
+    assert geom_before.width() < content.width() <= max_w
+    # Left ring: same from the other side.
+    card = content.geometry()
+    ring_y = _ring_y_clear_of_nav(ov, card)
+    _ring_drag(card.x() - 4, ring_y, -1000, 0)
     assert getattr(ov, "_border_drag", None) is None
-    assert ov.isVisible() is False
-    # Corner ring: same.
-    _ring_press(card.x() - 4, card.y() - 4)
+    assert ov.isVisible() is True
+    # Corner ring: both dims clamped.
+    card = content.geometry()
+    _ring_drag(card.x() - 4, card.y() - 4, -3000, -3000)
     assert getattr(ov, "_border_drag", None) is None
-    assert ov.isVisible() is False
+    assert ov.isVisible() is True
+    assert content.width() <= max_w and content.height() <= max_h
     # Absolute children re-pinned: nav on the edges.
     card = content.geometry()
     assert abs(ov._prev_btn.geometry().center().x() - card.x()) <= 2
@@ -2468,13 +2491,7 @@ def test_refresh_crop_for_guards(qtbot):
 
 
 def test_refresh_crop_for_fills_from_thumbnail(qtbot):
-    """Crop wake-up fills the inset the moment the thumbnail lands.
-
-    No full _populate: the thumbnail branch needs zero decodes (one
-    150px scale, memoized under the crop key).
-    """
-    from PySide6.QtGui import QColor, QPixmap
-
+    """Crop inset removed: refresh is a no-op, nothing ever fills."""
     from tabs.image_gallery.ui import quick_look_hooks as _qlh
 
     a = _item("a.png")
@@ -2482,22 +2499,19 @@ def test_refresh_crop_for_fills_from_thumbnail(qtbot):
     ov = _make_overlay(qtbot)
     _show(ov, a, [a, b], mode=Mode.CAMERA)
     assert ov.isVisible()
-    assert ov._crop_host.isVisible()
+    assert ov._crop_host.isVisible() is False
     ov._owner._quick_look_overlay = ov
     assert ov._crop_pix.region("thumb").pixmap is None
-    thumb = QPixmap(64, 64)
-    thumb.fill(QColor("#3a6ea5"))
-    a.thumbnail = thumb
-    assert _qlh.refresh_crop_for(ov._owner, a.path) is True
+    assert _qlh.refresh_crop_for(ov._owner, a.path) is False
     QApplication.processEvents()
-    assert ov._crop_pix.region("thumb").pixmap is not None
+    assert ov._crop_pix.region("thumb").pixmap is None
+    assert ov._crop_host.isVisible() is False
     ov.hide()
 
 
 def test_walk_drops_stale_preview_full_no_neighbor_crop(qtbot):
-    """Walk boundary drops the live stash: a failed coarse build for the
-    next item must fail the crop closed ("—"), never paint the previous
-    item's center-third as the new crop (content-identity)."""
+    """Walk boundary drops the live stash; the removed crop inset stays
+    hidden (no neighbor pixels can surface — there is no inset at all)."""
     from PySide6.QtGui import QColor, QPixmap
 
     from tabs.image_gallery.ui.quick_look.preview_canvas_host import (
@@ -2514,14 +2528,14 @@ def test_walk_drops_stale_preview_full_no_neighbor_crop(qtbot):
     ov._preview_full = stale
     release_preview_canvas_for_walk(ov)
     assert getattr(ov, "_preview_full", None) is None
-    # Walk to the cold item (no thumbnail, unreadable path): crop fails
-    # closed, never shows A's pixels.
+    # Walk to the cold item (no thumbnail, unreadable path): crop host
+    # stays hidden, inset pixmap stays empty.
     ov._current_item = b
     ov._current_idx = 1
     ov._populate()
     QApplication.processEvents()
     assert ov.isVisible()
-    assert ov._crop_host.isVisible()
+    assert ov._crop_host.isVisible() is False
     pix = getattr(ov._crop_pix.region("thumb"), "pixmap", None)
     assert pix is None or (hasattr(pix, "isNull") and pix.isNull())
     ov.hide()
@@ -2722,27 +2736,6 @@ def test_no_bold_type_anywhere(qtbot):
                 continue
             for row in rows:
                 assert getattr(row, "weight", "normal") != "bold", getattr(row, "text", "")
-    finally:
-        ov.hide()
-
-
-def test_crop_title_has_capsule_backing(qtbot):
-    """SHARPNESS CROP rides an opaque white capsule hugging the label."""
-    a = _item("a.png")
-    ov = _make_overlay(qtbot)
-    _show(ov, a, [a])
-    try:
-        pill = ov.findChild(QWidget, "quicklook_crop_title_pill")
-        assert pill is not None
-        assert ov._crop_title.parentWidget() is pill
-        assert not pill.grab().isNull()
-        assert pill._bg.name().lower() == "#ffffff"
-        assert pill._bg.alpha() == 255
-        # Hairline so the white capsule reads on the light card too.
-        assert pill._border is not None
-        assert ov._crop_title.palette().color(ov._crop_title.foregroundRole()).name().lower() == "#23262b"
-        QApplication.processEvents()
-        assert pill.width() < ov._crop_host.width()
     finally:
         ov.hide()
 

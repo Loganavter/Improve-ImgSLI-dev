@@ -465,7 +465,8 @@ def build_overlay_ui(overlay) -> None:
     chip_row.addStretch(1)
     overlay._close_btn = Button(text="✕", variant="surface", size=(28, 28), parent=overlay._content)
     overlay._close_btn.setObjectName("quicklook_close")
-    overlay._close_btn.clicked.connect(overlay.hide)
+    # Full dismiss (filters + dismissed signal), not bare hide().
+    overlay._close_btn.clicked.connect(lambda _checked=False: overlay.dismiss())
     chip_row.addWidget(overlay._close_btn)
     outer.addLayout(chip_row)
     mid = QHBoxLayout()
