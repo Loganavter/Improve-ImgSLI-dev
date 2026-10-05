@@ -166,6 +166,16 @@ class _StripLassoFilter(QObject):
                     if event.button() == Qt.MouseButton.LeftButton:
                         self._hide_band()
                         self._origin = self._to_host(watched, event.position().toPoint())
+                        try:
+                            from tabs.image_gallery.debug import gallery_debug as _dbg
+
+                            _dbg(
+                                "strip lasso press on=%s pos=%s",
+                                type(watched).__name__,
+                                self._origin,
+                            )
+                        except Exception:
+                            pass
                 except Exception:
                     self._origin = None
             elif t == QEvent.Type.MouseMove:
@@ -186,6 +196,12 @@ class _StripLassoFilter(QObject):
                                     self._band.show()
                                 except Exception:
                                     pass
+                                try:
+                                    from tabs.image_gallery.debug import gallery_debug as _dbg2
+
+                                    _dbg2("strip lasso band shown origin=%s", self._origin)
+                                except Exception:
+                                    pass
                             if self._band is not None:
                                 self._band.setGeometry(_QR(_QP(self._origin), _QP(cur)).normalized())
                     except Exception:
@@ -195,6 +211,12 @@ class _StripLassoFilter(QObject):
                     if event.button() == Qt.MouseButton.LeftButton and self._origin is not None:
                         if self._band is not None and self._band.isVisible():
                             rect = self._band.geometry().normalized()
+                            try:
+                                from tabs.image_gallery.debug import gallery_debug as _dbg3
+
+                                _dbg3("strip lasso release rect=%s", rect)
+                            except Exception:
+                                pass
                             if rect.width() >= 4 or rect.height() >= 4:
                                 try:
                                     self._overlay._strip_lasso_ate_click = True
