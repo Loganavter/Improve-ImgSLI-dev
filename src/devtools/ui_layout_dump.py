@@ -300,6 +300,24 @@ def _node(
         "visible": widget.isVisible(),
         "enabled": widget.isEnabled(),
     }
+    # Input-state for dead-overlay diagnosis (hit-test invisible overlays):
+    # transparent-for-mouse, focus, active. Only recorded when True to keep
+    # dumps small (absence == False).
+    try:
+        if widget.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
+            node["transparent_for_mouse"] = True
+    except Exception:
+        pass
+    try:
+        if widget.hasFocus():
+            node["has_focus"] = True
+    except Exception:
+        pass
+    try:
+        if widget.isActiveWindow():
+            node["is_active_window"] = True
+    except Exception:
+        pass
     text = _text_of(widget)
     if text:
         node["text"] = text
@@ -428,6 +446,27 @@ def dump_all_windows(registry: ActionRegistry) -> dict[str, Any]:
     used_families: dict[str, tuple] = {}
     nodes = [_node(w, action_map, used_families) for w in windows]
     out: dict[str, Any] = {"windows": nodes, "geometry_space": GEOMETRY_SPACE}
+    # Process-wide input state for dead-overlay diagnosis: a stuck popup
+    # grab or lost focus explains hit-test-invisible windows that look
+    # fine node-by-node.
+    try:
+        grabber = QWidget.mouseGrabber()
+        if grabber is not None:
+            out["mouse_grabber"] = f"{type(grabber).__name__}:{grabber.objectName()}"
+    except Exception:
+        pass
+    try:
+        fw = app.focusWidget() if app is not None else None
+        if fw is not None:
+            out["focus_widget"] = f"{type(fw).__name__}:{fw.objectName()}"
+    except Exception:
+        pass
+    try:
+        aw = app.activeWindow() if app is not None else None
+        if aw is not None:
+            out["active_window"] = f"{type(aw).__name__}:{aw.objectName()}"
+    except Exception:
+        pass
     theme = _resolve_theme_tokens(used_families)
     if theme:
         out["theme"] = theme
