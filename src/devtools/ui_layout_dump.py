@@ -1,4 +1,5 @@
 """Headless dump of the live widget tree — layout + geometry + bound actions.
+Audit-Meta: pattern=thin-owner-target reason="one dump concern: widget-tree snapshot + input-state for dead-overlay triage in a single pass"
 
 Complements the Find Action catalog (``ui/actions/registry.py``), which lists
 *what* the app can do but not *where* those controls sit. This walks the real

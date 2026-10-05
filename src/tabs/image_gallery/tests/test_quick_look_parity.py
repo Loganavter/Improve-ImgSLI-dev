@@ -2804,8 +2804,6 @@ def test_filename_centered_in_top_row_no_mode_chip_no_brief_divider(qtbot):
     # one line, elide only when genuinely squeezed.
     assert "1x-HurrDeblur-SuperUltraCompact.png" in ov._filename_label.text()
     ov.hide()
-<<<<<<< HEAD
-=======
 
 
 def test_overlay_hide_plants_close_cover(qtbot, tmp_path):
@@ -2842,4 +2840,3 @@ def test_overlay_hide_plants_close_cover(qtbot, tmp_path):
     except Exception:
         pix = None
     assert pix is not None and not pix.isNull(), "close cover has no frame"
->>>>>>> 1410cccc (fix(quicklook): freeze last canvas frame as close cover (no black flash))

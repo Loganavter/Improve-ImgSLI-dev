@@ -514,10 +514,6 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
         except Exception:
             pass
 
-<<<<<<< HEAD
-    def hideEvent(self, event) -> None:  # noqa: N802
-        try:
-=======
     def _grab_close_frame(self):
         """Grab the last canvas frame for the close cover (None on miss)."""
         try:
@@ -629,7 +625,6 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
 
     def hideEvent(self, event) -> None:  # noqa: N802
         try:
->>>>>>> 1410cccc (fix(quicklook): freeze last canvas frame as close cover (no black flash))
             self._release_preview_resources()
         except Exception:
             pass
@@ -748,6 +743,26 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
             self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         except Exception:
             pass
+        if _dbg_on:
+            try:
+                from PySide6.QtWidgets import QApplication as _QA2
+
+                _app2 = _QA2.instance()
+                _grab = None
+                try:
+                    from PySide6.QtWidgets import QWidget as _QW2
+
+                    _grab = _QW2.mouseGrabber()
+                except Exception:
+                    pass
+                _dbg(
+                    "quick look show input grabber=%s focus=%s active=%s",
+                    type(_grab).__name__ if _grab is not None else None,
+                    type(_app2.focusWidget()).__name__ if _app2 is not None and _app2.focusWidget() is not None else None,
+                    type(_app2.activeWindow()).__name__ if _app2 is not None and _app2.activeWindow() is not None else None,
+                )
+            except Exception:
+                pass
         if _dbg_on:
             _t_show = _time.perf_counter()
         try:
