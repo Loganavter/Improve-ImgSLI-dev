@@ -200,16 +200,11 @@ def test_leader_badge_is_rank_like_rest(qtbot, tmp_path):
     assert _pill_text(pills[str(paths[0])]) == "#1"
     assert _pill_text(pills[str(paths[1])]) == "#3"
     assert pills[str(paths[2])] is None
-    # No family: the stub returns None, the overlay carries no family attr,
-    # and the toolkit has no ButtonFamily to share hover through.
+    # No family wiring: the stub returns None and the overlay carries no
+    # family attr — pills walk to their item on click without hover sync
+    # (ButtonFamily exists in the toolkit but the strip does not use it).
     assert _strip_family(ov) is None
     assert getattr(ov, "_strip_family", None) is None
-    try:
-        from sli_ui_toolkit.widgets import ButtonFamily as _Fam  # noqa: F401
-
-        raise AssertionError("ButtonFamily must stay dropped from the toolkit")
-    except ImportError:
-        pass
     # Thumbs carry no painted badge.
     for b in _strip_buttons(ov):
         assert b._badge is None
