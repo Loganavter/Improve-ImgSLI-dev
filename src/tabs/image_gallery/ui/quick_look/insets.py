@@ -23,8 +23,7 @@ def reposition_preview_insets(overlay) -> None:
     The block is an absolute child of the preview host (overlaying the
     GPU canvas). Bottom-left with 12px margins; fixed size from sizeHint
     with constant floors — never from the live size (that ratchets upward
-    on every grow). Hidden insets are skipped (the removed sharpness-crop
-    host stays unpositioned).
+    on every grow).
     """
     try:
         from sli_ui_toolkit.managers import scaled_px
@@ -33,7 +32,7 @@ def reposition_preview_insets(overlay) -> None:
         if preview_host is None:
             return
         margin = scaled_px(12)
-        for attr in ("_source_inset_host", "_crop_host"):
+        for attr in ("_source_inset_host",):
             try:
                 inset = getattr(overlay, attr, None)
                 if inset is None:
@@ -41,8 +40,7 @@ def reposition_preview_insets(overlay) -> None:
                 try:
                     # Explicit hide only (isHidden, not isVisible):
                     # positioning must also run while an ancestor is still
-                    # hidden (pre-show repositions), just never for the
-                    # removed crop host.
+                    # hidden (pre-show repositions).
                     if inset.isHidden():
                         continue
                 except Exception:
@@ -198,74 +196,13 @@ def populate_source_inset(overlay, item, is_fidelity: bool, owner=None) -> None:
 
 
 def populate_crop(overlay, item, is_fidelity: bool = False) -> None:
-    """Sharpness-crop inset — REMOVED (always hidden, no work).
+    """Sharpness-crop inset — REMOVED, kept as a no-op for call compat.
 
-    The corner crop block is gone from the design: this now only ensures
-    ``_crop_host`` stays hidden (build-time hidden + every populate) and
-    returns without any decode/scale/cache work. Signature and re-exports
-    stay so existing ``populate_crop`` / ``refresh_crop_for`` call sites
-    keep working; ``refresh_crop_for`` no-ops on the hidden host by itself.
+    The corner crop block no longer exists (no widget, no decode work).
     """
-    try:
-        overlay._crop_host.setVisible(False)
-    except Exception:
-        pass
     return
 
 
 def refresh_crop_for(owner, item_or_path) -> bool:
-    """Refresh ONLY the sharpness-crop inset for the open item.
-
-    The crop has no async loader of its own: on a cold open its inputs
-    (``_preview_full`` / thumbnail / pyramid sample) are not ready yet,
-    so the first ``_populate`` pass fails it open while the canvas streams
-    on its own pipeline — and the inset only fills in later as a side
-    effect of analysis delivery. Call this the moment image data lands
-    (first frame, tiled store, thumbnail): ``populate_crop`` reuses the
-    already-warm sources (memo-gated, zero new decodes on hit) instead
-    of waiting seconds for the analysis round-trip.
-
-    Guards (content-identity): overlay must exist and be visible, the
-    delivered path must equal the CURRENT item (never paint a neighbor
-    after a walk), and the crop host must be shown (non-fidelity mode).
-    Returns True when a refresh was attempted.
-    """
-    try:
-        overlay = getattr(owner, "_quick_look_overlay", None)
-        if overlay is None:
-            try:
-                w = getattr(owner, "widget", None)
-                overlay = getattr(w, "_quick_look_overlay", None)
-            except Exception:
-                overlay = None
-        if overlay is None:
-            return False
-        try:
-            if not overlay.isVisible():
-                return False
-        except Exception:
-            return False
-        try:
-            target = Path(getattr(item_or_path, "path", item_or_path))
-        except Exception:
-            return False
-        try:
-            cur = getattr(overlay, "_current_item", None)
-            if cur is None or Path(getattr(cur, "path", "")) != target:
-                return False
-            item = cur
-        except Exception:
-            return False
-        try:
-            host = getattr(overlay, "_crop_host", None)
-            if host is None or not host.isVisible():
-                return False
-        except Exception:
-            return False
-        try:
-            populate_crop(overlay, item, False)
-        except Exception:
-            return False
-        return True
-    except Exception:
-        return False
+    """Sharpness-crop refresh — REMOVED, always False (kept for call compat)."""
+    return False

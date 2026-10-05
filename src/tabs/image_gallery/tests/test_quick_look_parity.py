@@ -564,11 +564,14 @@ def test_set_source_flips_report_to_fidelity(qtbot):
 
 
 def test_series_header_shows_index_and_hub(qtbot):
+    """Series text chrome removed: no header/sub widgets, note in meta."""
     src = _item("src.png")
     viewing = _item("v.png", metrics={})
     ov = _make_overlay(qtbot)
     _show(ov, viewing, [src, viewing], source=src.path)
-    assert ov._series_header.text() == "Series 1 · src"
+    assert ov.findChild(QWidget, "quicklook_series_header") is None
+    assert ov.findChild(QWidget, "quicklook_series_sub") is None
+    assert getattr(ov, "_series_header", None) is None
     ov.hide()
 
 
@@ -877,7 +880,7 @@ def test_crop_hidden_in_fidelity(qtbot):
     ov = _make_overlay(qtbot)
     _show(ov, viewing, [src, viewing], source=src.path)
     assert "Fidelity" in ov._report_title.text()
-    assert ov._crop_host.isVisible() is False
+    assert getattr(ov, "_crop_host", None) is None
     ov.hide()
 
 
@@ -886,8 +889,8 @@ def test_crop_visible_in_camera(qtbot):
     item = _item("cam.png", metrics={"sharpness": 150.0})
     ov = _make_overlay(qtbot)
     _show(ov, item, [item], mode=Mode.CAMERA)
-    assert ov._crop_host.isVisible() is False
-    assert ov._crop_pix.region("thumb").pixmap is None
+    assert getattr(ov, "_crop_host", None) is None
+    assert getattr(ov, "_crop_pix", None) is None
     ov.hide()
 
 
@@ -926,7 +929,7 @@ def test_refresh_metrics_rebuilds_without_reopen(qtbot):
     assert "upscale ×4" in ov._meta_label._original_text
     assert ov._brief_label.text().startswith("vs #2:")
     assert ov._brief_label.isVisible()
-    assert ov._crop_host.isVisible() is False
+    assert getattr(ov, "_crop_host", None) is None
     ov.hide()
 
 
@@ -1226,9 +1229,8 @@ def test_insets_overlay_bottom_left_over_preview(qtbot):
         assert host.x() == m
         assert host.y() + host.height() == preview_host.height() - m
         assert isinstance(pix, _QW2)
-        # Crop host still built (attribute lookups stay valid) but hidden.
-        assert ov._crop_host.parentWidget() is preview_host
-        assert ov._crop_host.isVisible() is False
+        # Crop host removed (no widget); source keeps its geometry pin.
+        assert getattr(ov, "_crop_host", None) is None
     finally:
         ov.hide()
 
@@ -1403,7 +1405,9 @@ def test_right_column_stretches_with_full_content(qtbot):
     assert ov._brief_label.isVisible() and ov._brief_label.text()
     # W7 LIVE-long texts (verbatim full copies, painting elides them).
     assert ov._report_sub._original_text == "vs SOURCE 2x-Futsuu-Anime(1).png · shared/analysis engine"
-    assert ov._series_sub._original_text == "4 images of one source · 1 rejected"
+    # Series text chrome removed: no counts/hub in the sidebar — the size
+    # note rides the meta line instead, rejected tallies excluded.
+    assert "rejected" not in ov._meta_label.text()
     sublines = [
         lbl._original_text
         for w in ov._metric_rows
@@ -2443,7 +2447,9 @@ def test_reject_skips_preview_repopulate(qtbot, monkeypatch):
         for row in (getattr(region, "rows", None) or [])
     ]
     assert any("Restore" in g for g in glyphs)
-    assert "1 rejected" in ov._series_sub.text()
+    # Series text chrome removed: the rejected tally no longer surfaces
+    # in the sidebar (flag-only refresh still repaints the button).
+    assert "rejected" not in ov._meta_label.text()
     ov.hide()
 
 
@@ -2465,7 +2471,8 @@ def test_quick_reject_hook_skips_show_for(qtbot, monkeypatch):
     assert shown == []
     assert a.rejected is True
     assert ov.isVisible()
-    assert "1 rejected" in ov._series_sub.text()
+    # Series text chrome removed: no rejected tally in the sidebar.
+    assert "rejected" not in ov._meta_label.text()
     ov.hide()
 
 
@@ -2499,13 +2506,11 @@ def test_refresh_crop_for_fills_from_thumbnail(qtbot):
     ov = _make_overlay(qtbot)
     _show(ov, a, [a, b], mode=Mode.CAMERA)
     assert ov.isVisible()
-    assert ov._crop_host.isVisible() is False
+    assert getattr(ov, "_crop_host", None) is None
     ov._owner._quick_look_overlay = ov
-    assert ov._crop_pix.region("thumb").pixmap is None
     assert _qlh.refresh_crop_for(ov._owner, a.path) is False
     QApplication.processEvents()
-    assert ov._crop_pix.region("thumb").pixmap is None
-    assert ov._crop_host.isVisible() is False
+    assert getattr(ov, "_crop_host", None) is None
     ov.hide()
 
 
@@ -2535,9 +2540,7 @@ def test_walk_drops_stale_preview_full_no_neighbor_crop(qtbot):
     ov._populate()
     QApplication.processEvents()
     assert ov.isVisible()
-    assert ov._crop_host.isVisible() is False
-    pix = getattr(ov._crop_pix.region("thumb"), "pixmap", None)
-    assert pix is None or (hasattr(pix, "isNull") and pix.isNull())
+    assert getattr(ov, "_crop_host", None) is None
     ov.hide()
 
 
@@ -2755,8 +2758,10 @@ def test_filename_centered_in_top_row_no_mode_chip_no_brief_divider(qtbot):
     assert ov.findChild(QWidget, "quicklook_div_brief") is None
     assert "HurrDeblur" in ov._filename_label._original_text
     assert ov._filename_label.alignment() & Qt.AlignmentFlag.AlignHCenter
-    assert ov._meta_label.alignment() & Qt.AlignmentFlag.AlignHCenter
-    # Centered group: balance spacer, stretch, name, meta, stretch, close.
+    # Meta line moved to the sidebar top row (dims · format · size); the
+    # top row keeps name + close only.
+    assert ov._meta_label.parentWidget() is not ov._content
+    # Centered group: balance spacer, stretch, name, stretch, close.
     outer = ov._content.layout()
     assert outer is not None
     lay = outer.itemAt(0).layout()
@@ -2764,9 +2769,8 @@ def test_filename_centered_in_top_row_no_mode_chip_no_brief_divider(qtbot):
     assert lay.itemAt(0).spacerItem() is not None
     assert lay.itemAt(1).spacerItem() is not None
     assert lay.itemAt(2).widget() is ov._filename_label
-    assert lay.itemAt(3).widget() is ov._meta_label
-    assert lay.itemAt(4).spacerItem() is not None
-    assert lay.itemAt(5).widget() is ov._close_btn
+    assert lay.itemAt(3).spacerItem() is not None
+    assert lay.itemAt(4).widget() is ov._close_btn
     # Full name reads (not collapsed to "114…"): natural widths center as
     # one line, elide only when genuinely squeezed.
     assert "1x-HurrDeblur-SuperUltraCompact.png" in ov._filename_label.text()
