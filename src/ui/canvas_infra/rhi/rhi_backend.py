@@ -655,24 +655,31 @@ def configure_rhi_widget(widget: QRhiWidget, *, watch_failures: bool = True) -> 
 
 
 class _RhiSurfacePrimer(QRhiWidget):
-    """One-shot top-level promotion primer (1x1, invisible in practice).
+    """Persistent top-level RHI anchor (1x1, invisible in practice).
 
     `initialize()` runs exactly once, on the first successful RHI setup --
     i.e. exactly when the top-level backingstore promotion this primer
-    exists to force has happened. Self-destructs there, so the primer never
-    outlives startup. If RHI setup never succeeds (offscreen/software), it
+    exists to force has happened. It then HIDES but stays alive: the
+    promotion must OUTLIVE startup. Live evidence
+    (`inv-2026-10-06-ql-rhi-menu-first`, H6): a primer that self-destructed
+    after minting left the window without a live `QRhiWidget`; a native
+    popup mapping afterwards locked in the raster state, and every fresh
+    `QRhiWidget` mint then failed (`makeCurrent on non-GL surface` /
+    `Failed to create QRhi for QBackingStoreRhiSupport`). QL-first and
+    IC-first sessions survive because a live canvas already anchors the
+    window. If RHI setup never succeeds (offscreen/software), the primer
     lingers inertly -- the same footprint as the old hidden primer.
-    `deleteLater()` is thread-safe (posts to the GUI loop) although
-    `initialize()` runs on the render thread.
+    `hide()` is thread-safe (posts to the GUI loop) although `initialize()`
+    runs on the render thread.
     """
 
     def initialize(self, command_buffer) -> None:  # noqa: N802
         try:
-            logger.debug("rhi primer: first RHI setup done, self-destructing")
+            logger.debug("rhi primer: first RHI setup done, keeping anchor")
         except Exception:
             pass
         try:
-            self.deleteLater()
+            self.hide()
         except Exception:
             pass
 
