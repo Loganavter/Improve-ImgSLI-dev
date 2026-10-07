@@ -322,9 +322,20 @@ def populate_analysis(overlay, item) -> None:
     (the card row keeps its first-3 summary). Old cache entries without
     scores fall back to the plain description. PENDING shows a running
     line; ERROR shows the error and keeps the Analyze trigger for retry;
-    NOT_ANALYZED shows the header + trigger only. Never raises.
+    NOT_ANALYZED shows the header + trigger only. A disk-cached analysis
+    is hydrated first (via the owner hook), so the block shows it the
+    moment the overlay opens instead of waiting for an Analyze click.
+    Never raises.
     """
     try:
+        try:
+            if getattr(item, "analysis", None) is None:
+                owner = getattr(overlay, "_owner", None)
+                hydrate = getattr(owner, "hydrate_cached_analysis", None)
+                if callable(hydrate):
+                    hydrate(item)
+        except Exception:
+            pass
         try:
             _st = getattr(item, "analysis_status", None)
             status_val = str(getattr(_st, "value", _st) or "")
