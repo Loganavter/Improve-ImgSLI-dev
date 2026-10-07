@@ -305,48 +305,40 @@ def test_camera_noise_and_wb_rows_present_when_metrics_exist(qtbot):
         for row in ov._metric_rows
         for lbl in row.findChildren(_QlLabel)
     ]
-    assert "Noise" in texts
-    assert any("warm" in t for t in texts)
+    # Positive wording + canonical quality %: Noise→Clean, WB→White balance.
+    assert "Clean" in texts
+    assert "White balance" in texts
+    assert any(t == "80%" for t in texts)  # Clean: noise 0.20 → 80%
     ov.hide()
 
 
-def test_clipping_warn_threshold_is_five_percent(qtbot):
-    """Clipping <5% (ordinary lamps/speculars) keeps the ok bar, not warn.
+def test_clipping_reported_as_positive_quality(qtbot):
+    """Clipping shows as Highlight-detail quality: 0% loss → 100% quality.
 
-    Regression: warn fired above 2%, flagging stage lights at 2.6%.
-    Note: the warn/ok split colors the BAR fill; the value text is always
-    ok-green. Relative assertion (no theme hexes): the 2.6% fill matches
-    the ok Sharpness fill; the 6.0% fill does not.
+    Regression target: the old report showed raw clipped-pixel % and an
+    ad-hoc bar; the canonical score is direction-normalized (higher=better).
     """
-    from tabs.image_gallery.ui.quick_look.bars import _BarWidget
-
-    def _fills(item):
+    def _clipping_text(item):
         ov = _make_overlay(qtbot)
         _show(ov, item, [item], mode=Mode.CAMERA)
         try:
-            out = {}
             for row in ov._metric_rows:
-                titles = [lbl.text() for lbl in row.findChildren(_QlLabel)]
-                bars = row.findChildren(_BarWidget)
-                if not bars:
-                    continue
-                fill = getattr(bars[0], "_explicit_fill", None)
-                for title in ("Sharpness (Laplacian var)", "Clipping %"):
-                    if title in titles:
-                        out[title] = fill.name().lower() if fill is not None else None
-            return out
+                labels = row.findChildren(_QlLabel)
+                if any(lbl.text() == "Highlight detail" for lbl in labels):
+                    return next(lbl.text() for lbl in labels if lbl.text().endswith("%"))
         finally:
             ov.hide()
+        return None
 
-    low = _fills(
+    low = _clipping_text(
         _item("low.png", metrics={"sharpness": 150.0, "exposure": 0.5, "clipping": 2.6})
     )
-    high = _fills(
+    high = _clipping_text(
         _item("high.png", metrics={"sharpness": 150.0, "exposure": 0.5, "clipping": 6.0})
     )
-    assert low["Clipping %"] is not None and high["Clipping %"] is not None
-    assert low["Clipping %"] == low["Sharpness (Laplacian var)"]
-    assert high["Clipping %"] != high["Sharpness (Laplacian var)"]
+    assert low == "74%"  # 1 - 2.6/10 → 74%
+    assert high == "40%"  # 1 - 6.0/10 → 40%
+    assert low != high
 
 
 def test_noise_value_color_matches_bar_severity(qtbot):
@@ -363,7 +355,7 @@ def test_noise_value_color_matches_bar_severity(qtbot):
             for row in ov._metric_rows:
                 labels = row.findChildren(_QlLabel)
                 titles = [lbl.text() for lbl in labels]
-                if "Noise" not in titles:
+                if "Clean" not in titles:
                     continue
                 bars = row.findChildren(_BarWidget)
                 value = next(
@@ -378,6 +370,8 @@ def test_noise_value_color_matches_bar_severity(qtbot):
         finally:
             ov.hide()
 
+    # Clean 46% (mid band) vs Clean 80% (good band): value and bar agree,
+    # and the two bands differ.
     warn = _row_colors(_item("n1.png", metrics={"sharpness": 150.0, "noise": 0.54}))
     assert warn["value"] is not None and warn["value"] == warn["bar"]
     ok = _row_colors(_item("n2.png", metrics={"sharpness": 150.0, "noise": 0.2}))
@@ -924,7 +918,7 @@ def test_refresh_metrics_rebuilds_without_reopen(qtbot):
         for row in ov._metric_rows
         for lbl in row.findChildren(_QlLabel)
     ]
-    assert any("0.94" in t for t in after)
+    assert any("94%" in t for t in after)  # Source match 0.94 → 94%
     assert not any("not measured" in t for t in after)
     assert "upscale ×4" in ov._meta_label._original_text
     assert ov._brief_label.text().startswith("vs #2:")
