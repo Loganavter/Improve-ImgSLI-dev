@@ -280,9 +280,24 @@ def populate_brief(overlay, item) -> None:
         else:
             overlay._brief_label.setText("")
             overlay._brief_label.setVisible(False)
+        # The section divider belongs to the brief block: an empty brief
+        # with a dangling rule reads as two dividers in a row next to the
+        # analysis divider below.
+        try:
+            div = getattr(overlay, "_div_series", None)
+            if div is not None:
+                div.setVisible(bool(brief))
+        except Exception:
+            pass
     except Exception:
         try:
             overlay._brief_label.setVisible(False)
+        except Exception:
+            pass
+        try:
+            div = getattr(overlay, "_div_series", None)
+            if div is not None:
+                div.setVisible(False)
         except Exception:
             pass
 
@@ -363,6 +378,7 @@ def populate_analysis(overlay, item) -> None:
                 reason = str(getattr(analysis, "verdict_reason", "") or "")
             except Exception:
                 scores, verdict, reason = "", "unknown", ""
+            show_btn = True
             if scores:
                 desc_text = scores
                 if verdict in ("keep", "reject"):
@@ -399,6 +415,24 @@ def populate_analysis(overlay, item) -> None:
             btn = getattr(overlay, "_analysis_btn", None)
             if btn is not None:
                 btn.setVisible(bool(show_btn))
+                # DONE keeps the trigger as Re-analyze (forced re-run);
+                # everything else offers the first Analyze.
+                want = "Re-analyze" if status_val == "done" else "Analyze"
+                try:
+                    mode = getattr(overlay, "_analysis_btn_mode", None)
+                except Exception:
+                    mode = None
+                if mode != want:
+                    try:
+                        from tabs.image_gallery.ui.quick_look.labels_theme import _set_colored_text
+
+                        _set_colored_text(btn, want, None)
+                    except Exception:
+                        pass
+                    try:
+                        overlay._analysis_btn_mode = want
+                    except Exception:
+                        pass
         except Exception:
             pass
         try:
