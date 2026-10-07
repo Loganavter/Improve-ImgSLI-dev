@@ -2836,19 +2836,26 @@ def test_overlay_hide_plants_close_cover(qtbot, tmp_path):
     assert pix is not None and not pix.isNull(), "close cover has no frame"
 
 
-def test_quicklook_analysis_block_shows_full_description_and_all_tags(qtbot):
-    """The sidebar owns the model output: full description + every tag.
+def test_quicklook_analysis_block_shows_verdict_defects_not_scene(qtbot):
+    """The sidebar reports quality: verdict + defects, never scene/tags.
 
-    The card keeps its first-3 summary row; the QL block must carry all
-    of them (the tooltip is not a display surface).
+    Scene description and content tags are identical across variants of the
+    same picture, so the block must ignore them even when a legacy cache
+    entry carries them.
     """
-    from tabs.image_gallery.models import AiAnalysisResult, AnalysisStatus
+    from tabs.image_gallery.models import AiAnalysisResult, AiDefect, AnalysisStatus
 
-    tags = ("cat", "sofa", "window-light", "portrait", "indoor")
     a = _item(
         "a.png",
         analysis=AiAnalysisResult(
-            description="A cat on a sofa", tags=tags, model="m", analyzed_at_iso="t"
+            description="A cat on a sofa",
+            tags=("cat", "sofa", "portrait"),
+            model="m",
+            analyzed_at_iso="t",
+            verdict="reject",
+            verdict_reason="Visible halo on edges.",
+            defects=(AiDefect("halo", "flagged", "strong edge glow"),),
+            confidence=0.8,
         ),
         analysis_status=AnalysisStatus.DONE,
     )
@@ -2857,23 +2864,27 @@ def test_quicklook_analysis_block_shows_full_description_and_all_tags(qtbot):
     _show(ov, a, [a, b])
     assert ov._analysis_title.isVisibleTo(ov)
     assert ov._analysis_desc.isVisibleTo(ov)
-    assert ov._analysis_desc.text() == "A cat on a sofa"
-    assert ov._analysis_tags.isVisibleTo(ov)
-    for t in tags:
-        assert t in ov._analysis_tags.text()
+    text = ov._analysis_desc.text()
+    assert "REJECT" in text and "1 defect" in text
+    assert "confidence 80%" in text
+    assert "Visible halo on edges." in text
+    # Scene content never appears.
+    assert "A cat on a sofa" not in text
+    assert "cat" not in text
+    assert "halo" in ov._analysis_tags.text().lower()
     assert ov._analysis_btn.isVisibleTo(ov)
     ov.hide()
 
 
-def test_quicklook_analysis_block_shows_scores_and_verdict(qtbot):
-    """Scored analyses render axes + verdict, not the caption."""
+def test_quicklook_analysis_block_shows_composition_and_confidence(qtbot):
+    """Verdict/composition/confidence render; measured axes are not repeated."""
     from tabs.image_gallery.models import AiAnalysisResult, AnalysisStatus
 
     a = _item(
         "a.png",
         analysis=AiAnalysisResult(
-            description="A cat.",
-            tags=("cat", "sofa"),
+            description="",
+            tags=(),
             model="m",
             analyzed_at_iso="t",
             sharpness=85,
@@ -2882,6 +2893,7 @@ def test_quicklook_analysis_block_shows_scores_and_verdict(qtbot):
             composition=80,
             verdict="keep",
             verdict_reason="Clean and sharp.",
+            confidence=0.9,
         ),
         analysis_status=AnalysisStatus.DONE,
     )
@@ -2889,12 +2901,12 @@ def test_quicklook_analysis_block_shows_scores_and_verdict(qtbot):
     ov = _make_overlay(qtbot)
     _show(ov, a, [a, b])
     text = ov._analysis_desc.text()
-    assert "Quality 83" in text
     # Sharpness/Noise/Exposure are NOT repeated here: the metric rows above
     # already report them with real measured values.
     assert "Sharpness" not in text and "Noise" not in text and "Exposure" not in text
-    assert "Composition 80" in text
+    assert "Composition 80%" in text
     assert "KEEP" in text
+    assert "confidence 90%" in text
     assert "Clean and sharp." in text
     assert ov._analysis_btn.isVisibleTo(ov)
     ov.hide()
@@ -2996,7 +3008,7 @@ def test_quicklook_analysis_hydrates_cache_on_open(qtbot, tmp_path, monkeypatch)
     QApplication.processEvents()
     assert hydrated == [item.path]
     assert item.analysis_status == AnalysisStatus.DONE
-    assert "Quality 83" in ov._analysis_desc.text()
+    assert "KEEP" in ov._analysis_desc.text()
     ov.hide()
 
 
