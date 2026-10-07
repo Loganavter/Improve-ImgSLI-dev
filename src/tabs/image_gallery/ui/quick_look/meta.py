@@ -303,28 +303,28 @@ def populate_brief(overlay, item) -> None:
 
 
 def _analysis_scores_line(analysis) -> str:
-    """One-line axis scores + mean, or '' when nothing is scored."""
+    """Summary line: mean Quality + only the AI-only axis (Composition).
+
+    The metric rows above already report sharpness/noise/exposure with
+    real measured values — repeating the AI's parallel 0-100 estimates of
+    the same axes (different scale, different method) was pure noise. The
+    mean stays because it drives ``Sort: AI quality``; Composition stays
+    because no local detector measures it. Empty when nothing is scored.
+    """
     try:
         from tabs.image_gallery.models import ai_quality_score
 
-        axes = []
-        for label, key in (
-            ("Sharpness", "sharpness"),
-            ("Noise", "noise"),
-            ("Exposure", "exposure"),
-            ("Composition", "composition"),
-        ):
-            try:
-                v = int(getattr(analysis, key, -1))
-            except Exception:
-                v = -1
-            if v >= 0:
-                axes.append(f"{label} {v}")
-        if not axes:
-            return ""
+        parts = []
         mean = ai_quality_score(analysis)
-        head = f"Quality {int(round(mean))}" if mean is not None else "Quality"
-        return head + " · " + " · ".join(axes)
+        if mean is not None:
+            parts.append(f"Quality {int(round(mean))}")
+        try:
+            comp = int(getattr(analysis, "composition", -1))
+        except Exception:
+            comp = -1
+        if comp >= 0:
+            parts.append(f"Composition {comp}")
+        return " · ".join(parts)
     except Exception:
         return ""
 
@@ -333,9 +333,11 @@ def populate_analysis(overlay, item) -> None:
     """Fill the sidebar AI-analysis block (scores + verdict + ALL tags).
 
     The model output lives here, not in the card tooltip: DONE shows the
-    axis scores, the keep/reject verdict with its reason, and every tag
-    (the card row keeps its first-3 summary). Old cache entries without
-    scores fall back to the plain description. PENDING shows a running
+    mean AI quality + the AI-only Composition axis, the keep/reject
+    verdict with its reason, and every tag (the card row keeps its
+    first-3 summary). Sharpness/noise/exposure are deliberately NOT
+    repeated — the metric rows above already carry the measured values.
+    Old cache entries without scores fall back to the plain description. PENDING shows a running
     line; ERROR shows the error and keeps the Analyze trigger for retry;
     NOT_ANALYZED shows the header + trigger only. A disk-cached analysis
     is hydrated first (via the owner hook), so the block shows it the
