@@ -464,11 +464,12 @@ def _strip_open_menu_for(overlay, watched, view_pos) -> bool:
 def _strip_apply_lasso_selection(overlay, rect) -> None:
     """Select strip items whose containers intersect *rect* (viewport coords).
 
-    Container geometries map into the same viewport space (valid downward
-    mapping). Series order is preserved (container order == series order).
-    Writes the owner selection (``set_selection`` wholesale when available,
-    else direct ``state`` writes — same fallback idiom as the triage UI)
-    and refreshes thumb checked visuals.
+    Quick Look keeps its OWN selection: the picked set lives on the overlay
+    (``_strip_selected_paths``) and is never written back to the owner, so a
+    strip lasso highlights strip thumbs only and leaves the main grid
+    untouched. Container geometries map into the same viewport space (valid
+    downward mapping). Series order is preserved (container order == series
+    order). Refreshes the thumb selection visuals.
     """
     try:
         containers = list(getattr(overlay, "_strip_buttons", None) or [])
@@ -522,31 +523,9 @@ def _strip_apply_lasso_selection(overlay, rect) -> None:
         overlay._strip_selected_paths = set(picked)
     except Exception:
         pass
-    owner = getattr(overlay, "_owner", None)
-    try:
-        setter = getattr(owner, "set_selection", None)
-        if callable(setter):
-            try:
-                setter(list(picked))
-            except Exception:
-                pass
-    except Exception:
-        pass
-    try:
-        st = getattr(owner, "state", None)
-        if st is not None:
-            if hasattr(st, "selected_paths"):
-                try:
-                    st.selected_paths = set(picked)
-                except Exception:
-                    pass
-            if hasattr(st, "selected_order"):
-                try:
-                    st.selected_order = list(picked)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    # Quick Look owns this selection: deliberately NOT written back to the
+    # owner (main-grid) state. A strip lasso highlights strip thumbs only —
+    # the cards in the tab behind the overlay stay untouched.
     try:
         _strip_refresh_selection(overlay)
     except Exception:
@@ -940,6 +919,12 @@ def _refresh_strip_selection(overlay) -> None:
             except Exception:
                 _p = ""
             try:
+                # Local selection marker read by the overlay painter (the
+                # region CHECKED background hides behind the cover pixmap).
+                btn.setProperty("strip_selected", _p in _sel)
+            except Exception:
+                pass
+            try:
                 btn.setChecked(bool(is_viewing) or _p in _sel)
             except Exception:
                 pass
@@ -1005,52 +990,30 @@ def _refresh_strip_selection(overlay) -> None:
                 pass
 
 
-def _strip_seed_selection_from_owner(overlay) -> None:
-    """Mirror the grid selection into the strip's picked set.
-
-    Cards selected in the gallery grid (owner ``state.selected_paths``)
-    must read as selected on the QL strip thumbs — otherwise the strip
-    shows an unselected row on top of selected cards (inverted UX). The
-    owner is the source of truth: replace (not union), restricted to
-    series members. Owners without a ``selected_paths`` state (bare
-    test doubles) leave the overlay set untouched.
-    """
-    try:
-        owner = getattr(overlay, "_owner", None)
-        st = getattr(owner, "state", None)
-        if st is None or not hasattr(st, "selected_paths"):
-            return
-        try:
-            names = set(str(p) for p in (getattr(st, "selected_paths", None) or set()))
-        except Exception:
-            return
-        try:
-            members = set(
-                str(getattr(m, "path", "") or "")
-                for m in (getattr(overlay, "_series_items", None) or [])
-            )
-        except Exception:
-            members = set()
-        try:
-            overlay._strip_selected_paths = {p for p in names if not members or p in members}
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-
 def rebuild_strip(overlay) -> None:
     # W6: svg pitch is 76px (thumbs x=816/892/968/1044, 66 wide) — the
     # HBox spacing is pinned here so 4 thumbs span 4*66+3*10=294px and
     # fit the 296px right column with no h-scroll. (The layout itself is
     # built in helpers.py, out of W6 scope; its spacing is overridden.)
+    # Quick Look selection is local to the overlay: keep it across walks but
+    # drop picks that left the series (a new series must not inherit stale
+    # ones). Never seeded from the owner — the grid and the strip no longer
+    # share selection.
+    try:
+        _members = {
+            str(getattr(m, "path", "") or "")
+            for m in (getattr(overlay, "_series_items", None) or [])
+        }
+        overlay._strip_selected_paths = {
+            p
+            for p in (getattr(overlay, "_strip_selected_paths", None) or set())
+            if p in _members
+        }
+    except Exception:
+        pass
     # Selection-only fast path: same series/triage/theme/scale as the last
     # full rebuild → update checked/border/opacity in place, no widget
     # churn. Any mismatch (or first build) falls through to today's rebuild.
-    try:
-        _strip_seed_selection_from_owner(overlay)
-    except Exception:
-        pass
     try:
         _fp_now = _strip_fingerprint(overlay)
     except Exception:
@@ -1186,22 +1149,33 @@ def rebuild_strip(overlay) -> None:
             btn.setProperty("gallery_path", str(getattr(m, "path", "")))
         except Exception:
             pass
+        # Quick Look selection is local to the overlay; carry it as a dynamic
+        # property so the widget-scoped overlay painter can mark the thumb
+        # (the region CHECKED background sits behind the cover pixmap and is
+        # barely visible over a photo).
+        try:
+            _sel = set(getattr(overlay, "_strip_selected_paths", None) or set())
+        except Exception:
+            _sel = set()
+        try:
+            _p = str(getattr(m, "path", "") or "")
+        except Exception:
+            _p = ""
+        try:
+            btn.setProperty("strip_selected", _p in _sel)
+        except Exception:
+            pass
         try:
             if is_viewing:
                 btn.setChecked(True)
-            else:
+            elif _p in _sel:
+                # Region-level: setChecked is a no-op without toggle.
                 try:
-                    _sel = set(getattr(overlay, "_strip_selected_paths", None) or set())
-                except Exception:
-                    _sel = set()
-                if str(getattr(m, "path", "") or "") in _sel:
-                    # Region-level: setChecked is a no-op without toggle.
-                    try:
-                        from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState as _BS
+                    from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState as _BS
 
-                        btn._controller.set_state("thumb", _BS.CHECKED, True)
-                    except Exception:
-                        pass
+                    btn._controller.set_state("thumb", _BS.CHECKED, True)
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
