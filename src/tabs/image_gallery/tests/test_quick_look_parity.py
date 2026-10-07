@@ -2896,7 +2896,10 @@ def test_quicklook_analysis_block_shows_scores_and_verdict(qtbot):
     _show(ov, a, [a, b])
     text = ov._analysis_desc.text()
     assert "Quality 83" in text
-    assert "Sharpness 85" in text and "Noise 90" in text
+    # Sharpness/Noise/Exposure are NOT repeated here: the metric rows above
+    # already report them with real measured values.
+    assert "Sharpness" not in text and "Noise" not in text and "Exposure" not in text
+    assert "Composition 80" in text
     assert "KEEP" in text
     assert "Clean and sharp." in text
     assert ov._analysis_btn.isVisibleTo(ov)
