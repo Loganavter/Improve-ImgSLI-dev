@@ -754,14 +754,14 @@
     },
     {
       "path": "src/tabs/image_gallery/services/artifacts.py",
-      "lines": 633,
+      "lines": 682,
       "limit": 500,
       "marker": "Audit-Meta:",
-      "raw": "pattern=tiled-pipeline size=670 reason=\"7 pure detectors sharing PIL/numpy helpers — single catalog lifecycle\"",
+      "raw": "pattern=tiled-pipeline size=679 reason=\"7 pure detectors sharing PIL/numpy helpers + source-anchor delta — single catalog lifecycle\"",
       "parsed": {
         "pattern": "tiled-pipeline",
-        "size": "670",
-        "reason": "7 pure detectors sharing PIL/numpy helpers — single catalog lifecycle"
+        "size": "679",
+        "reason": "7 pure detectors sharing PIL/numpy helpers + source-anchor delta — single catalog lifecycle"
       }
     },
     {
