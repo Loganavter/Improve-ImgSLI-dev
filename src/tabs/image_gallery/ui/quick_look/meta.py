@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tabs.image_gallery.ui.quick_look.analysis_tags import axis_flag_chips, defect_chips
 from tabs.image_gallery.ui.quick_look.headers import series_size_note
 from tabs.image_gallery.ui.quick_look.preview import _fast_image_size, _source_dimensions
 
@@ -315,25 +316,6 @@ def populate_brief(overlay, item) -> None:
             pass
 
 
-def _defect_chips(defects) -> str:
-    """Compact defect chips: 'kind (severity)' joined by ' · '.
-
-    The free-text per-defect note is deliberately NOT shown — the model
-    only repeated the measured metrics with it; the chip is the signal.
-    """
-    out = []
-    try:
-        for d in defects or ():
-            kind = str(getattr(d, "kind", "") or "").replace("_", " ").strip()
-            if not kind:
-                continue
-            sev = str(getattr(d, "severity", "") or "").strip()
-            out.append(f"{kind} ({sev})" if sev else kind)
-    except Exception:
-        return ""
-    return " · ".join(out)
-
-
 def populate_analysis(overlay, item) -> None:
     """Fill the sidebar AI-analysis block (quality verdict + defects).
 
@@ -384,7 +366,7 @@ def populate_analysis(overlay, item) -> None:
                 legacy_desc = str(getattr(analysis, "description", "") or "")
             except Exception:
                 verdict, reason, defects, legacy_desc = "unknown", "", [], ""
-            defects_text = _defect_chips(defects)
+            defects_text = defect_chips(defects)
             # No summary line: verdict is a colored badge in the header, the
             # body is the practical conclusion, the chips are the defects.
             # Numbers (Composition) live in the metric rows, not here.
@@ -407,6 +389,14 @@ def populate_analysis(overlay, item) -> None:
             else:
                 # Legacy caption-only cache entry: show the description.
                 desc_text = legacy_desc
+            try:
+                flags_text = axis_flag_chips(
+                    getattr(analysis, "axis_flags", ()) or (), defects
+                )
+            except Exception:
+                flags_text = ""
+            if flags_text:
+                tags_text = " · ".join(x for x in (tags_text, flags_text) if x)
         elif status_val == "pending":
             desc_text = "Analyzing…"
         elif status_val == "error":
