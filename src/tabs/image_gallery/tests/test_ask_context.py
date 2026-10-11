@@ -16,6 +16,7 @@ from tabs.image_gallery.services.ask_context import (
     ASK_SERIES,
     AskScope,
     build_ask_context,
+    deanonymize_answer,
 )
 from tabs.image_gallery.services.metric_scores import measured_scores
 
@@ -115,3 +116,31 @@ def test_source_and_mode_are_reported():
 
     assert ctx["mode"] == "camera"
     assert ctx["source"] == "/g/source.png"
+
+
+def test_items_are_anonymized_with_alias_and_name_map():
+    """The model sees opaque img_N labels, never descriptive filenames."""
+    a = GalleryItem(path=Path("/g/Archivist Soft.png"), mtime_ns=1)
+    b = GalleryItem(path=Path("/g/Archivist Rough.png"), mtime_ns=2)
+    ctrl = _fake_controller([a, b], selected=[a.path, b.path], selected_order=[a.path, b.path])
+
+    ctx = build_ask_context(AskScope(kind=ASK_SELECTION), controller=ctrl)
+
+    aliases = [it["alias"] for it in ctx["items"]]
+    assert aliases == ["img_1", "img_2"]
+    # Real names are still carried for the app, but only under `name`.
+    assert ctx["items"][0]["name"] == "Archivist Soft.png"
+    assert ctx["names"] == {"img_1": "Archivist Soft.png", "img_2": "Archivist Rough.png"}
+
+
+def test_deanonymize_maps_aliases_back_and_handles_longest_first():
+    names = {"img_1": "soft.png", "img_10": "rough.png"}
+    text = "img_10 is softer than img_1, but IMG_1 has more detail."
+    out = deanonymize_answer(text, names)
+    assert "rough.png is softer than soft.png" in out
+    assert "soft.png has more detail" in out
+    assert "img_" not in out
+
+
+def test_deanonymize_noop_without_map():
+    assert deanonymize_answer("img_1 is fine", None) == "img_1 is fine"

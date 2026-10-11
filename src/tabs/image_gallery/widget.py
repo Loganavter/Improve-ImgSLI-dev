@@ -904,21 +904,60 @@ class ImageGalleryWidget(QWidget):
     def open_ask_ai(self, anchor, scope, *, default_prompt: str = "Summary") -> None:
         """Show the Ask AI flyout; submit routes to ``controller.ask_ai_question``."""
         flyout = self._ensure_ask_ai_flyout()
-        # One live scope per open: drop any previous submit binding.
-        try:
-            flyout.submitted.disconnect()
-        except Exception:
-            pass
-        flyout.submitted.connect(
-            lambda question, _s=scope: self._submit_ask_ai(_s, question)
-        )
+        # One live scope per open: drop the previous submit binding (disconnect
+        # the exact slot; a bare disconnect() warns when nothing is bound).
+        bound = getattr(self, "_ask_ai_submit_slot", None)
+        if bound is not None:
+            try:
+                flyout.submitted.disconnect(bound)
+            except Exception:
+                pass
+        slot = lambda question, _s=scope: self._submit_ask_ai(_s, question)  # noqa: E731
+        self._ask_ai_submit_slot = slot
+        flyout.submitted.connect(slot)
         try:
             label = getattr(scope, "label", "") or ""
         except Exception:
             label = ""
         self._ask_ai_anchor = anchor or self
         self._ask_ai_scope = scope
+        self._ask_ai_scope_key = self._ask_scope_key(scope)
         flyout.open_for(self._ask_ai_anchor, scope_label=label, default_prompt=default_prompt)
+        # Preserve the last answer across hide/reopen: when the same scope is
+        # asked again, show the previous result instead of an empty pane.
+        if getattr(self, "_ask_ai_last_key", None) == getattr(
+            self, "_ask_ai_scope_key", None
+        ):
+            last_result = getattr(self, "_ask_ai_last_result", None)
+            last_error = getattr(self, "_ask_ai_last_error", None)
+            if last_result is not None:
+                try:
+                    flyout.show_result(
+                        getattr(last_result, "text", "") or "",
+                        backend=getattr(last_result, "backend", "") or "",
+                        cached=bool(getattr(last_result, "cached", False)),
+                    )
+                except Exception:
+                    pass
+            elif last_error:
+                try:
+                    flyout.show_error(last_error)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _ask_scope_key(scope):
+        """Stable identity for one ask scope (used to restore the last answer)."""
+        try:
+            paths = tuple(sorted(str(p) for p in (getattr(scope, "paths", ()) or ())))
+            return (
+                str(getattr(scope, "kind", "")),
+                paths,
+                str(getattr(scope, "series_id", "") or ""),
+                str(getattr(scope, "label", "") or ""),
+            )
+        except Exception:
+            return None
 
     def _submit_ask_ai(self, scope, question: str) -> None:
         owner = self._owner_for_triage()
@@ -943,6 +982,9 @@ class ImageGalleryWidget(QWidget):
                 backend=getattr(result, "backend", "") or "",
                 cached=bool(getattr(result, "cached", False)),
             )
+            self._ask_ai_last_key = getattr(self, "_ask_ai_scope_key", None)
+            self._ask_ai_last_result = result
+            self._ask_ai_last_error = None
             self._resume_ask_ai_if_hidden(flyout)
         except Exception:
             pass
@@ -952,6 +994,9 @@ class ImageGalleryWidget(QWidget):
             flyout = self._ensure_ask_ai_flyout()
             flyout.set_busy(False)
             flyout.show_error(message)
+            self._ask_ai_last_key = getattr(self, "_ask_ai_scope_key", None)
+            self._ask_ai_last_result = None
+            self._ask_ai_last_error = message
             self._resume_ask_ai_if_hidden(flyout)
         except Exception:
             pass

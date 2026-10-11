@@ -28,12 +28,14 @@ _CTX = {
     "items": [
         {
             "name": "a.png",
+            "alias": "img_1",
             "path": "/g/a.png",
             "metrics": {"sharpness": 50},
             "severities": {"banding": "mild"},
             "badge": "★",
         }
     ],
+    "names": {"img_1": "a.png"},
 }
 
 
@@ -57,6 +59,14 @@ def test_text_payload_has_no_image_bytes():
     content = payload["messages"][0]["content"]
     assert all(part["type"] == "text" for part in content)
     assert "image_url" not in repr(payload)
+
+
+def test_text_payload_uses_opaque_alias_not_filename():
+    payload = build_text_payload("Summary", _CTX, model="m")
+    text = payload["messages"][0]["content"][0]["text"]
+    assert "img_1" in text
+    assert "a.png" not in text
+    assert "label" in text.lower()
 
 
 def test_vision_payload_embeds_downscaled_image(monkeypatch):

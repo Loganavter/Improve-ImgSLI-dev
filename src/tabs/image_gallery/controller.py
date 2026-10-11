@@ -1736,7 +1736,10 @@ class GalleryController:
         dropped by the folder generation guard. Fail-open: a backend error is
         shown visibly, never replaced by fabricated text.
         """
-        from tabs.image_gallery.services.ask_context import build_ask_context
+        from tabs.image_gallery.services.ask_context import (
+            build_ask_context,
+            deanonymize_answer,
+        )
         from tabs.image_gallery.services.ask_router import answer, route_backend
 
         logger.debug(
@@ -1784,15 +1787,31 @@ class GalleryController:
             "[ask-ai] worker start backend=%s model=%s", backend, settings.model
         )
         self._show_ask_ai_busy()
-        worker = GenericWorker(
-            self._tracked(answer),
-            question,
-            context,
-            backend=backend,
-            base_url=settings.base_url,
-            api_key=settings.api_key,
-            model=settings.model,
-        )
+        # The model only ever sees opaque img_N labels (see ask_context); map
+        # them back to the real filenames on the way out, off the UI thread.
+        names = context.get("names")
+
+        def _run():
+            result = answer(
+                question,
+                context,
+                backend=backend,
+                base_url=settings.base_url,
+                api_key=settings.api_key,
+                model=settings.model,
+            )
+            if not getattr(result, "error", None) and names:
+                try:
+                    from dataclasses import replace as _replace
+
+                    result = _replace(
+                        result, text=deanonymize_answer(result.text, names)
+                    )
+                except Exception:
+                    pass
+            return result
+
+        worker = GenericWorker(self._tracked(_run))
         gen = self._folder_gen
         worker.signals.result.connect(
             lambda result, k=key, g=gen: self._on_ask_ai_ready(result, k, g)

@@ -69,6 +69,12 @@ _ROUTING_HINTS = (
 #: Vision payload budget: never upload the whole folder.
 VLM_MAX_IMAGES = 6
 
+_NAMING_RULE = (
+    " Images are identified ONLY by the given labels (img_1, img_2, …). Use "
+    "those labels verbatim; never infer, translate or guess a filename — the "
+    "label carries no meaning about the image."
+)
+
 _TEXT_PROMPT = (
     "You answer questions about a gallery of image-processing variants "
     "(upscalers, restorations) of the SAME picture. You are given the locally "
@@ -76,6 +82,7 @@ _TEXT_PROMPT = (
     "severities; treat them as authoritative and do not contradict them. "
     "Answer in 1-4 plain sentences. Do not restate the raw metric table; give "
     "the practical read a human should act on. Never invent measurements."
+    + _NAMING_RULE
 )
 
 _VISION_PROMPT = (
@@ -85,6 +92,7 @@ _VISION_PROMPT = (
     "Judge only what you can actually SEE; if you cannot see it, say so. "
     "Answer in 1-4 plain sentences. Label any visual claim as an unverified AI "
     "read, never a verdict."
+    + _NAMING_RULE
 )
 
 
@@ -132,7 +140,7 @@ def _context_block(context: dict) -> str:
             sev = it.get("severities") or {}
             met_txt = ", ".join(f"{k}={v}%" for k, v in metrics.items())
             sev_txt = ", ".join(f"{k}:{v}" for k, v in sev.items())
-            line = f"- {it.get('name', '')}"
+            line = f"- {it.get('alias') or it.get('name', '')}"
             badge = it.get("badge")
             if badge:
                 line += f" [{badge}]"

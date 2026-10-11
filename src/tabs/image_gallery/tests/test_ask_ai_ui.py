@@ -49,7 +49,8 @@ def test_flyout_tab_accepts_default_and_enter_submits(qtbot):
     flyout.hide()
 
 
-def test_flyout_submit_button_emits(qtbot):
+def test_flyout_enter_keypress_event_submits(qtbot):
+    """Enter is handled by the flyout itself (no Ask button)."""
     anchor = QWidget()
     qtbot.addWidget(anchor)
     anchor.resize(200, 100)
@@ -63,9 +64,12 @@ def test_flyout_submit_button_emits(qtbot):
     flyout.open_for(anchor, default_prompt="Summary")
     qtbot.waitUntil(lambda: flyout.isVisible(), timeout=5000)
 
-    flyout._edit.setText("from button")
-    flyout._submit.click()
-    assert got == ["from button"]
+    flyout._edit.setText("via enter")
+    event = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier
+    )
+    flyout.keyPressEvent(event)
+    assert got == ["via enter"]
     flyout.hide()
 
 
@@ -87,6 +91,84 @@ def test_flyout_result_is_marked_ai_read(qtbot):
 
     flyout.show_error("Configure the AI API key in Settings first.")
     assert "Configure" in flyout._status.text()
+    flyout.hide()
+
+
+def test_long_result_wraps_and_grows_flyout(qtbot):
+    """A long answer must wrap and grow the flyout, not clip/overlap the status."""
+    anchor = QWidget()
+    qtbot.addWidget(anchor)
+    anchor.resize(300, 200)
+    anchor.show()
+    qtbot.waitExposed(anchor)
+
+    flyout = AskAiFlyout(anchor)
+    qtbot.addWidget(flyout)
+    flyout.open_for(anchor, scope_label="Series 1", default_prompt="Summary")
+    qtbot.waitUntil(lambda: flyout.isVisible(), timeout=5000)
+    h0 = flyout.height()
+
+    long = ("All Archivist variants are nearly identical; aggressive "
+            "sharpening degraded detail, compression ~1.06%. ") * 4
+    flyout.show_result(long, backend="text")
+    qtbot.waitUntil(lambda: flyout.height() > h0, timeout=3000)
+
+    assert flyout._result.text().startswith("All Archivist")
+    assert flyout._result.height() > flyout._result.fontMetrics().height()
+    assert "AI read" in flyout._status.text()
+    # The status line sits below the wrapped result, never on top of it.
+    assert flyout._result.geometry().bottom() <= flyout._status.geometry().top()
+    flyout.hide()
+
+
+def test_emit_submit_deselects_and_clears_focus(qtbot):
+    anchor = QWidget()
+    qtbot.addWidget(anchor)
+    anchor.resize(200, 100)
+    anchor.show()
+    qtbot.waitExposed(anchor)
+
+    flyout = AskAiFlyout(anchor)
+    qtbot.addWidget(flyout)
+    got: list[str] = []
+    flyout.submitted.connect(got.append)
+    flyout.open_for(anchor, default_prompt="Summary")
+    qtbot.waitUntil(lambda: flyout.isVisible(), timeout=5000)
+
+    flyout._edit.setText("question")
+    flyout._edit.setFocus()
+    qtbot.waitUntil(lambda: flyout._edit.hasFocus(), timeout=2000)
+    flyout._edit.selectAll()
+    flyout._emit_submit()
+
+    assert got == ["question"]
+    assert flyout._edit.selectedText() == ""
+    assert not flyout._edit.hasFocus()
+    flyout.hide()
+
+
+def test_answer_persists_across_hide_and_reopen(qtbot):
+    from tabs.image_gallery.services.ask_context import AskScope
+    from tabs.image_gallery.services.ask_router import AskResult
+    from tabs.image_gallery.widget import ImageGalleryWidget
+
+    widget = ImageGalleryWidget()
+    qtbot.addWidget(widget)
+    widget.resize(600, 400)
+    widget.show()
+    qtbot.waitExposed(widget)
+    anchor = QWidget()
+    qtbot.addWidget(anchor)
+
+    scope = AskScope(kind="selection", paths=(Path("/g/a.png"),), label="Sel")
+    widget.open_ask_ai(anchor, scope)
+    widget.show_ask_ai_result(AskResult(text="kept answer", backend="text"))
+    flyout = widget._ensure_ask_ai_flyout()
+    assert "kept answer" in flyout._result.text()
+
+    flyout.hide()
+    widget.open_ask_ai(anchor, scope)
+    assert "kept answer" in flyout._result.text()
     flyout.hide()
 
 

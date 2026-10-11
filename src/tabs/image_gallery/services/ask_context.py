@@ -13,6 +13,7 @@ fields only. See ``plan-gallery-ask-ai`` (Payload schema frozen for the epic).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,8 +114,13 @@ def _resolve_items(scope: AskScope, controller) -> tuple[list, str]:
     return items, label
 
 
-def _item_context(item) -> dict:
-    """One item's structured context (measured scores + severities + badge)."""
+def _item_context(item, alias: str) -> dict:
+    """One item's structured context (measured scores + severities + badge).
+
+    ``name`` is the real filename (kept for the app); ``alias`` is the opaque
+    label the model is asked to use, so a descriptive filename ("...soft...")
+    cannot bias it into a conclusion the metrics contradict.
+    """
     raw_metrics = getattr(item, "metrics", None)
     if not isinstance(raw_metrics, dict):
         raw_metrics = {}
@@ -129,11 +135,36 @@ def _item_context(item) -> dict:
         name = str(getattr(item, "path", ""))
     return {
         "name": name,
+        "alias": alias,
         "path": str(getattr(item, "path", "")),
         "metrics": scores,
         "severities": severities,
         "badge": str(getattr(item, "badge", "") or ""),
     }
+
+
+def deanonymize_answer(text: str, names: dict | None) -> str:
+    """Replace alias tokens (``img_1``, …) with their real item names.
+
+    Alias→real substitution runs longest-alias-first so ``img_1`` never eats
+    ``img_10``, and is case-insensitive (models often recapitalize).
+    """
+    if not text or not names:
+        return text
+    out = str(text)
+    try:
+        pairs = sorted(
+            ((str(a), str(b)) for a, b in dict(names).items() if a and b),
+            key=lambda kv: -len(kv[0]),
+        )
+    except Exception:
+        return out
+    for alias, real in pairs:
+        try:
+            out = re.sub(re.escape(alias), real, out, flags=re.IGNORECASE)
+        except Exception:
+            continue
+    return out
 
 
 def build_ask_context(scope: AskScope, *, controller) -> dict:
@@ -150,7 +181,13 @@ def build_ask_context(scope: AskScope, *, controller) -> dict:
         scope = AskScope()
     kind = scope.kind if scope.kind in (ASK_SERIES, ASK_SELECTION) else ASK_SELECTION
     items, label = _resolve_items(scope, controller)
-    ctx_items = [_item_context(it) for it in items]
+    ctx_items = []
+    names: dict[str, str] = {}
+    for index, item in enumerate(items):
+        alias = f"img_{index + 1}"
+        entry = _item_context(item, alias)
+        names[alias] = entry["name"]
+        ctx_items.append(entry)
 
     state = _state(controller)
     try:
@@ -171,7 +208,15 @@ def build_ask_context(scope: AskScope, *, controller) -> dict:
         "mode": mode,
         "source": source_str,
         "items": ctx_items,
+        # alias → real filename; the app uses this to de-anonymize answers.
+        "names": names,
     }
 
 
-__all__ = ["ASK_SELECTION", "ASK_SERIES", "AskScope", "build_ask_context"]
+__all__ = [
+    "ASK_SELECTION",
+    "ASK_SERIES",
+    "AskScope",
+    "build_ask_context",
+    "deanonymize_answer",
+]

@@ -13,7 +13,7 @@ from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.managers import scaled_px
-from sli_ui_toolkit.widgets import BaseFlyout, Button, CustomLineEdit, Label
+from sli_ui_toolkit.widgets import BaseFlyout, CustomLineEdit, Label
 
 
 class AskAiFlyout(BaseFlyout):
@@ -43,20 +43,6 @@ class AskAiFlyout(BaseFlyout):
             pass
         self._edit.returnPressed.connect(self._emit_submit)
         self._edit.installEventFilter(self)
-        self._hint = Label(
-            "Enter — ask · Tab — accept the default", pixel_size=10, parent=self
-        )
-        # Explicit affordance: Enter also sends, but a visible button avoids
-        # the "typed, nothing happened" dead end.
-        self._submit = Button(
-            text="Ask",
-            size=(scaled_px(72), scaled_px(26)),
-            parent=self,
-        )
-        try:
-            self._submit.clicked.connect(self._emit_submit)
-        except Exception:
-            pass
         self._result = Label("", pixel_size=12, word_wrap=True, parent=self)
         self._result.setMinimumWidth(scaled_px(300))
         try:
@@ -69,8 +55,6 @@ class AskAiFlyout(BaseFlyout):
             self._title,
             self._scope,
             self._edit,
-            self._hint,
-            self._submit,
             self._result,
             self._status,
         ):
@@ -92,11 +76,44 @@ class AskAiFlyout(BaseFlyout):
         return super().eventFilter(obj, event)
 
     def _emit_submit(self) -> None:
+        # Guard against a double submit when both the field's returnPressed
+        # and this flyout's keyPressEvent see the same Return.
+        import time
+
+        now = time.monotonic()
+        if now - getattr(self, "_last_submit_at", 0.0) < 0.4:
+            return
+        self._last_submit_at = now
         try:
             question = self._edit.text().strip() or self._default_prompt
         except Exception:
             question = self._default_prompt
+        # Enter must send-and-release: drop any selection left by the Tab
+        # prefill and take focus off the field (the field otherwise keeps a
+        # highlighted selection on screen).
+        try:
+            self._edit.deselect()
+        except Exception:
+            pass
+        try:
+            self._edit.clearFocus()
+        except Exception:
+            pass
         self.submitted.emit(question)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        # The flyout's own key handler is the reliable Enter path: the toolkit
+        # nav section delivers Return/Enter here when the focused field yields
+        # it (the field's returnPressed is not always reached in the live
+        # window). Return always sends.
+        try:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._emit_submit()
+                event.accept()
+                return
+        except Exception:
+            pass
+        super().keyPressEvent(event)
 
     def open_for(
         self,
@@ -136,16 +153,37 @@ class AskAiFlyout(BaseFlyout):
 
     # -- state (called by the controller) -----------------------------------
 
+    def _relayout(self) -> None:
+        """Re-run the surface layout after the wrapped result text changed.
+
+        A wrapped ``Label`` only reports its tall height once the parent
+        width is fixed; without this the result overflows its row and
+        overlaps the status line. ``reposition()`` is the toolkit's sanctioned
+        re-size path (a raw ``adjustSize()`` collapses the surface because the
+        container is briefly hidden for the fade).
+        """
+        try:
+            self._result.updateGeometry()
+            self._status.updateGeometry()
+            if self.isVisible():
+                # Do not yank focus back to the field if the user is already
+                # typing a follow-up when the previous answer lands.
+                prev = getattr(self, "_skip_focus_grab", False)
+                self._skip_focus_grab = True
+                try:
+                    self.reposition()
+                finally:
+                    self._skip_focus_grab = prev
+        except Exception:
+            pass
+
     def set_busy(self, busy: bool) -> None:
         try:
             self._edit.setReadOnly(bool(busy))
         except Exception:
             pass
-        try:
-            self._submit.setEnabled(not busy)
-        except Exception:
-            pass
         self._status.setText("Thinking…" if busy else "")
+        self._relayout()
 
     def reshow(self, anchor: QWidget) -> None:
         """Re-show in place WITHOUT resetting the question/result pane.
@@ -162,10 +200,11 @@ class AskAiFlyout(BaseFlyout):
                 flyout_point="top-left",
                 offset=scaled_px(8),
                 animation="none",
+                grab_focus=False,
             )
         except Exception:
             try:
-                self.show_aligned(anchor)
+                self.show_aligned(anchor, grab_focus=False)
             except Exception:
                 pass
 
@@ -177,10 +216,12 @@ class AskAiFlyout(BaseFlyout):
             badge += " · cached"
         self._result.setText(str(text or ""))
         self._status.setText(badge)
+        self._relayout()
 
     def show_error(self, message: str) -> None:
         self._result.setText("")
         self._status.setText(str(message or "AI could not answer."))
+        self._relayout()
 
     def restore_focus_on_hide(self) -> bool:
         return False

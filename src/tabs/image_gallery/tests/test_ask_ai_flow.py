@@ -153,6 +153,18 @@ def test_ask_runs_worker_and_shows_result(monkeypatch, tmp_path, qapp):
     assert widget.busy == 1
 
 
+def test_answer_aliases_are_mapped_back_to_filenames(monkeypatch, tmp_path, qapp):
+    ctrl, widget = _make(monkeypatch)
+    _install_transport(monkeypatch, "img_1 looks softer.")
+    it = _item(tmp_path, "Archivist Soft.png")
+    ctrl.state.items = [it]
+    ctrl.state.selected_paths = {it.path}
+
+    ctrl.ask_ai_question(_scope(it), "Summary")
+
+    assert widget.results[-1].text == "Archivist Soft.png looks softer."
+
+
 def test_second_identical_ask_is_served_from_cache(monkeypatch, tmp_path, qapp):
     ctrl, widget = _make(monkeypatch)
     record = []
