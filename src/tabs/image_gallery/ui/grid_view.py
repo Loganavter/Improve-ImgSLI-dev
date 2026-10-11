@@ -1768,7 +1768,7 @@ class GalleryGridView(QWidget):
             try:
                 btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 btn.customContextMenuRequested.connect(
-                    lambda _pos, i=index, b=btn: self._handle_series_context(b, i)
+                    lambda _pos, i=index, b=btn: self._handle_series_context(b, i, _pos)
                 )
             except Exception:
                 pass
@@ -2331,7 +2331,7 @@ class GalleryGridView(QWidget):
             try:
                 btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 btn.customContextMenuRequested.connect(
-                    lambda _pos, i=index, b=btn: self._handle_series_context(b, i)
+                    lambda _pos, i=index, b=btn: self._handle_series_context(b, i, _pos)
                 )
             except Exception:
                 pass
@@ -2886,8 +2886,14 @@ class GalleryGridView(QWidget):
             except Exception:
                 pass
 
-    def _handle_series_context(self, anchor, index) -> None:
-        """Series-header right-click → host callback (index, anchor, paths, label)."""
+    def _handle_series_context(self, anchor, index, local_pos=None) -> None:
+        """Series-header right-click → host callback.
+
+        Host gets ``(index, anchor, paths, label, series_id, global_pos)``:
+        ``series_id`` is the session-stable ``series_<n>`` of the cluster's
+        members (``None`` when unknown), ``global_pos`` the popup anchor in
+        screen coordinates.
+        """
         if not callable(self._on_series_context_menu):
             return
         try:
@@ -2895,11 +2901,19 @@ class GalleryGridView(QWidget):
         except Exception:
             members = []
         paths = []
+        series_id = None
         for it in members:
             try:
                 paths.append(it.path)
             except Exception:
                 continue
+            if series_id is None:
+                try:
+                    sid = getattr(it, "series_id", None)
+                except Exception:
+                    sid = None
+                if sid:
+                    series_id = str(sid)
         # Pass the series NAME only (the hub), not the full header chrome
         # ("SERIES 1 · … · N VARIANTS") — that repeated the grid header in
         # the flyout.
@@ -2910,8 +2924,23 @@ class GalleryGridView(QWidget):
             label = str(hub or self._series_header_labels.get(idx, "") or "")
         except Exception:
             label = ""
+        global_pos = None
         try:
-            self._on_series_context_menu(int(index), anchor, tuple(paths), label)
+            if local_pos is not None:
+                global_pos = anchor.mapToGlobal(local_pos)
+        except Exception:
+            global_pos = None
+        if global_pos is None:
+            try:
+                from PySide6.QtGui import QCursor
+
+                global_pos = QCursor.pos()
+            except Exception:
+                global_pos = None
+        try:
+            self._on_series_context_menu(
+                int(index), anchor, tuple(paths), label, series_id, global_pos
+            )
         except Exception:
             pass
 
