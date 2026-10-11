@@ -1358,13 +1358,18 @@ class GalleryGridView(QWidget):
             pass
         return None
 
-    def rebuild_grid(self, items: list[GalleryItem], mode: object = None, *, paint_selection: bool = True) -> None:
+    def rebuild_grid(self, items: list[GalleryItem], mode: object = None, *, paint_selection: bool = True, flat_ungrouped: bool = True) -> None:
         """Clear and rebuild the 4-column grid from *items* (pool-reusing Buttons).
 
         ``mode`` controls per-dot artifact palette; proxied to ``build_gallery_card``.
         ``paint_selection=False`` skips the closing selection sweep — the
         widget passes it when a series restore follows in the same tick and
         sweeps once itself (else every rebuild pays two full sweeps).
+        ``flat_ungrouped=True`` wraps a header-less flat pool in a single
+        ``UNGROUPED`` section on the SAME pass, so the first images never
+        paint nameless while the triage worker is pending. Callers that
+        restore a live series in the same tick pass ``False`` to skip the
+        extra reflow.
         """
         if mode is not None:
             self._mode = mode
@@ -1417,6 +1422,7 @@ class GalleryGridView(QWidget):
         if len(items) > self._REBUILD_CHUNK * 2:
             self._rebuild_pending = list(items)
             self._rebuild_index = 0
+            self._rebuild_flat_ungrouped = bool(flat_ungrouped)
             self._update_host_height(len(items))  # reserve height early so scrollbar correct
             from PySide6.QtCore import QTimer
 
@@ -1444,6 +1450,30 @@ class GalleryGridView(QWidget):
         except Exception:
             logger.debug("rebuild_grid: layout activate failed", exc_info=True)
         self._schedule_visible_range_emit()
+        if flat_ungrouped:
+            self._promote_flat_ungrouped()
+
+    def _promote_flat_ungrouped(self) -> None:
+        """Wrap a header-less flat pool in a single ``UNGROUPED`` section.
+
+        A flat rebuild must not paint nameless cards while the triage worker
+        is pending: every item belongs under ``UNGROUPED`` from the first
+        frame. No-op when a series view is already live (``_series`` is not
+        ``None``) or the pool is empty. Reuses the already-built cards —
+        ``set_series`` routes through ``_rebuild_series``, which recycles and
+        reflows them in place.
+        """
+        if getattr(self, "_series", None) is not None:
+            return
+        try:
+            if not list(getattr(self, "_items", None) or []):
+                return
+        except Exception:
+            return
+        try:
+            self.set_series([], hub_names=[], collapsed={})
+        except Exception:
+            logger.debug("rebuild_grid: flat→UNGROUPED promotion failed", exc_info=True)
 
     def _rebuild_next_chunk(self) -> None:
         pending = getattr(self, "_rebuild_pending", None)
@@ -1468,6 +1498,11 @@ class GalleryGridView(QWidget):
             self._rebuild_pending = None
             self._rebuild_index = 0
             self.apply_selection(self._selection)
+            # Chunked fill finished — now wrap the flat pool in UNGROUPED
+            # (deferred so the chunks stay responsive; the header lands the
+            # moment the pool is complete).
+            if getattr(self, "_rebuild_flat_ungrouped", True):
+                self._promote_flat_ungrouped()
             # Same synchronous commit as the non-chunked path: the last
             # chunk must not leave the tail rows unlaid-out for a frame.
             try:

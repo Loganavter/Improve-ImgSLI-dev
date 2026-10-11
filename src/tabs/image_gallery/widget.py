@@ -1759,7 +1759,11 @@ class ImageGalleryWidget(QWidget):
             pass
         try:
             try:
-                self._grid_view.rebuild_grid(items, paint_selection=saved_series is None)
+                self._grid_view.rebuild_grid(
+                    items,
+                    paint_selection=saved_series is None,
+                    flat_ungrouped=saved_series is None,
+                )
             except TypeError:
                 # Legacy doubles predate the paint_selection kwarg.
                 self._grid_view.rebuild_grid(items)
