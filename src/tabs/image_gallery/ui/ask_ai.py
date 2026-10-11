@@ -13,7 +13,7 @@ from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.managers import scaled_px
-from sli_ui_toolkit.widgets import BaseFlyout, CustomLineEdit, Label
+from sli_ui_toolkit.widgets import BaseFlyout, Button, CustomLineEdit, Label
 
 
 class AskAiFlyout(BaseFlyout):
@@ -43,6 +43,20 @@ class AskAiFlyout(BaseFlyout):
             pass
         self._edit.returnPressed.connect(self._emit_submit)
         self._edit.installEventFilter(self)
+        self._hint = Label(
+            "Enter — ask · Tab — accept the default", pixel_size=10, parent=self
+        )
+        # Explicit affordance: Enter also sends, but a visible button avoids
+        # the "typed, nothing happened" dead end.
+        self._submit = Button(
+            text="Ask",
+            size=(scaled_px(72), scaled_px(26)),
+            parent=self,
+        )
+        try:
+            self._submit.clicked.connect(self._emit_submit)
+        except Exception:
+            pass
         self._result = Label("", pixel_size=12, word_wrap=True, parent=self)
         self._result.setMinimumWidth(scaled_px(300))
         try:
@@ -51,7 +65,15 @@ class AskAiFlyout(BaseFlyout):
             pass
         self._status = Label("", pixel_size=11, parent=self)
 
-        for widget in (self._title, self._scope, self._edit, self._result, self._status):
+        for widget in (
+            self._title,
+            self._scope,
+            self._edit,
+            self._hint,
+            self._submit,
+            self._result,
+            self._status,
+        ):
             self.content_layout.addWidget(widget)
 
     # -- interaction --------------------------------------------------------
@@ -119,7 +141,33 @@ class AskAiFlyout(BaseFlyout):
             self._edit.setReadOnly(bool(busy))
         except Exception:
             pass
+        try:
+            self._submit.setEnabled(not busy)
+        except Exception:
+            pass
         self._status.setText("Thinking…" if busy else "")
+
+    def reshow(self, anchor: QWidget) -> None:
+        """Re-show in place WITHOUT resetting the question/result pane.
+
+        Used when a late answer arrives after the user dismissed the flyout —
+        the answer must not vanish silently.
+        """
+        if anchor is None:
+            return
+        try:
+            self.show_aligned(
+                anchor,
+                anchor_point="bottom-left",
+                flyout_point="top-left",
+                offset=scaled_px(8),
+                animation="none",
+            )
+        except Exception:
+            try:
+                self.show_aligned(anchor)
+            except Exception:
+                pass
 
     def show_result(self, text: str, *, backend: str = "", cached: bool = False) -> None:
         badge = "AI read, unverified"

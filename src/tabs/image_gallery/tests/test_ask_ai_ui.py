@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
 from tabs.image_gallery.ui.ask_ai import AskAiFlyout
@@ -32,16 +32,40 @@ def test_flyout_tab_accepts_default_and_enter_submits(qtbot):
     flyout.open_for(anchor, scope_label="Series 1", default_prompt="Summary")
     qtbot.waitUntil(lambda: flyout.isVisible(), timeout=5000)
 
-    # Empty field: Tab accepts the grayed default prompt.
+    # Empty field: Tab accepts the grayed default prompt (our eventFilter).
     assert flyout._edit.text() == ""
-    QTest.keyClick(flyout._edit, Qt.Key.Key_Tab)
+    tab = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
+    assert flyout.eventFilter(flyout._edit, tab) is True
     assert flyout._edit.text() == "Summary"
 
-    # Enter sends whatever is in the field.
+    # returnPressed sends whatever is in the field (the toolkit edit emits
+    # this on Enter; the real key event is exercised live, not here — a
+    # synthetic QTest Tab/Return leaves a deferred toolkit action that leaks
+    # past teardown into a later theme test).
     flyout._edit.setText("custom question")
-    QTest.keyClick(flyout._edit, Qt.Key.Key_Return)
+    flyout._edit.returnPressed.emit()
     assert got == ["custom question"]
 
+    flyout.hide()
+
+
+def test_flyout_submit_button_emits(qtbot):
+    anchor = QWidget()
+    qtbot.addWidget(anchor)
+    anchor.resize(200, 100)
+    anchor.show()
+    qtbot.waitExposed(anchor)
+
+    flyout = AskAiFlyout(anchor)
+    qtbot.addWidget(flyout)
+    got: list[str] = []
+    flyout.submitted.connect(got.append)
+    flyout.open_for(anchor, default_prompt="Summary")
+    qtbot.waitUntil(lambda: flyout.isVisible(), timeout=5000)
+
+    flyout._edit.setText("from button")
+    flyout._submit.click()
+    assert got == ["from button"]
     flyout.hide()
 
 

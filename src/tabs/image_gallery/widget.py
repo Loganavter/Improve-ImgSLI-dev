@@ -916,7 +916,9 @@ class ImageGalleryWidget(QWidget):
             label = getattr(scope, "label", "") or ""
         except Exception:
             label = ""
-        flyout.open_for(anchor or self, scope_label=label, default_prompt=default_prompt)
+        self._ask_ai_anchor = anchor or self
+        self._ask_ai_scope = scope
+        flyout.open_for(self._ask_ai_anchor, scope_label=label, default_prompt=default_prompt)
 
     def _submit_ask_ai(self, scope, question: str) -> None:
         owner = self._owner_for_triage()
@@ -941,6 +943,7 @@ class ImageGalleryWidget(QWidget):
                 backend=getattr(result, "backend", "") or "",
                 cached=bool(getattr(result, "cached", False)),
             )
+            self._resume_ask_ai_if_hidden(flyout)
         except Exception:
             pass
 
@@ -949,6 +952,18 @@ class ImageGalleryWidget(QWidget):
             flyout = self._ensure_ask_ai_flyout()
             flyout.set_busy(False)
             flyout.show_error(message)
+            self._resume_ask_ai_if_hidden(flyout)
+        except Exception:
+            pass
+
+    def _resume_ask_ai_if_hidden(self, flyout) -> None:
+        """A late answer must not vanish: re-show the flyout if it was dismissed."""
+        try:
+            if flyout.isVisible():
+                return
+            anchor = getattr(self, "_ask_ai_anchor", None)
+            if anchor is not None:
+                flyout.reshow(anchor)
         except Exception:
             pass
 

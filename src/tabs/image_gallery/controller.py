@@ -1739,6 +1739,11 @@ class GalleryController:
         from tabs.image_gallery.services.ask_context import build_ask_context
         from tabs.image_gallery.services.ask_router import answer, route_backend
 
+        logger.debug(
+            "[ask-ai] submit scope=%s q=%.80s",
+            getattr(scope, "kind", None),
+            str(question or ""),
+        )
         try:
             context = build_ask_context(scope, controller=self)
             backend = route_backend(question, context)
@@ -1746,9 +1751,14 @@ class GalleryController:
             logger.debug("ask-ai context build failed", exc_info=True)
             self._show_ask_ai_error("Could not assemble the ask context.")
             return
+        logger.debug(
+            "[ask-ai] route backend=%s items=%d", backend, len(context.get("items") or [])
+        )
 
         settings = self._ai_settings_store.load()
         if not settings.enabled or not settings.api_key or not settings.model:
+            logger.debug("[ask-ai] not configured (enabled=%s key=%s model=%s)",
+                         settings.enabled, bool(settings.api_key), bool(settings.model))
             self._show_ask_ai_error(
                 self._tr(
                     "image_gallery.errors.not_configured",
@@ -1760,6 +1770,7 @@ class GalleryController:
         key = self._ask_cache_key(scope, context, question, backend, settings.model)
         cached = self._ask_cache.get(key)
         if cached is not None:
+            logger.debug("[ask-ai] cache hit backend=%s", backend)
             try:
                 from dataclasses import replace
 
@@ -1769,6 +1780,9 @@ class GalleryController:
             self._show_ask_ai_result(cached)
             return
 
+        logger.debug(
+            "[ask-ai] worker start backend=%s model=%s", backend, settings.model
+        )
         self._show_ask_ai_busy()
         worker = GenericWorker(
             self._tracked(answer),
@@ -1790,8 +1804,15 @@ class GalleryController:
 
     def _on_ask_ai_ready(self, result, key: str, gen: int | None = None) -> None:
         if gen is not None and not self._is_current_folder_gen(gen):
+            logger.debug("[ask-ai] result dropped (stale folder gen)")
             return  # folder switched — late ask answer dropped
         error = getattr(result, "error", None)
+        logger.debug(
+            "[ask-ai] ready backend=%s err=%s text_chars=%d",
+            getattr(result, "backend", None),
+            error,
+            len(getattr(result, "text", "") or ""),
+        )
         if error:
             self._show_ask_ai_error(self._ask_error_text(error))
             return
@@ -1804,6 +1825,7 @@ class GalleryController:
     def _on_ask_ai_error(self, error_info, gen: int | None = None) -> None:
         if gen is not None and not self._is_current_folder_gen(gen):
             return
+        logger.debug("[ask-ai] worker error: %r", error_info, exc_info=True)
         message = None
         try:
             _exctype, value, _tb = error_info
