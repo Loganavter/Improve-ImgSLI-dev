@@ -21,7 +21,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from tabs.image_gallery.services.ai_client import AiResponseError, call_sync
+from tabs.image_gallery.services.ai_client import (
+    DEFAULT_FALLBACK_MODELS,
+    AiResponseError,
+    _ai_debug,
+    call_sync,
+)
 from tabs.image_gallery.services.vlm import _encode_image
 
 #: Backends the router can dispatch to.
@@ -163,7 +168,7 @@ def build_text_payload(question: str, context: dict, *, model: str) -> dict:
     return {
         "model": model,
         "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}],
-        "max_tokens": 700,
+        "max_tokens": 4096,
     }
 
 
@@ -190,18 +195,82 @@ def build_vision_payload(question: str, context: dict, *, model: str) -> dict:
     return {
         "model": model,
         "messages": [{"role": "user", "content": content}],
-        "max_tokens": 700,
+        "max_tokens": 4096,
     }
 
 
+def _coerce_text(value) -> str:
+    """Best-effort text out of a chat message field (str or parts list)."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts = []
+        for part in value:
+            try:
+                if isinstance(part, dict):
+                    if part.get("type") in (None, "text", "output_text"):
+                        parts.append(str(part.get("text", "")))
+                    elif part.get("text"):
+                        parts.append(str(part["text"]))
+                elif isinstance(part, str):
+                    parts.append(part)
+            except Exception:
+                continue
+        return "".join(parts).strip()
+    return ""
+
+
 def _extract_text(raw: dict) -> str:
+    """Pull the answer text out of a chat completion ``message.content``."""
     try:
-        content = raw["choices"][0]["message"]["content"]
+        message = raw["choices"][0]["message"]
     except (KeyError, IndexError, TypeError) as exc:
         raise AiResponseError(f"unexpected response shape: {exc}") from exc
-    if not isinstance(content, str) or not content.strip():
-        raise AiResponseError("empty ask response")
-    return content.strip()
+    if not isinstance(message, dict):
+        raise AiResponseError("unexpected message shape")
+    text = _coerce_text(message.get("content"))
+    if text:
+        return text
+    finish = None
+    try:
+        finish = raw["choices"][0].get("finish_reason")
+    except Exception:
+        pass
+    _ai_debug(
+        "ask empty content finish_reason=%s usage=%s",
+        finish,
+        raw.get("usage") if isinstance(raw, dict) else None,
+    )
+    raise AiResponseError(f"empty ask response (finish_reason={finish})")
+
+
+def _is_openrouter(base_url: str) -> bool:
+    return "openrouter" in str(base_url or "").lower()
+
+
+def _apply_openrouter_extensions(payload: dict, base_url: str, model: str) -> dict:
+    """OpenRouter knobs so a reasoning model always returns answer text.
+
+    ``z-ai/glm-5.3-flash`` (and family) reasons *mandatorily* with default
+    effort ``max`` — roughly 95% of ``max_tokens`` goes to hidden reasoning,
+    so a small budget returns ``finish_reason: length`` with empty ``content``
+    (observed: HTTP 200, zero chars). Cap the effort at ``low`` and raise
+    ``max_tokens`` so the visible answer always has room; route to a healthy
+    provider and fall back if the primary is exhausted.
+    """
+    if not _is_openrouter(base_url):
+        return payload
+    payload["reasoning"] = {"effort": "low"}
+    payload["provider"] = {
+        "require_parameters": True,
+        "sort": "throughput",
+        "allow_fallbacks": True,
+    }
+    chain = [model] + [m for m in DEFAULT_FALLBACK_MODELS if m and m != model]
+    if len(chain) > 1:
+        payload["models"] = chain
+        payload["route"] = "fallback"
+    return payload
 
 
 def _jev_stub() -> AskResult:
@@ -250,6 +319,7 @@ def answer(
         else:
             backend = BACKEND_TEXT
             payload = build_text_payload(question, context, model=model)
+        payload = _apply_openrouter_extensions(payload, base_url, model)
         raw = call(base_url, api_key, payload)
         return AskResult(text=_extract_text(raw), backend=backend)
     except Exception as exc:

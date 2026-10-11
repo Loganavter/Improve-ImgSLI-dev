@@ -122,7 +122,8 @@ def test_items_are_anonymized_with_alias_and_name_map():
     """The model sees opaque img_N labels, never descriptive filenames."""
     a = GalleryItem(path=Path("/g/Archivist Soft.png"), mtime_ns=1)
     b = GalleryItem(path=Path("/g/Archivist Rough.png"), mtime_ns=2)
-    ctrl = _fake_controller([a, b], selected=[a.path, b.path], selected_order=[a.path, b.path])
+    ctrl = _fake_controller([a, b], selected=[a.path, b.path])
+    ctrl.state.selected_order = [a.path, b.path]
 
     ctx = build_ask_context(AskScope(kind=ASK_SELECTION), controller=ctrl)
 

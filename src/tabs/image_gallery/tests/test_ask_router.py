@@ -7,6 +7,8 @@ visual questions do, routing questions degrade visibly (Jev stub).
 
 from __future__ import annotations
 
+import pytest
+
 from tabs.image_gallery.services import ask_router
 from tabs.image_gallery.services.ask_router import (
     BACKEND_JEV,
@@ -139,6 +141,60 @@ def test_answer_jev_stub_degrades_visibly_without_fabricating():
     assert result.text == ""
     assert result.error
     assert "routing" in result.error.lower()
+
+
+def test_extract_text_accepts_parts_list():
+    raw = {
+        "choices": [
+            {"message": {"content": [{"type": "text", "text": "hello "}, {"type": "text", "text": "world"}]}}
+        ]
+    }
+    assert ask_router._extract_text(raw) == "hello world"
+
+
+def test_extract_text_empty_content_is_an_error():
+    raw = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}
+    with pytest.raises(ask_router.AiResponseError):
+        ask_router._extract_text(raw)
+
+
+def test_openrouter_caps_reasoning_effort_and_raises_budget():
+    """Mandatory-reasoning models default to effort `max`; we must cap it low."""
+    payload = ask_router._apply_openrouter_extensions(
+        {"model": "m", "messages": []}, "https://openrouter.ai/api/v1", "m"
+    )
+    assert payload["reasoning"] == {"effort": "low"}
+    assert payload["provider"]["sort"] == "throughput"
+    assert "m" in payload["models"]
+
+
+def test_openrouter_extensions_noop_for_plain_openai():
+    payload = ask_router._apply_openrouter_extensions(
+        {"model": "m", "messages": []}, "https://api.openai.com/v1", "m"
+    )
+    assert "reasoning" not in payload
+    assert "provider" not in payload
+
+
+def test_answer_openrouter_payload_has_room_for_the_answer():
+    captured = {}
+
+    def fake_transport(base_url, api_key, payload):
+        captured["payload"] = payload
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    answer(
+        "Summary",
+        _CTX,
+        backend=BACKEND_TEXT,
+        base_url="https://openrouter.ai/api/v1",
+        api_key="k",
+        model="m",
+        transport=fake_transport,
+    )
+    payload = captured["payload"]
+    assert payload["max_tokens"] >= 2048
+    assert payload["reasoning"] == {"effort": "low"}
 
 
 def test_answer_not_configured_is_a_visible_error():
