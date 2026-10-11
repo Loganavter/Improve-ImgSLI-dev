@@ -1805,7 +1805,8 @@ class ImageGalleryWidget(QWidget):
         items remain from the same pool (pure removal, e.g. deleted a
         whole group), survivors get an explicit UNGROUPED view instead of
         hanging header-less. A wholly new pool (folder switch — every
-        alive path is new) stays flat, no stale headers.
+        alive path is new) also lands under one UNGROUPED section, so a
+        fresh folder never paints nameless while triage runs.
 
         Returns True when the view was (re)painted via set_series.
         """
@@ -1853,8 +1854,16 @@ class ImageGalleryWidget(QWidget):
             except Exception:
                 added = set()
             if added:
-                _dbg("view-cycle restore dissolved added=%d → flat (replacement pool)", len(added))
-                return False
+                _dbg("view-cycle restore dissolved added=%d → UNGROUPED (replacement pool)", len(added))
+                try:
+                    self._grid_view.set_series([], hub_names=[], collapsed={})
+                except Exception:
+                    return False
+                try:
+                    self._series = []
+                except Exception:
+                    pass
+                return True
             _dbg("view-cycle restore dissolved same-pool → UNGROUPED n=%d", len(alive_paths))
             try:
                 self._grid_view.set_series([], hub_names=[], collapsed={})
