@@ -74,6 +74,52 @@ _ROUTING_HINTS = (
 #: Vision payload budget: never upload the whole folder.
 VLM_MAX_IMAGES = 6
 
+#: Fallback answer-token budget when the caller passes none (see
+#: ``estimate_ask_max_tokens`` — 0 means "compute from the scope size").
+DEFAULT_ASK_MAX_TOKENS = 4096
+
+#: Headroom multiplier over the estimated visible-answer budget. Reasoning
+#: tokens count against ``max_tokens``, so the total must cover both.
+_EFFORT_HEADROOM = {"low": 1.25, "medium": 1.6, "high": 2.2}
+
+
+def resolve_reasoning_effort(effort: str) -> str:
+    """Normalize a configured effort to one the request can send.
+
+    ``auto``/``none``/unknown collapse to ``low``: some models reason
+    *mandatorily* (e.g. ``z-ai/glm-5.3-flash`` defaults to effort ``max``) and
+    reject ``none``, so a low cap both avoids the rejection and leaves room
+    for the visible answer.
+    """
+    value = str(effort or "auto").strip().lower()
+    if value in ("medium", "high"):
+        return value
+    return "low"
+
+
+def estimate_ask_max_tokens(context: dict, *, configured: int = 0, effort: str = "auto") -> int:
+    """Pick an answer-token budget for one ask.
+
+    A fixed budget is wrong when the scope grows (7 items vs 100): the context
+    block and the requested summary both scale with the item count. Base the
+    estimate on the scope's item count, multiply by the reasoning headroom for
+    the chosen effort, and clamp to a sane range. An explicit ``configured``
+    value (>0), e.g. from Settings, always wins.
+    """
+    try:
+        configured = int(configured or 0)
+    except Exception:
+        configured = 0
+    if configured > 0:
+        return configured
+    try:
+        count = max(0, int((context or {}).get("count", 0) or 0))
+    except Exception:
+        count = 0
+    answer_budget = 400 + min(count, 100) * 24  # 7 → ~570, 100 → ~2800
+    headroom = _EFFORT_HEADROOM.get(resolve_reasoning_effort(effort), 1.25)
+    return int(max(512, min(int(answer_budget * headroom), 16384)))
+
 _NAMING_RULE = (
     " Images are identified ONLY by the given labels (img_1, img_2, …). Use "
     "those labels verbatim; never infer, translate or guess a filename — the "
@@ -159,7 +205,9 @@ def _context_block(context: dict) -> str:
         return ""
 
 
-def build_text_payload(question: str, context: dict, *, model: str) -> dict:
+def build_text_payload(
+    question: str, context: dict, *, model: str, max_tokens: int = DEFAULT_ASK_MAX_TOKENS
+) -> dict:
     """Text-only chat payload — NO image bytes (asserted by tests)."""
     text = (
         f"{_TEXT_PROMPT}\n\nQUESTION: {str(question or '').strip()}\n\n"
@@ -168,11 +216,13 @@ def build_text_payload(question: str, context: dict, *, model: str) -> dict:
     return {
         "model": model,
         "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}],
-        "max_tokens": 4096,
+        "max_tokens": int(max_tokens),
     }
 
 
-def build_vision_payload(question: str, context: dict, *, model: str) -> dict:
+def build_vision_payload(
+    question: str, context: dict, *, model: str, max_tokens: int = DEFAULT_ASK_MAX_TOKENS
+) -> dict:
     """Vision chat payload: text + up to ``VLM_MAX_IMAGES`` downscaled images."""
     content: list[dict] = [
         {
@@ -195,7 +245,7 @@ def build_vision_payload(question: str, context: dict, *, model: str) -> dict:
     return {
         "model": model,
         "messages": [{"role": "user", "content": content}],
-        "max_tokens": 4096,
+        "max_tokens": int(max_tokens),
     }
 
 
@@ -248,19 +298,22 @@ def _is_openrouter(base_url: str) -> bool:
     return "openrouter" in str(base_url or "").lower()
 
 
-def _apply_openrouter_extensions(payload: dict, base_url: str, model: str) -> dict:
+def _apply_openrouter_extensions(
+    payload: dict, base_url: str, model: str, effort: str = "auto"
+) -> dict:
     """OpenRouter knobs so a reasoning model always returns answer text.
 
     ``z-ai/glm-5.3-flash`` (and family) reasons *mandatorily* with default
     effort ``max`` — roughly 95% of ``max_tokens`` goes to hidden reasoning,
     so a small budget returns ``finish_reason: length`` with empty ``content``
-    (observed: HTTP 200, zero chars). Cap the effort at ``low`` and raise
-    ``max_tokens`` so the visible answer always has room; route to a healthy
-    provider and fall back if the primary is exhausted.
+    (observed: HTTP 200, zero chars). Cap the effort (see
+    :func:`resolve_reasoning_effort`; the caller sizes ``max_tokens`` for the
+    remaining answer); route to a healthy provider and fall back if the
+    primary is exhausted.
     """
     if not _is_openrouter(base_url):
         return payload
-    payload["reasoning"] = {"effort": "low"}
+    payload["reasoning"] = {"effort": resolve_reasoning_effort(effort)}
     payload["provider"] = {
         "require_parameters": True,
         "sort": "throughput",
@@ -286,14 +339,19 @@ def answer(
     base_url: str = "",
     api_key: str = "",
     model: str = "",
+    max_tokens: int = 0,
+    reasoning_effort: str = "auto",
     transport: Callable[[str, str, dict], dict] | None = None,
 ) -> AskResult:
     """Answer *question* over *context* via *backend*. Worker thread only.
 
-    ``transport`` defaults to :func:`ai_client.call_sync`; tests inject a fake
-    to capture the payload and avoid the network. Any failure (not configured,
-    backend error, malformed response) returns an ``AskResult`` whose ``error``
-    is set and whose ``text`` is empty — never a fabricated answer.
+    ``max_tokens`` (0 = compute from the scope size via
+    :func:`estimate_ask_max_tokens`) and ``reasoning_effort`` come from
+    Settings. ``transport`` defaults to :func:`ai_client.call_sync`; tests
+    inject a fake to capture the payload and avoid the network. Any failure
+    (not configured, backend error, malformed response) returns an
+    ``AskResult`` whose ``error`` is set and whose ``text`` is empty — never a
+    fabricated answer.
     """
     backend = str(backend or BACKEND_TEXT).strip().lower() or BACKEND_TEXT
     if backend == "auto":
@@ -312,14 +370,17 @@ def answer(
             error="AI is not configured (set the API key/model in Settings).",
         )
 
+    budget = estimate_ask_max_tokens(
+        context, configured=max_tokens, effort=reasoning_effort
+    )
     call = transport or call_sync
     try:
         if backend == BACKEND_VLM:
-            payload = build_vision_payload(question, context, model=model)
+            payload = build_vision_payload(question, context, model=model, max_tokens=budget)
         else:
             backend = BACKEND_TEXT
-            payload = build_text_payload(question, context, model=model)
-        payload = _apply_openrouter_extensions(payload, base_url, model)
+            payload = build_text_payload(question, context, model=model, max_tokens=budget)
+        payload = _apply_openrouter_extensions(payload, base_url, model, reasoning_effort)
         raw = call(base_url, api_key, payload)
         return AskResult(text=_extract_text(raw), backend=backend)
     except Exception as exc:
@@ -334,10 +395,13 @@ __all__ = [
     "BACKEND_JEV",
     "BACKEND_TEXT",
     "BACKEND_VLM",
+    "DEFAULT_ASK_MAX_TOKENS",
     "AskNotConfigured",
     "AskResult",
     "answer",
     "build_text_payload",
     "build_vision_payload",
+    "estimate_ask_max_tokens",
+    "resolve_reasoning_effort",
     "route_backend",
 ]

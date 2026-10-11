@@ -176,7 +176,7 @@ def test_openrouter_extensions_noop_for_plain_openai():
     assert "provider" not in payload
 
 
-def test_answer_openrouter_payload_has_room_for_the_answer():
+def test_answer_openrouter_payload_caps_reasoning_and_sizes_budget():
     captured = {}
 
     def fake_transport(base_url, api_key, payload):
@@ -193,8 +193,34 @@ def test_answer_openrouter_payload_has_room_for_the_answer():
         transport=fake_transport,
     )
     payload = captured["payload"]
-    assert payload["max_tokens"] >= 2048
     assert payload["reasoning"] == {"effort": "low"}
+    assert payload["max_tokens"] >= 512
+
+
+def test_resolve_reasoning_effort_collapses_auto_and_none_to_low():
+    assert ask_router.resolve_reasoning_effort("auto") == "low"
+    assert ask_router.resolve_reasoning_effort("") == "low"
+    assert ask_router.resolve_reasoning_effort("none") == "low"
+    assert ask_router.resolve_reasoning_effort("medium") == "medium"
+    assert ask_router.resolve_reasoning_effort("high") == "high"
+
+
+def test_estimate_budget_scales_with_scope_size():
+    small = ask_router.estimate_ask_max_tokens({"count": 1}, effort="auto")
+    big = ask_router.estimate_ask_max_tokens({"count": 100}, effort="auto")
+    assert small >= 512
+    assert big > small * 2
+    assert big <= 16384
+
+
+def test_estimate_budget_configured_override_wins():
+    assert ask_router.estimate_ask_max_tokens({"count": 100}, configured=1234) == 1234
+
+
+def test_estimate_budget_reasoning_headroom():
+    low = ask_router.estimate_ask_max_tokens({"count": 50}, effort="low")
+    high = ask_router.estimate_ask_max_tokens({"count": 50}, effort="high")
+    assert high > low
 
 
 def test_answer_not_configured_is_a_visible_error():

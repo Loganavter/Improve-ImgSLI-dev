@@ -13,6 +13,8 @@
       "base_url": "API base URL",
       "api_key": "API key",
       "model_name": "Model name",
+      "ask_max_tokens": "Answer token budget",
+      "reasoning_effort": "Reasoning effort",
       "api_key_warning": "Stored unencrypted on this device."
     },
     "errors": {

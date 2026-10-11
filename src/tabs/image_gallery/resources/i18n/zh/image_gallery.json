@@ -13,6 +13,8 @@
       "base_url": "API 基础地址",
       "api_key": "API 密钥",
       "model_name": "模型名称",
+      "ask_max_tokens": "回答 token 预算",
+      "reasoning_effort": "推理强度",
       "api_key_warning": "以明文形式存储在本设备上。"
     },
     "errors": {

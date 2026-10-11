@@ -1799,6 +1799,8 @@ class GalleryController:
                 base_url=settings.base_url,
                 api_key=settings.api_key,
                 model=settings.model,
+                max_tokens=getattr(settings, "ask_max_tokens", 0),
+                reasoning_effort=getattr(settings, "reasoning_effort", "auto"),
             )
             if not getattr(result, "error", None) and names:
                 try:

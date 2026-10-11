@@ -13,6 +13,8 @@
       "base_url": "URL base da API",
       "api_key": "Chave de API",
       "model_name": "Nome do modelo",
+      "ask_max_tokens": "Orçamento de tokens da resposta",
+      "reasoning_effort": "Esforço de raciocínio",
       "api_key_warning": "Armazenada sem criptografia neste dispositivo."
     },
     "errors": {

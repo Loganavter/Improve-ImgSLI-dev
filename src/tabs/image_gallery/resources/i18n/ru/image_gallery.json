@@ -13,6 +13,8 @@
       "base_url": "Базовый URL API",
       "api_key": "API-ключ",
       "model_name": "Название модели",
+      "ask_max_tokens": "Бюджет токенов ответа",
+      "reasoning_effort": "Усилие рассуждений",
       "api_key_warning": "Хранится на этом устройстве в незашифрованном виде."
     },
     "errors": {
