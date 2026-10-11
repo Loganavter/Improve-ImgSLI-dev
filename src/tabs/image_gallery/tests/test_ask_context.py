@@ -53,6 +53,8 @@ def test_selection_metrics_come_from_registry_not_raw_item_metrics():
     assert ctx["items"][0]["metrics"] == expected
     # No second derivation: an unmeasured raw key must not leak in.
     assert "sharpness_raw" not in ctx["items"][0]["metrics"]
+    # Human labels ride along so the model never sees a bare metric id.
+    assert ctx["metric_labels"]["sharpness"] == "Sharpness"
 
 
 def test_explicit_selection_paths_order_is_preserved_and_missing_skipped():

@@ -27,6 +27,7 @@ from tabs.image_gallery.services.ai_client import (
     _ai_debug,
     call_sync,
 )
+from tabs.image_gallery.services.metric_scores import fallback_note
 from tabs.image_gallery.services.vlm import _encode_image
 
 #: Backends the router can dispatch to.
@@ -121,18 +122,27 @@ def estimate_ask_max_tokens(context: dict, *, configured: int = 0, effort: str =
     return int(max(512, min(int(answer_budget * headroom), 16384)))
 
 _NAMING_RULE = (
-    " Images are identified ONLY by the given labels (img_1, img_2, …). Use "
-    "those labels verbatim; never infer, translate or guess a filename — the "
-    "label carries no meaning about the image."
+    " Images and metrics are referenced by the labels given in the context "
+    "(img_1, img_2, … for images; the metric labels as written). Use those "
+    "labels verbatim; never infer, translate or guess a filename or a metric."
+)
+
+_STYLE_RULE = (
+    " Write a short, plain-language answer (1-4 sentences) a photographer can "
+    "act on. Do NOT list metric names or percentages unless the user explicitly "
+    "asks for numbers — state the practical takeaway instead. If the variants "
+    "are effectively equivalent within measurement noise, say so plainly "
+    "rather than inventing a winner. Never invent measurements."
 )
 
 _TEXT_PROMPT = (
     "You answer questions about a gallery of image-processing variants "
     "(upscalers, restorations) of the SAME picture. You are given the locally "
-    "measured metrics (quality 0-100, higher is always better) and artifact "
-    "severities; treat them as authoritative and do not contradict them. "
-    "Answer in 1-4 plain sentences. Do not restate the raw metric table; give "
-    "the practical read a human should act on. Never invent measurements."
+    "measured metrics, already labeled (quality 0-100, higher is always "
+    "better) plus a short descriptor, and artifact severities (clean/mild/"
+    "flagged flags a named defect such as banding, halo or over-smoothing); "
+    "treat them as authoritative and do not contradict them."
+    + _STYLE_RULE
     + _NAMING_RULE
 )
 
@@ -140,9 +150,9 @@ _VISION_PROMPT = (
     "You answer questions about images in a gallery of processing variants of "
     "the SAME picture. You are given the locally measured metrics as "
     "authoritative context and, for visual questions, the images themselves. "
-    "Judge only what you can actually SEE; if you cannot see it, say so. "
-    "Answer in 1-4 plain sentences. Label any visual claim as an unverified AI "
-    "read, never a verdict."
+    "Judge only what you can actually SEE; if you cannot see it, say so. Label "
+    "any visual claim as an unverified AI read, never a verdict."
+    + _STYLE_RULE
     + _NAMING_RULE
 )
 
@@ -175,10 +185,37 @@ def route_backend(question: str, context: dict) -> str:
     return BACKEND_TEXT
 
 
+def _metric_text(metric_id: str, score, labels: dict) -> str:
+    """One metric as ``<Label> <score>% — <band note>`` (never a bare id)."""
+    label = str((labels or {}).get(metric_id, metric_id))
+    text = f"{label} {score}%"
+    try:
+        note = fallback_note(metric_id, int(score))
+    except Exception:
+        note = ""
+    return f"{text} — {note}" if note else text
+
+
+#: Severity string → a representative quality score for ``fallback_note``.
+_SEVERITY_SCORE = {"clean": 100, "mild": 50, "flagged": 10}
+
+
+def _severity_text(name: str, severity) -> str:
+    """One artifact as ``name:severity (meaning)`` so the model sees the axis."""
+    sev = str(severity or "").lower()
+    text = f"{name}:{sev}"
+    try:
+        note = fallback_note(name, _SEVERITY_SCORE.get(sev, 50))
+    except Exception:
+        note = ""
+    return f"{text} ({note})" if note else text
+
+
 def _context_block(context: dict) -> str:
     """Compact measured-context block handed to the model."""
     try:
         ctx = context or {}
+        labels = ctx.get("metric_labels") or {}
         lines = [
             f"Scope: {ctx.get('label', '')} ({ctx.get('kind', '')}), "
             f"{int(ctx.get('count', 0) or 0)} item(s), mode={ctx.get('mode', '')}"
@@ -189,8 +226,10 @@ def _context_block(context: dict) -> str:
         for it in list(ctx.get("items", []) or []):
             metrics = it.get("metrics") or {}
             sev = it.get("severities") or {}
-            met_txt = ", ".join(f"{k}={v}%" for k, v in metrics.items())
-            sev_txt = ", ".join(f"{k}:{v}" for k, v in sev.items())
+            met_txt = "; ".join(
+                _metric_text(k, v, labels) for k, v in metrics.items()
+            )
+            sev_txt = ", ".join(_severity_text(k, v) for k, v in sev.items())
             line = f"- {it.get('alias') or it.get('name', '')}"
             badge = it.get("badge")
             if badge:

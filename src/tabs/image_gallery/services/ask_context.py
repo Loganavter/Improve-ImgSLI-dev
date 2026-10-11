@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tabs.image_gallery.services.metric_scores import measured_scores
+from tabs.image_gallery.services.metric_scores import SPECS, measured_scores
 from tabs.image_gallery.use_cases import quality as _quality
 
 #: Scope kinds the builder recognizes.
@@ -210,6 +210,9 @@ def build_ask_context(scope: AskScope, *, controller) -> dict:
         "items": ctx_items,
         # alias → real filename; the app uses this to de-anonymize answers.
         "names": names,
+        # metric id → human label (same wording the report shows), so the
+        # model never has to guess what e.g. "typicality" means.
+        "metric_labels": {spec.id: spec.label for spec in SPECS},
     }
 
 

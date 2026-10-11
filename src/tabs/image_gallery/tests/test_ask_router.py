@@ -38,6 +38,7 @@ _CTX = {
         }
     ],
     "names": {"img_1": "a.png"},
+    "metric_labels": {"sharpness": "Sharpness"},
 }
 
 
@@ -69,6 +70,34 @@ def test_text_payload_uses_opaque_alias_not_filename():
     assert "img_1" in text
     assert "a.png" not in text
     assert "label" in text.lower()
+
+
+def test_context_block_uses_labels_and_descriptors_not_raw_ids():
+    payload = build_text_payload("Summary", _CTX, model="m")
+    text = payload["messages"][0]["content"][0]["text"]
+    # Human label + band descriptor, never the bare metric id.
+    assert "Sharpness 50%" in text
+    assert "sharpness=50" not in text
+    # The style rule forbids reciting raw percentages unless asked.
+    assert "percentages" in text.lower()
+
+
+def test_context_block_renders_artifact_severities_with_meaning():
+    ctx = {
+        "count": 1,
+        "metric_labels": {},
+        "items": [{"alias": "img_1", "metrics": {}, "severities": {"banding": "flagged"}}],
+    }
+    text = build_text_payload("x", ctx, model="m")["messages"][0]["content"][0]["text"]
+    assert "banding:flagged" in text
+    assert "visible banding" in text  # severity gets a meaning, not just the id
+
+
+def test_context_block_falls_back_to_id_when_no_labels():
+    ctx = {"count": 1, "items": [{"metrics": {"sharpness": 50}}]}
+    text = build_text_payload("Summary", ctx, model="m")["messages"][0]["content"][0]["text"]
+    assert "Sharpness 50%" not in text  # no label map → id used
+    assert "sharpness 50%" in text
 
 
 def test_vision_payload_embeds_downscaled_image(monkeypatch):
