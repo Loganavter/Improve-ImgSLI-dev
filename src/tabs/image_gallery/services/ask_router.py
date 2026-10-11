@@ -29,6 +29,17 @@ from tabs.image_gallery.services.ai_client import (
 )
 from tabs.image_gallery.services.metric_scores import fallback_note
 from tabs.image_gallery.services.vlm import _encode_image
+from tabs.image_gallery.services.ask_answer_guard import (
+    answer_violation,
+    build_correction_feedback,
+    is_numeric_question,
+)
+from tabs.image_gallery.services.ask_prompt import (
+    ASK_SYSTEM_PROMPT,
+    FEWSHOT_ANSWER,
+    FEWSHOT_CONTEXT,
+    FEWSHOT_QUESTION,
+)
 
 #: Backends the router can dispatch to.
 BACKEND_TEXT = "text"
@@ -121,42 +132,6 @@ def estimate_ask_max_tokens(context: dict, *, configured: int = 0, effort: str =
     headroom = _EFFORT_HEADROOM.get(resolve_reasoning_effort(effort), 1.25)
     return int(max(512, min(int(answer_budget * headroom), 16384)))
 
-_NAMING_RULE = (
-    " Images and metrics are referenced by the labels given in the context "
-    "(img_1, img_2, … for images; the metric labels as written). Use those "
-    "labels verbatim; never infer, translate or guess a filename or a metric."
-)
-
-_STYLE_RULE = (
-    " Write a short, plain-language answer (1-4 sentences) the user can act "
-    "on. Do NOT role-play, assume a persona or write a preamble — start "
-    "directly with the answer. Do NOT list metric names or percentages unless "
-    "the user explicitly asks for numbers — state the practical takeaway "
-    "instead. If the variants are effectively equivalent within measurement "
-    "noise, say so plainly rather than inventing a winner. Never invent "
-    "measurements."
-)
-
-_TEXT_PROMPT = (
-    "You answer questions about a gallery of image-processing variants "
-    "(upscalers, restorations) of the SAME picture. You are given the locally "
-    "measured metrics, already labeled (quality 0-100, higher is always "
-    "better) plus a short descriptor, and artifact severities (clean/mild/"
-    "flagged flags a named defect such as banding, halo or over-smoothing); "
-    "treat them as authoritative and do not contradict them."
-    + _STYLE_RULE
-    + _NAMING_RULE
-)
-
-_VISION_PROMPT = (
-    "You answer questions about images in a gallery of processing variants of "
-    "the SAME picture. You are given the locally measured metrics as "
-    "authoritative context and, for visual questions, the images themselves. "
-    "Judge only what you can actually SEE; if you cannot see it, say so. Label "
-    "any visual claim as an unverified AI read, never a verdict."
-    + _STYLE_RULE
-    + _NAMING_RULE
-)
 
 
 class AskNotConfigured(Exception):
@@ -173,6 +148,9 @@ class AskResult:
     confidence: float | None = None
     cached: bool = False
     error: str | None = None
+    #: True when the guard rejected the first answer and the single rewrite
+    #: replaced it (see plan-gallery-ask-ai-answer-quality, P1).
+    revised: bool = False
 
 
 def route_backend(question: str, context: dict) -> str:
@@ -246,33 +224,59 @@ def _context_block(context: dict) -> str:
         return ""
 
 
-def build_text_payload(
-    question: str, context: dict, *, model: str, max_tokens: int = DEFAULT_ASK_MAX_TOKENS
-) -> dict:
-    """Text-only chat payload — NO image bytes (asserted by tests)."""
+def _user_text(question: str, context: dict, *, correction: str = "") -> str:
+    """The user turn: question + measured context (+ optional rewrite feedback)."""
     text = (
-        f"{_TEXT_PROMPT}\n\nQUESTION: {str(question or '').strip()}\n\n"
+        f"QUESTION: {str(question or '').strip()}\n\n"
         f"MEASURED CONTEXT (authoritative):\n{_context_block(context)}"
     )
+    if correction:
+        text += f"\n\nREVISION REQUEST:\n{correction}"
+    return text
+
+
+def _base_messages() -> list[dict]:
+    """System turn + one canonical few-shot exemplar as real chat turns."""
+    return [
+        {"role": "system", "content": [{"type": "text", "text": ASK_SYSTEM_PROMPT}]},
+        {"role": "user", "content": [{"type": "text", "text": FEWSHOT_QUESTION + "\n\nMEASURED CONTEXT (authoritative):\n" + FEWSHOT_CONTEXT}]},
+        {"role": "assistant", "content": [{"type": "text", "text": FEWSHOT_ANSWER}]},
+    ]
+
+
+def build_text_payload(
+    question: str,
+    context: dict,
+    *,
+    model: str,
+    max_tokens: int = DEFAULT_ASK_MAX_TOKENS,
+    correction: str = "",
+) -> dict:
+    """Text-only chat payload — NO image bytes (asserted by tests)."""
+    messages = _base_messages() + [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": _user_text(question, context, correction=correction)}],
+        }
+    ]
     return {
         "model": model,
-        "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}],
+        "messages": messages,
         "max_tokens": int(max_tokens),
     }
 
 
 def build_vision_payload(
-    question: str, context: dict, *, model: str, max_tokens: int = DEFAULT_ASK_MAX_TOKENS
+    question: str,
+    context: dict,
+    *,
+    model: str,
+    max_tokens: int = DEFAULT_ASK_MAX_TOKENS,
+    correction: str = "",
 ) -> dict:
     """Vision chat payload: text + up to ``VLM_MAX_IMAGES`` downscaled images."""
     content: list[dict] = [
-        {
-            "type": "text",
-            "text": (
-                f"{_VISION_PROMPT}\n\nQUESTION: {str(question or '').strip()}\n\n"
-                f"MEASURED CONTEXT (authoritative):\n{_context_block(context)}"
-            ),
-        }
+        {"type": "text", "text": _user_text(question, context, correction=correction)},
     ]
     for it in list((context or {}).get("items", []) or [])[:VLM_MAX_IMAGES]:
         try:
@@ -285,7 +289,7 @@ def build_vision_payload(
             continue
     return {
         "model": model,
-        "messages": [{"role": "user", "content": content}],
+        "messages": _base_messages() + [{"role": "user", "content": content}],
         "max_tokens": int(max_tokens),
     }
 
@@ -333,6 +337,58 @@ def _extract_text(raw: dict) -> str:
         raw.get("usage") if isinstance(raw, dict) else None,
     )
     raise AiResponseError(f"empty ask response (finish_reason={finish})")
+
+
+def _coerce_confidence(value) -> float | None:
+    """Map the envelope's confidence token (or a 0-1 float) to a number."""
+    try:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            v = float(value)
+            return v if 0.0 <= v <= 1.0 else None
+        token = str(value or "").strip().lower()
+        return {"high": 0.9, "medium": 0.6, "low": 0.3}.get(token)
+    except Exception:
+        return None
+
+
+def _parse_answer_envelope(text: str) -> tuple[str, float | None]:
+    """Tolerant decode of the answer envelope → ``(answer, confidence|None)``.
+
+    Falls back to the raw text when the model did not emit the JSON object
+    (provider/model behavior varies), so an answer is never lost to a
+    formatting miss.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return "", None
+    obj = None
+    start, end = raw.find("{"), raw.rfind("}")
+    if 0 <= start < end:
+        try:
+            import json
+
+            candidate = json.loads(raw[start : end + 1])
+            if isinstance(candidate, dict):
+                obj = candidate
+        except Exception:
+            obj = None
+    if isinstance(obj, dict):
+        answer = obj.get("answer")
+        if isinstance(answer, str) and answer.strip():
+            return answer.strip(), _coerce_confidence(obj.get("confidence"))
+    return raw, None
+
+
+def _metric_labels(context: dict) -> tuple[str, ...]:
+    """Human metric labels (for the guard's metric-name check)."""
+    try:
+        return tuple(
+            str(v) for v in (context or {}).get("metric_labels", {}).values() if v
+        )
+    except Exception:
+        return ()
 
 
 def _is_openrouter(base_url: str) -> bool:
@@ -415,15 +471,52 @@ def answer(
         context, configured=max_tokens, effort=reasoning_effort
     )
     call = transport or call_sync
-    try:
-        if backend == BACKEND_VLM:
-            payload = build_vision_payload(question, context, model=model, max_tokens=budget)
+    use_vision = backend == BACKEND_VLM
+    if not use_vision:
+        backend = BACKEND_TEXT
+
+    def _one_call(correction: str) -> dict:
+        if use_vision:
+            payload = build_vision_payload(
+                question, context, model=model, max_tokens=budget, correction=correction
+            )
         else:
-            backend = BACKEND_TEXT
-            payload = build_text_payload(question, context, model=model, max_tokens=budget)
+            payload = build_text_payload(
+                question, context, model=model, max_tokens=budget, correction=correction
+            )
         payload = _apply_openrouter_extensions(payload, base_url, model, reasoning_effort)
-        raw = call(base_url, api_key, payload)
-        return AskResult(text=_extract_text(raw), backend=backend)
+        return call(base_url, api_key, payload)
+
+    try:
+        raw = _one_call("")
+        answer_text, confidence = _parse_answer_envelope(_extract_text(raw))
+        result = AskResult(text=answer_text, backend=backend, confidence=confidence)
+
+        # P1 — deterministic guard + at most ONE rewrite (fail-open: any failure
+        # or a still-violating rewrite keeps the first answer).
+        numeric = is_numeric_question(question)
+        labels = _metric_labels(context)
+        reason = answer_violation(answer_text, numeric=numeric, labels=labels)
+        if reason:
+            correction = (
+                f"Previous answer:\n{answer_text}\n\n"
+                + build_correction_feedback(reason)
+            )
+            try:
+                raw2 = _one_call(correction)
+                revised, revised_conf = _parse_answer_envelope(_extract_text(raw2))
+                if revised and not answer_violation(
+                    revised, numeric=numeric, labels=labels
+                ):
+                    return AskResult(
+                        text=revised,
+                        backend=backend,
+                        confidence=revised_conf if revised_conf is not None else confidence,
+                        revised=True,
+                    )
+            except Exception:
+                pass
+        return result
     except Exception as exc:
         return AskResult(
             text="",
