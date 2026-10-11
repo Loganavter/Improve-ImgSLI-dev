@@ -254,6 +254,7 @@ class ImageGalleryWidget(QWidget):
             on_toggle=self._on_card_toggle,
             on_context_menu=self._on_card_context,
             on_empty_context_menu=self._on_empty_host_context,
+            on_series_context_menu=self._on_series_context_menu,
         )
         # Content stack — avoids QVBoxLayout stretch bug where hidden 1054h EmptyState pushes toolbar
         from PySide6.QtWidgets import QStackedWidget
@@ -842,6 +843,15 @@ class ImageGalleryWidget(QWidget):
                 except Exception:
                     pass
 
+            def _ctx_ask(scope_kind: str):
+                try:
+                    tri = _ctx_owner()
+                    fn = getattr(tri, "open_ask_ai", None)
+                    if callable(fn):
+                        fn(scope_kind, card, Path(path))
+                except Exception:
+                    pass
+
             try:
                 sel_set = getattr(getattr(owner, "state", None), "selected_paths", None) or set()
                 sel_n = len(sel_set)
@@ -861,6 +871,7 @@ class ImageGalleryWidget(QWidget):
                 on_carry=_ctx_carry,
                 on_analyze=_ctx_analyze,
                 on_find_similar=_ctx_find,
+                on_ask_ai=_ctx_ask,
                 translate=_tr,
             )
             if _dbg_on:
@@ -874,6 +885,80 @@ class ImageGalleryWidget(QWidget):
         from tabs.image_gallery.ui import drag_drop as _drag_drop
 
         _drag_drop.on_empty_file_dropped(self, path_str, self._owner_for_triage())
+
+    # -- Ask AI (A3 surface; async lives in the controller) ----------------------
+
+    def _ensure_ask_ai_flyout(self):
+        flyout = getattr(self, "_ask_ai_flyout", None)
+        if flyout is None:
+            from tabs.image_gallery.ui.ask_ai import AskAiFlyout
+
+            flyout = AskAiFlyout(self)
+            try:
+                flyout.setObjectName("gallery_ask_ai_flyout")
+            except Exception:
+                pass
+            self._ask_ai_flyout = flyout
+        return flyout
+
+    def open_ask_ai(self, anchor, scope, *, default_prompt: str = "Summary") -> None:
+        """Show the Ask AI flyout; submit routes to ``controller.ask_ai_question``."""
+        flyout = self._ensure_ask_ai_flyout()
+        # One live scope per open: drop any previous submit binding.
+        try:
+            flyout.submitted.disconnect()
+        except Exception:
+            pass
+        flyout.submitted.connect(
+            lambda question, _s=scope: self._submit_ask_ai(_s, question)
+        )
+        try:
+            label = getattr(scope, "label", "") or ""
+        except Exception:
+            label = ""
+        flyout.open_for(anchor or self, scope_label=label, default_prompt=default_prompt)
+
+    def _submit_ask_ai(self, scope, question: str) -> None:
+        owner = self._owner_for_triage()
+        fn = getattr(owner, "ask_ai_question", None)
+        if callable(fn):
+            fn(scope, question)
+            return
+        self.show_ask_ai_error("AI is unavailable.")
+
+    def show_ask_ai_busy(self) -> None:
+        try:
+            self._ensure_ask_ai_flyout().set_busy(True)
+        except Exception:
+            pass
+
+    def show_ask_ai_result(self, result) -> None:
+        try:
+            flyout = self._ensure_ask_ai_flyout()
+            flyout.set_busy(False)
+            flyout.show_result(
+                getattr(result, "text", "") or "",
+                backend=getattr(result, "backend", "") or "",
+                cached=bool(getattr(result, "cached", False)),
+            )
+        except Exception:
+            pass
+
+    def show_ask_ai_error(self, message: str) -> None:
+        try:
+            flyout = self._ensure_ask_ai_flyout()
+            flyout.set_busy(False)
+            flyout.show_error(message)
+        except Exception:
+            pass
+
+    # -- series header context menu ---------------------------------------------
+
+    def _on_series_context_menu(self, index, anchor, member_paths, label) -> None:
+        owner = self._owner_for_triage()
+        fn = getattr(owner, "open_ask_ai_for_series", None)
+        if callable(fn):
+            fn(index, anchor, tuple(member_paths or ()), str(label or ""))
 
     # -- S4 quick look ----------------------------------------------------------
 

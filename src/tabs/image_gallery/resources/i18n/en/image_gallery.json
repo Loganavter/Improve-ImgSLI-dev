@@ -39,6 +39,14 @@
       "reject": "✕ Reject",
       "compare": "⇄ Compare"
     },
+    "ask_ai": {
+      "action": "AI…",
+      "title": "Ask AI",
+      "default_prompt": "Summary",
+      "read_badge": "AI read, unverified",
+      "error": "AI could not answer.",
+      "routing_unavailable": "Routing is not enabled yet."
+    },
     "sort_by": "Sort by",
     "view": "View",
     "sort_rank": "Rank",

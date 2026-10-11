@@ -38,6 +38,14 @@
       "make_best": "★ Tornar melhor",
       "reject": "✕ Rejeitar",
       "compare": "⇄ Comparar"
+    },
+    "ask_ai": {
+      "action": "IA…",
+      "title": "Perguntar à IA",
+      "default_prompt": "Resumo",
+      "read_badge": "Leitura de IA, não verificada",
+      "error": "A IA não conseguiu responder.",
+      "routing_unavailable": "O roteamento ainda não está habilitado."
     }
   }
 }

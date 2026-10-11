@@ -38,6 +38,14 @@
       "make_best": "★ 设为最佳",
       "reject": "✕ 拒绝",
       "compare": "⇄ 对比"
+    },
+    "ask_ai": {
+      "action": "AI…",
+      "title": "询问 AI",
+      "default_prompt": "摘要",
+      "read_badge": "AI 解读，未经核实",
+      "error": "AI 无法回答。",
+      "routing_unavailable": "路由功能尚未启用。"
     }
   }
 }
