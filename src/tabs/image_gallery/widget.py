@@ -911,6 +911,15 @@ class ImageGalleryWidget(QWidget):
                 flyout.set_texts(**texts)
             except Exception:
                 pass
+        # Re-invoking on the SAME scope toggles closed instead of re-running
+        # the show animation (a second right-click looked like "reopening").
+        scope_key = self._ask_scope_key(scope)
+        try:
+            if flyout.isVisible() and getattr(self, "_ask_ai_scope_key", None) == scope_key:
+                flyout.hide()
+                return
+        except Exception:
+            pass
         # One live scope per open: drop the previous submit binding (disconnect
         # the exact slot; a bare disconnect() warns when nothing is bound).
         bound = getattr(self, "_ask_ai_submit_slot", None)
@@ -928,29 +937,26 @@ class ImageGalleryWidget(QWidget):
             label = ""
         self._ask_ai_anchor = anchor or self
         self._ask_ai_scope = scope
-        self._ask_ai_scope_key = self._ask_scope_key(scope)
-        flyout.open_for(self._ask_ai_anchor, scope_label=label, default_prompt=default_prompt)
-        # Preserve the last answer across hide/reopen: when the same scope is
-        # asked again, show the previous result instead of an empty pane.
+        self._ask_ai_scope_key = scope_key
+        # Preserve the last answer across hide/reopen, seeding it BEFORE the
+        # show animation (seeding after the show calls reposition() mid-fade,
+        # which flashes the panel white).
+        initial_result = None
+        initial_error = ""
         if getattr(self, "_ask_ai_last_key", None) == getattr(
             self, "_ask_ai_scope_key", None
         ):
-            last_result = getattr(self, "_ask_ai_last_result", None)
-            last_error = getattr(self, "_ask_ai_last_error", None)
-            if last_result is not None:
-                try:
-                    flyout.show_result(
-                        getattr(last_result, "text", "") or "",
-                        backend=getattr(last_result, "backend", "") or "",
-                        cached=bool(getattr(last_result, "cached", False)),
-                    )
-                except Exception:
-                    pass
-            elif last_error:
-                try:
-                    flyout.show_error(last_error)
-                except Exception:
-                    pass
+            if getattr(self, "_ask_ai_last_result", None) is not None:
+                initial_result = self._ask_ai_last_result
+            elif getattr(self, "_ask_ai_last_error", None):
+                initial_error = self._ask_ai_last_error
+        flyout.open_for(
+            self._ask_ai_anchor,
+            scope_label=label,
+            default_prompt=default_prompt,
+            initial_result=initial_result,
+            initial_error=initial_error,
+        )
 
     @staticmethod
     def _ask_scope_key(scope):

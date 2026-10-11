@@ -78,8 +78,11 @@ def test_context_block_uses_labels_and_descriptors_not_raw_ids():
     # Human label + band descriptor, never the bare metric id.
     assert "Sharpness 50%" in text
     assert "sharpness=50" not in text
-    # The style rule forbids reciting raw percentages unless asked.
+    # The style rule forbids reciting raw percentages unless asked, and
+    # forbids role-play / preambles (the "as a photographer" glitch).
     assert "percentages" in text.lower()
+    assert "role-play" in text.lower() or "preamble" in text.lower()
+    assert "photographer" not in text.lower()
 
 
 def test_context_block_renders_artifact_severities_with_meaning():

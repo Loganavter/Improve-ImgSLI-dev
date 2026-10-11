@@ -128,11 +128,13 @@ _NAMING_RULE = (
 )
 
 _STYLE_RULE = (
-    " Write a short, plain-language answer (1-4 sentences) a photographer can "
-    "act on. Do NOT list metric names or percentages unless the user explicitly "
-    "asks for numbers — state the practical takeaway instead. If the variants "
-    "are effectively equivalent within measurement noise, say so plainly "
-    "rather than inventing a winner. Never invent measurements."
+    " Write a short, plain-language answer (1-4 sentences) the user can act "
+    "on. Do NOT role-play, assume a persona or write a preamble — start "
+    "directly with the answer. Do NOT list metric names or percentages unless "
+    "the user explicitly asks for numbers — state the practical takeaway "
+    "instead. If the variants are effectively equivalent within measurement "
+    "noise, say so plainly rather than inventing a winner. Never invent "
+    "measurements."
 )
 
 _TEXT_PROMPT = (

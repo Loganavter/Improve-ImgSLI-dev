@@ -150,8 +150,16 @@ class AskAiFlyout(BaseFlyout):
         scope_label: str = "",
         default_prompt: str = "Summary",
         title: str = "",
+        initial_result=None,
+        initial_error: str = "",
     ) -> None:
-        """Reset + show under *anchor*; focus lands in the question field."""
+        """Reset + show under *anchor*; focus lands in the question field.
+
+        ``initial_result``/``initial_error`` seed the pane BEFORE the show
+        animation starts (the persisted-answer prefill). Setting them after
+        the show — via ``reposition()`` — would clear the fade snapshot while
+        its animation is still running, flashing the panel white.
+        """
         self._default_prompt = str(default_prompt or "Summary")
         self._title.setText(str(title or self._title_text))
         self._scope.setText(str(scope_label or ""))
@@ -160,6 +168,14 @@ class AskAiFlyout(BaseFlyout):
         self._edit.setReadOnly(False)
         self._result.setText("")
         self._status.setText("")
+        if initial_result is not None:
+            self.show_result(
+                getattr(initial_result, "text", "") or "",
+                backend=getattr(initial_result, "backend", "") or "",
+                cached=bool(getattr(initial_result, "cached", False)),
+            )
+        elif initial_error:
+            self.show_error(initial_error)
         try:
             self._edit.setFocus()
         except Exception:
@@ -170,8 +186,7 @@ class AskAiFlyout(BaseFlyout):
                 anchor_point="bottom-left",
                 flyout_point="top-left",
                 offset=scaled_px(8),
-                animation="slide-fade",
-                animation_axis="vertical",
+                animation="fade",
             )
         except Exception:
             try:
@@ -193,17 +208,38 @@ class AskAiFlyout(BaseFlyout):
         try:
             self._result.updateGeometry()
             self._status.updateGeometry()
-            if self.isVisible():
-                # Do not yank focus back to the field if the user is already
-                # typing a follow-up when the previous answer lands.
-                prev = getattr(self, "_skip_focus_grab", False)
-                self._skip_focus_grab = True
-                try:
-                    self.reposition()
-                finally:
-                    self._skip_focus_grab = prev
+            if not self.isVisible():
+                return
+            # Never reposition while the show animation is running: clearing
+            # the fade snapshot mid-animation paints the panel white until the
+            # animation ends. Defer the resize to the animation's finish.
+            anim = getattr(self, "_show_animation", None)
+            if anim is not None:
+                if not getattr(self, "_ask_reposition_pending", False):
+                    self._ask_reposition_pending = True
+                    try:
+                        anim.finished.connect(self._after_show_reposition)
+                    except Exception:
+                        self._ask_reposition_pending = False
+                return
+            self._reposition_now()
         except Exception:
             pass
+
+    def _after_show_reposition(self) -> None:
+        self._ask_reposition_pending = False
+        if self.isVisible():
+            self._reposition_now()
+
+    def _reposition_now(self) -> None:
+        # Do not yank focus back to the field if the user is already typing a
+        # follow-up when the previous answer lands.
+        prev = getattr(self, "_skip_focus_grab", False)
+        self._skip_focus_grab = True
+        try:
+            self.reposition()
+        finally:
+            self._skip_focus_grab = prev
 
     def set_busy(self, busy: bool) -> None:
         try:

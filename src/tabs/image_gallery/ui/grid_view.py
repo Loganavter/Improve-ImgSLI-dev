@@ -2879,9 +2879,14 @@ class GalleryGridView(QWidget):
                 paths.append(it.path)
             except Exception:
                 continue
+        # Pass the series NAME only (the hub), not the full header chrome
+        # ("SERIES 1 · … · N VARIANTS") — that repeated the grid header in
+        # the flyout.
         label = ""
         try:
-            label = self._series_header_labels.get(int(index), "")
+            idx = int(index)
+            hub = self._hub_names[idx] if idx < len(self._hub_names) else None
+            label = str(hub or self._series_header_labels.get(idx, "") or "")
         except Exception:
             label = ""
         try:
