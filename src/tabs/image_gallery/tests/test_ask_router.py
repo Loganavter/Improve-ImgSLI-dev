@@ -120,7 +120,9 @@ def test_context_block_falls_back_to_id_when_no_labels():
 
 
 def test_vision_payload_embeds_downscaled_image(monkeypatch):
-    monkeypatch.setattr(ask_router, "_encode_image", lambda p: ("png", "QUJD"))
+    from tabs.image_gallery.services import ask_payload
+
+    monkeypatch.setattr(ask_payload, "_encode_image", lambda p: ("png", "QUJD"))
     payload = build_vision_payload("what is wrong?", _CTX, model="m")
     content = payload["messages"][-1]["content"]
     assert content[0]["type"] == "text"
@@ -153,7 +155,9 @@ def test_answer_text_uses_transport_and_returns_text():
 
 
 def test_answer_vlm_routes_images(monkeypatch):
-    monkeypatch.setattr(ask_router, "_encode_image", lambda p: ("png", "QUJD"))
+    from tabs.image_gallery.services import ask_payload
+
+    monkeypatch.setattr(ask_payload, "_encode_image", lambda p: ("png", "QUJD"))
     captured = {}
 
     def fake_transport(base_url, api_key, payload):
