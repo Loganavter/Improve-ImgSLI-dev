@@ -204,8 +204,36 @@ def test_i18n_ask_ai_keys_present_in_all_locales():
             "action",
             "title",
             "default_prompt",
+            "busy",
             "read_badge",
             "error",
             "routing_unavailable",
         ):
             assert block.get(key), f"{path}: missing ask_ai.{key}"
+
+
+def test_flyout_chrome_is_localizable(qtbot):
+    anchor = QWidget()
+    qtbot.addWidget(anchor)
+    anchor.resize(200, 100)
+    anchor.show()
+    qtbot.waitExposed(anchor)
+
+    flyout = AskAiFlyout(anchor)
+    qtbot.addWidget(flyout)
+    flyout.set_texts(
+        title="Спросить у ИИ",
+        busy="Думаю…",
+        read_badge="Ответ ИИ, не проверено",
+        error="ИИ не смог ответить.",
+    )
+    flyout.open_for(anchor, default_prompt="Сводка")
+    qtbot.waitUntil(lambda: flyout.isVisible(), timeout=5000)
+    assert flyout._title.text() == "Спросить у ИИ"
+
+    flyout.set_busy(True)
+    assert flyout._status.text() == "Думаю…"
+    flyout.set_busy(False)
+    flyout.show_result("готово", backend="text")
+    assert "Ответ ИИ" in flyout._status.text()
+    flyout.hide()

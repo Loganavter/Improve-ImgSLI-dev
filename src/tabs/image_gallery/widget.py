@@ -901,9 +901,16 @@ class ImageGalleryWidget(QWidget):
             self._ask_ai_flyout = flyout
         return flyout
 
-    def open_ask_ai(self, anchor, scope, *, default_prompt: str = "Summary") -> None:
+    def open_ask_ai(
+        self, anchor, scope, *, default_prompt: str = "Summary", texts=None
+    ) -> None:
         """Show the Ask AI flyout; submit routes to ``controller.ask_ai_question``."""
         flyout = self._ensure_ask_ai_flyout()
+        if texts:
+            try:
+                flyout.set_texts(**texts)
+            except Exception:
+                pass
         # One live scope per open: drop the previous submit binding (disconnect
         # the exact slot; a bare disconnect() warns when nothing is bound).
         bound = getattr(self, "_ask_ai_submit_slot", None)

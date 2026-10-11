@@ -27,12 +27,18 @@ class AskAiFlyout(BaseFlyout):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self._default_prompt = "Summary"
+        # Localized chrome, injected by the controller (i18n). Defaults are
+        # English so the widget is usable standalone (tests/toolkit preview).
+        self._title_text = "Ask AI"
+        self._busy_text = "Thinking…"
+        self._read_badge = "AI read, unverified"
+        self._error_text = "AI could not answer."
         self.content_layout.setContentsMargins(
             scaled_px(12), scaled_px(12), scaled_px(12), scaled_px(12)
         )
         self.content_layout.setSpacing(scaled_px(8))
 
-        self._title = Label("Ask AI", pixel_size=13, bold=True, parent=self)
+        self._title = Label(self._title_text, pixel_size=13, bold=True, parent=self)
         self._scope = Label("", pixel_size=11, parent=self)
         self._edit = CustomLineEdit(parent=self)
         self._edit.setPlaceholderText(self._default_prompt)
@@ -115,17 +121,39 @@ class AskAiFlyout(BaseFlyout):
             pass
         super().keyPressEvent(event)
 
+    def set_texts(
+        self,
+        *,
+        title: str | None = None,
+        busy: str | None = None,
+        read_badge: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Inject localized chrome strings (from the tab i18n)."""
+        if title:
+            self._title_text = str(title)
+            try:
+                self._title.setText(self._title_text)
+            except Exception:
+                pass
+        if busy:
+            self._busy_text = str(busy)
+        if read_badge:
+            self._read_badge = str(read_badge)
+        if error:
+            self._error_text = str(error)
+
     def open_for(
         self,
         anchor: QWidget,
         *,
         scope_label: str = "",
         default_prompt: str = "Summary",
-        title: str = "Ask AI",
+        title: str = "",
     ) -> None:
         """Reset + show under *anchor*; focus lands in the question field."""
         self._default_prompt = str(default_prompt or "Summary")
-        self._title.setText(str(title or "Ask AI"))
+        self._title.setText(str(title or self._title_text))
         self._scope.setText(str(scope_label or ""))
         self._edit.setText("")
         self._edit.setPlaceholderText(self._default_prompt)
@@ -182,7 +210,7 @@ class AskAiFlyout(BaseFlyout):
             self._edit.setReadOnly(bool(busy))
         except Exception:
             pass
-        self._status.setText("Thinking…" if busy else "")
+        self._status.setText(self._busy_text if busy else "")
         self._relayout()
 
     def reshow(self, anchor: QWidget) -> None:
@@ -209,7 +237,7 @@ class AskAiFlyout(BaseFlyout):
                 pass
 
     def show_result(self, text: str, *, backend: str = "", cached: bool = False) -> None:
-        badge = "AI read, unverified"
+        badge = self._read_badge
         if backend:
             badge += f" · {backend}"
         if cached:
@@ -220,7 +248,7 @@ class AskAiFlyout(BaseFlyout):
 
     def show_error(self, message: str) -> None:
         self._result.setText("")
-        self._status.setText(str(message or "AI could not answer."))
+        self._status.setText(str(message or self._error_text))
         self._relayout()
 
     def restore_focus_on_hide(self) -> bool:

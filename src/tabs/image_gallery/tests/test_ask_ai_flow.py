@@ -68,7 +68,7 @@ class _WidgetStub:
     def reset_session_view(self):
         pass
 
-    def open_ask_ai(self, anchor, scope, *, default_prompt="Summary"):
+    def open_ask_ai(self, anchor, scope, *, default_prompt="Summary", texts=None):
         self.opened.append((anchor, scope, default_prompt))
 
     def show_ask_ai_busy(self):

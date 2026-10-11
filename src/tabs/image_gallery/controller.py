@@ -1702,9 +1702,20 @@ class GalleryController:
             return
         try:
             default = self._tr("image_gallery.ask_ai.default_prompt", "Summary")
+            texts = {
+                "title": self._tr("image_gallery.ask_ai.title", "Ask AI"),
+                "busy": self._tr("image_gallery.ask_ai.busy", "Thinking…"),
+                "read_badge": self._tr(
+                    "image_gallery.ask_ai.read_badge", "AI read, unverified"
+                ),
+                "error": self._tr(
+                    "image_gallery.ask_ai.error", "AI could not answer."
+                ),
+            }
         except Exception:
             default = "Summary"
-        opener(anchor, scope, default_prompt=default)
+            texts = None
+        opener(anchor, scope, default_prompt=default, texts=texts)
 
     def _ask_cache_key(self, scope, context, question: str, backend: str, model: str) -> str:
         import hashlib
