@@ -1,4 +1,5 @@
 """Context menu for gallery card — per-card + selection actions (toolkit ContextMenu).
+Audit-Meta: pattern=single-menu size=exempt reason="one card/selection context menu — its entry list, selection-vs-card routing and per-action closures are one cohesive surface; splitting would scatter the menu contract"
 
 Right-click on a card opens a standard toolkit ``ContextMenu`` under the
 cursor (``popup_at(QCursor.pos())``). The menu merges two groups:

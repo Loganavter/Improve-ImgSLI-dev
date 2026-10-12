@@ -151,6 +151,9 @@ def test_ask_ai_action_delegates_to_controller(qtbot, monkeypatch) -> None:
         2, w, (Path("/a.png"), Path("/b.png")), "MY SERIES", "series_1", None
     )
     captured["on_triggered"]("gallery.series.ask_ai", None)
+    # Ask AI opens on the next event-loop tick (never synchronously from the
+    # menu's teardown — avoids the Wayland busy-cursor flash).
+    qtbot.wait(30)
     assert got == [(2, (Path("/a.png"), Path("/b.png")), "MY SERIES")]
 
 

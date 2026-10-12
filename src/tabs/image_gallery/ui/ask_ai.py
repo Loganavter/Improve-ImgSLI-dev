@@ -34,6 +34,13 @@ class AskAiFlyout(BaseFlyout):
     # finish before this one opens (FlyoutManager deferral) — no overlapping
     # fades.
     wait_for_close_before_show = True
+    # Ask AI is always opened by a user click in the already-active app window;
+    # re-activating it would issue an xdg-activation that Mutter answers with a
+    # busy-cursor flash — especially right after a popup context menu closed
+    # (the window is transiently inactive for a frame). The toolkit's show()
+    # skips its activateWindow() for this opt-out; _grab_focus() still lands
+    # keyboard focus, so typing is unaffected.
+    _no_window_activate = True
 
     submitted = Signal(str)
     closed = Signal()

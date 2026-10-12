@@ -788,7 +788,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/ask_ai.py",
-      "lines": 520,
+      "lines": 527,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=single-surface size=exempt reason=\"one scope-aware ask flyout — its fade/persist/menu/status state is one cohesive surface; splitting would scatter the flyout lifecycle\"",
@@ -796,6 +796,18 @@
         "pattern": "single-surface",
         "size": "exempt",
         "reason": "one scope-aware ask flyout — its fade/persist/menu/status state is one cohesive surface; splitting would scatter the flyout lifecycle"
+      }
+    },
+    {
+      "path": "src/tabs/image_gallery/ui/card/context_menu.py",
+      "lines": 504,
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=single-menu size=exempt reason=\"one card/selection context menu — its entry list, selection-vs-card routing and per-action closures are one cohesive surface; splitting would scatter the menu contract\"",
+      "parsed": {
+        "pattern": "single-menu",
+        "size": "exempt",
+        "reason": "one card/selection context menu — its entry list, selection-vs-card routing and per-action closures are one cohesive surface; splitting would scatter the menu contract"
       }
     },
     {
