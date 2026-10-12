@@ -30,17 +30,10 @@ class AskAiFlyout(BaseFlyout):
     """Free-form question + AI result, anchored to a card or series header."""
 
     flyout_group = "gallery_ask_ai"
-    # BISECT (temporary): the manager's sequenced-cycle opt-in is inert for a
-    # popup context menu (it is not registered), so toggling it isolates
-    # whether the manager chain is involved in the busy-cursor flash.
-    wait_for_close_before_show = False
-    # Ask AI is always opened by a user click in the already-active app window;
-    # re-activating it would issue an xdg-activation that Mutter answers with a
-    # busy-cursor flash — especially right after a popup context menu closed
-    # (the window is transiently inactive for a frame). The toolkit's show()
-    # skips its activateWindow() for this opt-out; _grab_focus() still lands
-    # keyboard focus, so typing is unaffected.
-    _no_window_activate = True
+    # Sequenced cycle: if another flyout is still fading out, wait for it to
+    # finish before this one opens (FlyoutManager deferral) — no overlapping
+    # fades.
+    wait_for_close_before_show = True
 
     submitted = Signal(str)
     closed = Signal()

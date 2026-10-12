@@ -1243,22 +1243,17 @@ class ImageGalleryWidget(QWidget):
             except Exception:
                 pass
 
-        def _schedule_open_ask_ai() -> None:
-            # Next event-loop tick, never synchronously from the menu's close
-            # path: aboutToHide fires inside the popup fade's finished callback,
-            # before the menu's deleteLater / the focus hand-back settle —
-            # showing the flyout there flashes the Wayland busy cursor.
+        def _do_ask_ai() -> None:
+            # Open Ask AI on the NEXT event-loop tick, never synchronously from
+            # the menu's own close path. Showing the flyout from inside the
+            # popup's teardown makes the Wayland compositor flash the busy
+            # cursor; a fresh tick from the click is clean.
             try:
                 from PySide6.QtCore import QTimer
 
                 QTimer.singleShot(0, _open_ask_ai_now)
             except Exception:
                 _open_ask_ai_now()
-
-        def _do_ask_ai() -> None:
-            # BISECT (temporary): open immediately (pre-sequencing behaviour) to
-            # test whether the aboutToHide/singleShot chain causes the busy.
-            _open_ask_ai_now()
 
         def _do_rename() -> None:
             try:

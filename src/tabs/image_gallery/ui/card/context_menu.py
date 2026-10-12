@@ -1,5 +1,4 @@
 """Context menu for gallery card — per-card + selection actions (toolkit ContextMenu).
-Audit-Meta: pattern=single-menu size=exempt reason="one card/selection context menu — its entry list, selection-vs-card routing and per-action closures are one cohesive surface; splitting would scatter the menu contract"
 
 Right-click on a card opens a standard toolkit ``ContextMenu`` under the
 cursor (``popup_at(QCursor.pos())``). The menu merges two groups:
@@ -266,25 +265,18 @@ def popup_gallery_card_context_menu(  # type: ignore[no-untyped-def]
             except Exception:
                 pass
 
-        def _schedule_open_ask_ai(scope_kind: str) -> None:
-            # Open on the NEXT event-loop tick, never synchronously from the
-            # menu's own close path. aboutToHide fires inside the popup fade
-            # animation's finished callback, *before* the menu's deleteLater
-            # and the compositor's focus hand-back settle — showing the flyout
-            # (focus grab / reparent) inside that teardown flashes the Wayland
-            # busy cursor. One tick later the menu is gone and the window is
-            # active again.
+        def _do_ask_ai(scope_kind: str) -> None:
+            # Open Ask AI on the NEXT event-loop tick, never synchronously from
+            # the menu's own close path. Showing the flyout from inside the
+            # popup's teardown (its fade-finish ``aboutToHide`` callback or the
+            # ``destroyed`` after ``deleteLater``) makes the Wayland compositor
+            # flash the busy cursor; a fresh tick from the click is clean.
             try:
                 from PySide6.QtCore import QTimer
 
                 QTimer.singleShot(0, lambda: _open_ask_ai_now(scope_kind))
             except Exception:
                 _open_ask_ai_now(scope_kind)
-
-        def _do_ask_ai(scope_kind: str) -> None:
-            # BISECT (temporary): open immediately (pre-sequencing behaviour) to
-            # test whether the aboutToHide/singleShot chain causes the busy.
-            _open_ask_ai_now(scope_kind)
 
         ask_ai_label = _t(translate, "image_gallery.ask_ai.action", "AI…")
         entries: list = []
