@@ -1,4 +1,5 @@
 """Ask AI flyout (A3) — one scope-aware ask surface.
+Audit-Meta: pattern=single-surface size=exempt reason="one scope-aware ask flyout — its fade/persist/menu/status state is one cohesive surface; splitting would scatter the flyout lifecycle"
 
 A toolkit ``BaseFlyout`` with a ``CustomLineEdit`` (pre-filled, overridable
 default prompt: ``Tab`` accepts it, ``Enter`` sends) and a result pane marked
@@ -79,7 +80,7 @@ class AskAiFlyout(BaseFlyout):
             self._images_toggle.clicked.connect(self._on_images_toggled)
         except Exception:
             pass
-        self._result = Label("", pixel_size=14, word_wrap=True, parent=self)
+        self._result = Label("", pixel_size=16, word_wrap=True, parent=self)
         self._result.setMinimumWidth(scaled_px(MIN_WIDTH_PX - 40))
         self._status = Label("", pixel_size=16, parent=self)
 
@@ -278,6 +279,18 @@ class AskAiFlyout(BaseFlyout):
             self._edit.setFocus()
         except Exception:
             pass
+        # A remembered manual size must land on the FIRST frame: pin the
+        # flyout's minimum to it so show_aligned()'s adjustSize() cannot
+        # collapse it to the min-content size for the fade-in and then jump
+        # once _relayout applies the saved size after the animation. The
+        # post-animation _relayout still re-applies it (and may grow for
+        # content); this only removes the min-size first frame.
+        saved_size = getattr(self, "_user_size", None)
+        if saved_size is not None:
+            try:
+                self.setMinimumSize(int(saved_size[0]), int(saved_size[1]))
+            except Exception:
+                pass
         try:
             self.show_aligned(
                 anchor,
