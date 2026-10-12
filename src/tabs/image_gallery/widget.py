@@ -1232,14 +1232,43 @@ class ImageGalleryWidget(QWidget):
         """
         paths = tuple(member_paths or ())
         owner = self._owner_for_triage()
+        # Holds the opened menu so the Ask AI action can wait for its close.
+        menu_holder: dict = {}
 
-        def _do_ask_ai() -> None:
+        def _open_ask_ai_now() -> None:
             try:
                 fn = getattr(owner, "open_ask_ai_for_series", None)
                 if callable(fn):
                     fn(index, anchor, paths, str(label or ""))
             except Exception:
                 pass
+
+        def _schedule_open_ask_ai() -> None:
+            # Next event-loop tick, never synchronously from the menu's close
+            # path: aboutToHide fires inside the popup fade's finished callback,
+            # before the menu's deleteLater / the focus hand-back settle —
+            # showing the flyout there flashes the Wayland busy cursor.
+            try:
+                from PySide6.QtCore import QTimer
+
+                QTimer.singleShot(0, _open_ask_ai_now)
+            except Exception:
+                _open_ask_ai_now()
+
+        def _do_ask_ai() -> None:
+            # Runs from the menu's action click, right after the menu started
+            # closing (popup fade). Wait for it to be fully hidden
+            # (aboutToHide) before scheduling Ask AI so the two don't animate
+            # in parallel.
+            _menu = menu_holder.get("menu")
+            try:
+                if _menu is not None and _menu.isVisible():
+                    _menu.aboutToHide.connect(_schedule_open_ask_ai)
+                    _menu.hide()
+                    return
+            except Exception:
+                pass
+            _schedule_open_ask_ai()
 
         def _do_rename() -> None:
             try:
@@ -1341,7 +1370,7 @@ class ImageGalleryWidget(QWidget):
         try:
             from ui.context_menu.manager import open_context_menu_entries
 
-            open_context_menu_entries(
+            menu_holder["menu"] = open_context_menu_entries(
                 source_widget=source,
                 global_pos=pos,
                 entries=tuple(entries),

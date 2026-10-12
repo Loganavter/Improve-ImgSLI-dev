@@ -254,7 +254,7 @@ def popup_gallery_card_context_menu(  # type: ignore[no-untyped-def]
             except Exception:
                 pass
 
-        def _do_ask_ai(scope_kind: str) -> None:
+        def _open_ask_ai_now(scope_kind: str) -> None:
             try:
                 if callable(on_ask_ai):
                     on_ask_ai(scope_kind)
@@ -264,6 +264,41 @@ def popup_gallery_card_context_menu(  # type: ignore[no-untyped-def]
                     fn(scope_kind, card, path)
             except Exception:
                 pass
+
+        def _schedule_open_ask_ai(scope_kind: str) -> None:
+            # Open on the NEXT event-loop tick, never synchronously from the
+            # menu's own close path. aboutToHide fires inside the popup fade
+            # animation's finished callback, *before* the menu's deleteLater
+            # and the compositor's focus hand-back settle — showing the flyout
+            # (focus grab / reparent) inside that teardown flashes the Wayland
+            # busy cursor. One tick later the menu is gone and the window is
+            # active again.
+            try:
+                from PySide6.QtCore import QTimer
+
+                QTimer.singleShot(0, lambda: _open_ask_ai_now(scope_kind))
+            except Exception:
+                _open_ask_ai_now(scope_kind)
+
+        def _do_ask_ai(scope_kind: str) -> None:
+            # This runs from the menu's own action click, right after the menu
+            # started closing (popup fade). Wait for it to be fully hidden
+            # (aboutToHide) before scheduling Ask AI — otherwise the menu's
+            # fade-out and the flyout's show animate in parallel.
+            try:
+                _menu = menu  # enclosing scope, bound by the time this runs
+            except NameError:
+                _menu = None
+            try:
+                if _menu is not None and _menu.isVisible():
+                    _menu.aboutToHide.connect(
+                        lambda: _schedule_open_ask_ai(scope_kind)
+                    )
+                    _menu.hide()
+                    return
+            except Exception:
+                pass
+            _schedule_open_ask_ai(scope_kind)
 
         ask_ai_label = _t(translate, "image_gallery.ask_ai.action", "AI…")
         entries: list = []
