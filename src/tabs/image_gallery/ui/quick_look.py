@@ -25,7 +25,7 @@ except Exception:
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QPoint, QRect
 from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import QWidget
 
@@ -62,6 +62,8 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
     compareRequested = Signal(object)
     rejectToggled = Signal(object)
     setSource = Signal(object)
+    #: LMB region selection finished: (image path, normalized box (l,t,r,b)).
+    regionAskRequested = Signal(str, object)
 
     def __init__(self, parent: QWidget, owner=None) -> None:
         # Close policy: veil click, Esc, and the X button close;
@@ -103,6 +105,10 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
             self._preview_canvas = None
         if not hasattr(self, "_preview_store"):
             self._preview_store = None
+        # Region selection (LMB drag over the preview → Ask AI region scope).
+        self._region_active = False
+        self._region_start_host: QPoint | None = None
+        self._region_band = None
         # W8: the resizable card plate is a plain child widget — its own
         # resizes never reach the overlay's resizeEvent, so watch it and
         # re-run the pin hooks (nav circles, source inset, resize grip).

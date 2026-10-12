@@ -1003,7 +1003,7 @@
     },
     {
       "path": "src/tabs/image_gallery/widget.py",
-      "lines": 2554,
+      "lines": 2563,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner delegating to use_cases/triage+carry+quick look; splitting would create helpers bag\"",
@@ -1206,7 +1206,7 @@
     },
     {
       "path": "src/ui/main_window/csd_menu_strip.py",
-      "lines": 505,
+      "lines": 553,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single CSD menu strip — custom chrome + layout\"",
@@ -1217,7 +1217,7 @@
     },
     {
       "path": "src/ui/main_window/menu_controller.py",
-      "lines": 528,
+      "lines": 537,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine reason=\"single menu controller — platform menu assembly\"",

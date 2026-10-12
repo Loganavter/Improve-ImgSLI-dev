@@ -286,7 +286,7 @@ def popup_gallery_card_context_menu(  # type: ignore[no-untyped-def]
                 ContextMenuAction(
                     "gallery.selection.find_similar",
                     _t(translate, "image_gallery.selection.find_similar", "Find similar"),
-                    icon=Icon.COMPARE,
+                    icon="compare.svg",
                 ),
                 ContextMenuAction(
                     "gallery.selection.ask_ai",
@@ -315,7 +315,7 @@ def popup_gallery_card_context_menu(  # type: ignore[no-untyped-def]
                 ContextMenuAction(
                     "gallery.make_best",
                     "★ Make best",
-                    icon=Icon.STAR,
+                    icon="star.svg",
                 ),
                 ContextMenuAction(
                     "gallery.reject",

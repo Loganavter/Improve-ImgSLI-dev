@@ -295,6 +295,7 @@ class AskAiFlyout(BaseFlyout):
         initial_result=None,
         initial_error: str = "",
         initial_links: dict | None = None,
+        grow_up: bool = False,
     ) -> None:
         """Reset + show under *anchor*; focus lands in the question field.
 
@@ -358,10 +359,16 @@ class AskAiFlyout(BaseFlyout):
             except Exception:
                 pass
         try:
+            # ``grow_up`` pins the flyout's BOTTOM to the anchor's TOP so a
+            # taller wrapped result expands upward (region-inspection flyout);
+            # the default grows downward from the anchor's bottom.
+            anchor_point = "top-left" if grow_up else "bottom-left"
+            flyout_point = "bottom-left" if grow_up else "top-left"
+            self._grow_up = bool(grow_up)
             self.show_aligned(
                 anchor,
-                anchor_point="bottom-left",
-                flyout_point="top-left",
+                anchor_point=anchor_point,
+                flyout_point=flyout_point,
                 offset=scaled_px(8),
                 animation="fade",
             )
@@ -523,10 +530,11 @@ class AskAiFlyout(BaseFlyout):
         if anchor is None:
             return
         try:
+            grow_up = bool(getattr(self, "_grow_up", False))
             self.show_aligned(
                 anchor,
-                anchor_point="bottom-left",
-                flyout_point="top-left",
+                anchor_point="top-left" if grow_up else "bottom-left",
+                flyout_point="bottom-left" if grow_up else "top-left",
                 offset=scaled_px(8),
                 animation="none",
                 grab_focus=False,

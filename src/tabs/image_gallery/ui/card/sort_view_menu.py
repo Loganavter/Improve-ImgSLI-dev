@@ -41,7 +41,7 @@ def _submenu_icons():
 
     return {
         "gallery.sort_by": "text_filename.svg",
-        "gallery.sort.rank": Icon.STAR,
+        "gallery.sort.rank": "star.svg",
         "gallery.sort.name": "text_filename.svg",
         "gallery.sort.date": "sync.svg",
         "gallery.sort.quality": Icon.ALGORITHMS,

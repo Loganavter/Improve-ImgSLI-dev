@@ -1038,7 +1038,7 @@ class ImageGalleryWidget(QWidget):
             logger.debug("ask-ai image activation failed", exc_info=True)
 
     def open_ask_ai(
-        self, anchor, scope, *, default_prompt: str = "What matters here?", texts=None
+        self, anchor, scope, *, default_prompt: str = "What matters here?", texts=None, grow_up: bool = False
     ) -> None:
         """Show the Ask AI flyout; submit routes to ``controller.ask_ai_question``."""
         flyout = self._ensure_ask_ai_flyout()
@@ -1095,6 +1095,7 @@ class ImageGalleryWidget(QWidget):
             initial_result=initial_result,
             initial_error=initial_error,
             initial_links=initial_links,
+            grow_up=grow_up,
         )
 
     @staticmethod
@@ -1107,6 +1108,7 @@ class ImageGalleryWidget(QWidget):
                 paths,
                 str(getattr(scope, "series_id", "") or ""),
                 str(getattr(scope, "label", "") or ""),
+                tuple(getattr(scope, "box", ()) or ()),
             )
         except Exception:
             return None
