@@ -740,7 +740,7 @@
     },
     {
       "path": "src/tabs/image_gallery/controller.py",
-      "lines": 3989,
+      "lines": 4031,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=state-machine size=exempt reason=\"one controller lifecycle — folder scan/thumbnail/triage/VLM sharing GenericWorker state\"",
@@ -788,7 +788,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/ask_ai.py",
-      "lines": 692,
+      "lines": 700,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=single-surface size=exempt reason=\"one scope-aware ask flyout — its fade/persist/menu/status state is one cohesive surface; splitting would scatter the flyout lifecycle\"",
@@ -860,7 +860,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/quick_look.py",
-      "lines": 1490,
+      "lines": 1624,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner reason=\"thin owner delegating to ui/quick_look/* helpers,bars,histograms,metrics,artifacts,strip\"",
@@ -943,7 +943,7 @@
     },
     {
       "path": "src/tabs/image_gallery/ui/quick_look_hooks.py",
-      "lines": 546,
+      "lines": 572,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner-target size=exempt reason=\"one quick-look hooks concern: owner-first overlay wiring, triage toggles (reject/source set+unset) and strip hooks share one seam\"",
@@ -1003,7 +1003,7 @@
     },
     {
       "path": "src/tabs/image_gallery/widget.py",
-      "lines": 2563,
+      "lines": 2565,
       "limit": 500,
       "marker": "Audit-Meta:",
       "raw": "pattern=thin-owner size=exempt reason=\"thin owner delegating to use_cases/triage+carry+quick look; splitting would create helpers bag\"",

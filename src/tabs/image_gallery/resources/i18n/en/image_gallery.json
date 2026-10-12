@@ -70,7 +70,8 @@
       "error": "AI could not answer.",
       "routing_unavailable": "Routing is not enabled yet.",
       "images_toggle_hint": "Send images with the question",
-      "images_toggle_downsample": "Downscale: ≤ {px} px"
+      "images_toggle_downsample": "Downscale: ≤ {px} px",
+      "region_prompt": "What is wrong in this region?"
     },
     "series": {
       "ask_ai": "Ask AI",

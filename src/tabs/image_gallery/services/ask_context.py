@@ -25,6 +25,8 @@ from tabs.image_gallery.use_cases import quality as _quality
 #: Scope kinds the builder recognizes.
 ASK_SERIES = "series"
 ASK_SELECTION = "selection"
+#: One rectangle of one image (Quick Look region inspection).
+ASK_REGION = "region"
 
 #: Axis id → human label / axis kind (static registry, see ``metric_scores``).
 _AXIS_LABELS: dict[str, str] = {spec.id: spec.label for spec in SPECS}
@@ -47,6 +49,9 @@ class AskScope:
     paths: tuple[Path, ...] = ()
     label: str = ""
     series_id: str | None = None
+    #: ``region`` scope only: the selected rectangle as fractions of the image
+    #: ``(left, top, right, bottom)`` in 0..1.
+    box: tuple[float, float, float, float] = ()
 
 
 def _state(controller) -> Any:
@@ -101,7 +106,7 @@ def _selection_paths(controller) -> list:
 
 def _resolve_items(scope: AskScope, controller) -> tuple[list, str]:
     """Resolve the items + a human label for *scope* (fail-open to empty)."""
-    kind = scope.kind if scope.kind in (ASK_SERIES, ASK_SELECTION) else ASK_SELECTION
+    kind = scope.kind if scope.kind in (ASK_SERIES, ASK_SELECTION, ASK_REGION) else ASK_SELECTION
     paths: list = [Path(p) for p in (scope.paths or ())]
     label = str(scope.label or "")
     if kind == ASK_SERIES:
@@ -117,7 +122,7 @@ def _resolve_items(scope: AskScope, controller) -> tuple[list, str]:
             paths = [Path(p) for p in _selection_paths(controller)]
         items = [it for it in (_find_item(controller, p) for p in paths) if it is not None]
         if not label:
-            label = "Selection"
+            label = "Selected region" if kind == ASK_REGION else "Selection"
     return items, label
 
 
@@ -237,7 +242,7 @@ def build_ask_context(scope: AskScope, *, controller) -> dict:
     """
     if not isinstance(scope, AskScope):
         scope = AskScope()
-    kind = scope.kind if scope.kind in (ASK_SERIES, ASK_SELECTION) else ASK_SELECTION
+    kind = scope.kind if scope.kind in (ASK_SERIES, ASK_SELECTION, ASK_REGION) else ASK_SELECTION
     items, label = _resolve_items(scope, controller)
     ctx_items = []
     names: dict[str, str] = {}
@@ -259,7 +264,7 @@ def build_ask_context(scope: AskScope, *, controller) -> dict:
     except Exception:
         source_str = None
 
-    return {
+    result = {
         "kind": kind,
         "label": label,
         "count": len(ctx_items),
@@ -272,9 +277,27 @@ def build_ask_context(scope: AskScope, *, controller) -> dict:
         # model never has to guess what e.g. "typicality" means.
         "metric_labels": dict(_AXIS_LABELS),
     }
+    # Region scope: carry the selected rectangle (fractions) + its image path so
+    # the vision payload can crop it and the model knows where to look.
+    if kind == ASK_REGION and scope.box:
+        try:
+            box = tuple(float(v) for v in scope.box)
+            region_path = str(getattr(items[0], "path", "")) if items else ""
+            if not region_path and scope.paths:
+                region_path = str(Path(scope.paths[0]))
+            if region_path:
+                result["region"] = {
+                    "path": region_path,
+                    "box": box,
+                    "label": "SELECTED REGION (crop)",
+                }
+        except Exception:
+            pass
+    return result
 
 
 __all__ = [
+    "ASK_REGION",
     "ASK_SELECTION",
     "ASK_SERIES",
     "AskScope",

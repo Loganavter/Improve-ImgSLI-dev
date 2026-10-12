@@ -1805,12 +1805,12 @@ class GalleryController:
         )
         self._open_ask_ai(anchor, scope)
 
-    def _open_ask_ai(self, anchor, scope) -> None:
+    def _open_ask_ai(self, anchor, scope, *, grow_up: bool = False, default_prompt: str | None = None) -> None:
         opener = getattr(self.widget, "open_ask_ai", None)
         if not callable(opener):
             return
         try:
-            default = self._tr("image_gallery.ask_ai.default_prompt", "What matters here?")
+            default = default_prompt or self._tr("image_gallery.ask_ai.default_prompt", "What matters here?")
             _settings = self._ai_settings_store.load()
             texts = {
                 "title": self._tr("image_gallery.ask_ai.title", "Ask AI"),
@@ -1834,7 +1834,32 @@ class GalleryController:
         except Exception:
             default = "What matters here?"
             texts = None
-        opener(anchor, scope, default_prompt=default, texts=texts)
+        try:
+            opener(anchor, scope, default_prompt=default, texts=texts, grow_up=grow_up)
+        except TypeError:
+            opener(anchor, scope, default_prompt=default, texts=texts)
+
+    def open_ask_ai_region(self, path, box, anchor=None, *, question: str = "") -> None:
+        """Open the Ask AI flyout ABOVE the anchor for a selected image region.
+
+        ``box`` is ``(left, top, right, bottom)`` as fractions of the image.
+        The flyout grows upward; the region + full image + metrics are sent to
+        the VLM with the region system prompt on submit.
+        """
+        from tabs.image_gallery.services.ask_context import ASK_REGION, AskScope
+
+        try:
+            box_t = tuple(float(v) for v in (box or ()))
+        except Exception:
+            box_t = ()
+        if len(box_t) != 4:
+            return
+        scope = AskScope(kind=ASK_REGION, paths=(Path(path),), label="", box=box_t)
+        target = anchor if anchor is not None else self.widget
+        prompt = question or self._tr(
+            "image_gallery.ask_ai.region_prompt", "What is wrong in this region?"
+        )
+        self._open_ask_ai(target, scope, grow_up=True, default_prompt=prompt)
 
     def _images_downsample_text(self, px: int) -> str:
         """Tooltip line 2 for the Ask AI images toggle: the current downscale."""
@@ -1864,6 +1889,10 @@ class GalleryController:
             "question": str(question or "").strip(),
             "backend": backend,
             "model": model,
+            # Region asks must not collide with whole-image asks.
+            "region": (context or {}).get("region", {}).get("box")
+            if isinstance((context or {}).get("region"), dict)
+            else None,
         }
         blob = json.dumps(ident, sort_keys=True, ensure_ascii=False)
         return hashlib.sha1(blob.encode("utf-8")).hexdigest()
@@ -1894,6 +1923,18 @@ class GalleryController:
             logger.debug("ask-ai context build failed", exc_info=True)
             self._show_ask_ai_error("Could not assemble the ask context.")
             return
+        is_region = str(getattr(scope, "kind", "") or "") == "region"
+        if is_region:
+            # Region inspection is always visual: the crop + full image go out.
+            backend = "vlm"
+        system_prompt = None
+        if is_region:
+            try:
+                from tabs.image_gallery.services.ask_prompt import ASK_REGION_SYSTEM_PROMPT
+
+                system_prompt = ASK_REGION_SYSTEM_PROMPT
+            except Exception:
+                system_prompt = None
         logger.debug(
             "[ask-ai] route backend=%s items=%d", backend, len(context.get("items") or [])
         )
@@ -1947,6 +1988,7 @@ class GalleryController:
                 model=settings.model,
                 max_tokens=getattr(settings, "ask_max_tokens", 0),
                 reasoning_effort=getattr(settings, "reasoning_effort", "auto"),
+                system_prompt=system_prompt,
             )
             if not getattr(result, "error", None) and names:
                 try:
