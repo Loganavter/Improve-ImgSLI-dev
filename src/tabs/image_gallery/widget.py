@@ -1256,19 +1256,9 @@ class ImageGalleryWidget(QWidget):
                 _open_ask_ai_now()
 
         def _do_ask_ai() -> None:
-            # Runs from the menu's action click, right after the menu started
-            # closing (popup fade). Wait for it to be fully hidden
-            # (aboutToHide) before scheduling Ask AI so the two don't animate
-            # in parallel.
-            _menu = menu_holder.get("menu")
-            try:
-                if _menu is not None and _menu.isVisible():
-                    _menu.aboutToHide.connect(_schedule_open_ask_ai)
-                    _menu.hide()
-                    return
-            except Exception:
-                pass
-            _schedule_open_ask_ai()
+            # BISECT (temporary): open immediately (pre-sequencing behaviour) to
+            # test whether the aboutToHide/singleShot chain causes the busy.
+            _open_ask_ai_now()
 
         def _do_rename() -> None:
             try:

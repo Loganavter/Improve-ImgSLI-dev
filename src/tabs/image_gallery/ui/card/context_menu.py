@@ -282,24 +282,9 @@ def popup_gallery_card_context_menu(  # type: ignore[no-untyped-def]
                 _open_ask_ai_now(scope_kind)
 
         def _do_ask_ai(scope_kind: str) -> None:
-            # This runs from the menu's own action click, right after the menu
-            # started closing (popup fade). Wait for it to be fully hidden
-            # (aboutToHide) before scheduling Ask AI — otherwise the menu's
-            # fade-out and the flyout's show animate in parallel.
-            try:
-                _menu = menu  # enclosing scope, bound by the time this runs
-            except NameError:
-                _menu = None
-            try:
-                if _menu is not None and _menu.isVisible():
-                    _menu.aboutToHide.connect(
-                        lambda: _schedule_open_ask_ai(scope_kind)
-                    )
-                    _menu.hide()
-                    return
-            except Exception:
-                pass
-            _schedule_open_ask_ai(scope_kind)
+            # BISECT (temporary): open immediately (pre-sequencing behaviour) to
+            # test whether the aboutToHide/singleShot chain causes the busy.
+            _open_ask_ai_now(scope_kind)
 
         ask_ai_label = _t(translate, "image_gallery.ask_ai.action", "AI…")
         entries: list = []
