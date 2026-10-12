@@ -1303,16 +1303,23 @@ class ImageGalleryWidget(QWidget):
         except Exception:
             return
 
+        try:
+            from tabs.image_gallery.icons import Icon as _GalleryIcon
+        except Exception:
+            _GalleryIcon = None  # type: ignore[assignment]
+
         has_reset = callable(getattr(owner, "reset_series_overrides", None))
         has_recluster = callable(getattr(owner, "recluster_series", None))
         entries: list = [
             ContextMenuAction(
                 "gallery.series.ask_ai",
                 self._tr_ui("image_gallery.series.ask_ai", "Ask AI"),
+                icon=getattr(_GalleryIcon, "AI", None),
             ),
             ContextMenuAction(
                 "gallery.series.rename",
                 self._tr_ui("image_gallery.series.rename", "Rename"),
+                icon="text_filename.svg",
                 enabled=bool(series_id),
             ),
             ContextMenuAction(
@@ -1328,6 +1335,7 @@ class ImageGalleryWidget(QWidget):
                 ContextMenuAction(
                     "gallery.series.reset",
                     self._tr_ui("image_gallery.series.reset", "Reset manual series"),
+                    icon="undo.svg",
                 )
             )
         if has_recluster:
@@ -1335,6 +1343,7 @@ class ImageGalleryWidget(QWidget):
                 ContextMenuAction(
                     "gallery.series.recluster",
                     self._tr_ui("image_gallery.series.recluster", "Re-cluster series"),
+                    icon="sync.svg",
                 )
             )
         if tail:
