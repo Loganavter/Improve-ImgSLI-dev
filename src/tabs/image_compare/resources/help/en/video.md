@@ -1,16 +1,16 @@
 ## Video Editor
 
-A live {{tr:workspace.session_types.image_compare}} session as recorded control tracks, with timeline trim and encode to video or GIF. Stills stay on [Export](help://export).
+A live {{tr:workspace.session_types.image_compare}} session, recorded as you work, with timeline trim and encode to video or GIF. Stills stay on [Export](help://export).
 
 ### Record a session {#recording}
 
-- **Start / pause / stop** — {{tr:image_compare.action.record}} (`R`), {{tr:image_compare.action.pause_recording}}, then stop from the same controls.
-- **What is stored** — canvas actions over time (zoom/pan, divider, magnifier, loaded images, related settings) as control tracks — not a raw screen grab.
+- **Start / pause / stop** — {{tr:image_compare.action.record}} (`R`), {{tr:image_compare.action.pause_recording}}, then stop from the same buttons.
+- **What is stored** — what you do on the canvas over time (zoom/pan, divider, magnifier, loaded images, related settings) — not a screen recording.
 - **Capture rate** — [Settings](help://settings#image_compare) ({{tr:settings.recording_fps}}).
 
 ### Open the editor {#open-editor}
 
-After the recording stops, {{tr:image_compare.action.video_editor}} (`Ctrl+E`) scrubs frames, edits the range, and exports. Editor controls in {{tr:menu.find_action}} open this topic.
+After the recording stops, {{tr:image_compare.action.video_editor}} (`Ctrl+E`) scrubs frames, edits the range, and exports. Editor actions in {{tr:menu.find_action}} open this topic.
 
 ### Timeline editing {#timeline}
 
@@ -26,7 +26,7 @@ After the recording stops, {{tr:image_compare.action.video_editor}} (`Ctrl+E`) s
 
 ### Tracks and what was captured {#tracks}
 
-The editor shows each recorded tool as its own track (splitter, magnifier, viewport, and similar), so you can see when each control changed during the session. To change the result, trim or delete ranges on the [timeline](help://video#timeline) and use undo or redo.
+The editor lists each recorded tool on its own timeline row (splitter, magnifier, canvas view, and similar), so you can see when each tool changed during the session. To change the result, trim or delete ranges on the [timeline](help://video#timeline) and use undo or redo.
 
 ### Preview quality {#preview-quality}
 
@@ -52,7 +52,7 @@ The editor shows each recorded tool as its own track (splitter, magnifier, viewp
 
 ### {{tr:video.manual_cli}} {#manual-cli}
 
-When the standard tab is not enough, {{tr:video.manual_cli}} passes raw FFmpeg output arguments.
+When the standard tab is not enough, {{tr:video.manual_cli}} passes your own FFmpeg output arguments.
 
 ### Next topics {#next-topics}
 

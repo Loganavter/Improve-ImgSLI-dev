@@ -10,7 +10,7 @@ With the magnifier off, drag the divider across the pair.
 - **Width** — scroll over {{tr:image_compare.action.divider_width}}.
 - **Color** — {{tr:image_compare.action.divider_color}}.
 - **Visibility** (`D`) — {{tr:image_compare.action.divider_visible}} shows or hides the line.
-- **Combined** — {{tr:image_compare.action.divider_combined}} packs orientation, width, and color (scroll / right-click / middle-click); see the control tooltip.
+- **Combined** — {{tr:image_compare.action.divider_combined}} packs orientation, width, and color (scroll / right-click / middle-click); see the button tooltip.
 
 :::figure{side=block width=280}
 ![Split line]({{img:workspace.image_compare.comparison.split_line}})

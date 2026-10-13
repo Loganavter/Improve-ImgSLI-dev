@@ -25,5 +25,5 @@ Compare-canvas gestures (see [Comparison](help://comparison)):
 ### While zoomed {#zoom-side-effects}
 
 - **Filename labels** — hide only when zoomed past `100%` in the normal split view; they stay on while zoomed out and in side preview, and return on fit.
-- **Split line** — fractional position (0–1); the fraction holds while zoom changes.
+- **Split line** — position is a share of the canvas; the share holds while zoom changes.
 - **Render quality** — interpolation in [Settings](help://settings#image_compare); backend switch under [Settings → Performance](help://settings#performance).

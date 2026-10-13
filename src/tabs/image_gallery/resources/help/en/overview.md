@@ -26,7 +26,7 @@ Loaded folders group near-duplicates into series.
 
 The stats strip shows the number of images, series, and redundant images in the folder.
 
-- **Compare** — sends the best image of each series plus the images outside any series, up to 12 files, to Image Compare.
+- **Compare** — sends the best image of each series plus the images outside any series, currently up to 12 files, to Image Compare.
 - **Card click** — opens Quick Look with the image's quality readings.
 
 ### Next topics {#next-topics}

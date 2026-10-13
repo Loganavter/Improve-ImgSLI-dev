@@ -5,7 +5,7 @@ Application behavior in one dialog: built-in pages plus sections contributed by 
 ### Open Settings {#open-settings}
 
 - **Menu** — {{tr:menu.settings}} (`Ctrl+,`).
-- **Toolbar** — the gear button.
+- **Toolbar** — the settings button.
 - **Find Action** — `Ctrl+Shift+P` ({{tr:menu.find_action}}) and a page name ({{tr:settings.general}}, {{tr:settings.appearance}}, {{tr:settings.keyboard}}, …).
 - **{{tr:action.palette.learn_more}}** — opens the help topic for a settings action, when one exists.
 - **{{tr:common.ok}}** — applies the current values and keeps the dialog open.
@@ -14,7 +14,7 @@ Application behavior in one dialog: built-in pages plus sections contributed by 
 
 ### Search inside Settings {#search}
 
-A search field sits above the sidebar. Each matching section appears as one row, however deep the match sits (a control name, a group title, any language). Activating a row opens that section with the matched options highlighted. `Esc` clears the search and restores the full sidebar. The sidebar is resizable.
+A search field sits above the sidebar. Each matching section appears as one row, however deep the match sits (an option name, a group title, any language). Activating a row opens that section with the matched options highlighted. `Esc` clears the search and restores the full sidebar. The sidebar is resizable.
 
 ### General {#general}
 

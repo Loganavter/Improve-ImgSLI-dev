@@ -5,7 +5,7 @@
 ### Открыть настройки {#open-settings}
 
 - **Меню** — {{tr:menu.settings}} (`Ctrl+,`).
-- **Панель** — кнопка-шестерёнка.
+- **Панель** — кнопка настроек.
 - **{{tr:menu.find_action}}** — `Ctrl+Shift+P` и имя страницы ({{tr:settings.general}}, {{tr:settings.appearance}}, {{tr:settings.keyboard}}, …).
 - **{{tr:action.palette.learn_more}}** — у действия настроек открывает подходящий якорь, если тег задан.
 - **{{tr:common.ok}}** — применяет текущие значения, диалог остаётся открытым.

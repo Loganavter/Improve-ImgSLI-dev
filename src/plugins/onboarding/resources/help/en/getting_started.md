@@ -4,7 +4,7 @@ Orientation for a fresh install. First launch shows a full-window overlay: pick 
 
 ### Pick a UI mode {#ui-mode}
 
-- The overlay previews each mode — {{tr:settings.ui_mode_beginner}}, {{tr:settings.ui_mode_advanced}}, {{tr:settings.ui_mode_expert}} — with sample controls; mode buttons and dots switch between the slides.
+- The overlay previews each mode — {{tr:settings.ui_mode_beginner}}, {{tr:settings.ui_mode_advanced}}, {{tr:settings.ui_mode_expert}} — with sample buttons; mode buttons and dots switch between the slides.
 - **{{tr:onboarding.start_button}}** confirms the highlighted mode and opens the workspace.
 - The choice is not final: switch modes any time under [Settings](help://settings) → {{tr:settings.appearance}}.
 
@@ -18,4 +18,4 @@ A grid of slots for more than two images, opened from the [Session Picker](help:
 
 ### Discover features {#discover}
 
-`Ctrl+Shift+P` searches and runs any action; {{tr:action.palette.learn_more}} opens the matching help topic. `F1` opens the palette filtered to the focused chrome. Inside the Help window, the search field above the topic list jumps to matching pages. Next topics: [Workspace Tabs](help://session_picker), [Files and Projects](help://file_management), [Comparison](help://comparison), [Export](help://export), [Settings](help://settings).
+`Ctrl+Shift+P` searches and runs any action; {{tr:action.palette.learn_more}} opens the matching help topic. `F1` opens the palette filtered to the focused element. Inside the Help window, the search field above the topic list jumps to matching pages. Next topics: [Workspace Tabs](help://session_picker), [Files and Projects](help://file_management), [Comparison](help://comparison), [Export](help://export), [Settings](help://settings).

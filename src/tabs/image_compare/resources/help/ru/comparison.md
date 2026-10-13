@@ -10,7 +10,7 @@
 - **Ширина** — колесо над {{tr:image_compare.action.divider_width}}.
 - **Цвет** — {{tr:image_compare.action.divider_color}}.
 - **Видимость** (`D`) — {{tr:image_compare.action.divider_visible}} показывает или скрывает линию.
-- **Комбинированный** — {{tr:image_compare.action.divider_combined}} собирает ориентацию, ширину и цвет (скролл / ПКМ / СКМ); жесты в подсказке контрола.
+- **Комбинированный** — {{tr:image_compare.action.divider_combined}} собирает ориентацию, ширину и цвет (скролл / ПКМ / СКМ); жесты — в подсказке кнопки.
 
 :::figure{side=block width=280}
 ![Линия раздела]({{img:workspace.image_compare.comparison.split_line}})

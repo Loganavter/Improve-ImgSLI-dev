@@ -6,7 +6,7 @@ Slots sit in a split grid with per-cell drops, gap splits, and draggable divider
 
 - **Grid** — slots take file drops or {{tr:multi_compare.action.add_images}} (`Ctrl+O`).
 - **Empty slots** — stay open for new drops.
-- **Outside drops** — file-manager drops, clipboard paste, or **Move** from another tab auto-place with a loading toast.
+- **Outside drops** — file-manager drops, clipboard paste, or **Move** from another tab auto-place with a loading notification.
 - **Auto-place** — new images split the largest cell along its longer axis.
 - **Rearrange** — drag a slot onto another slot to swap them; drop into a gap to insert between; see [Gap split zones](#gap-split-zones).
 - **Layout change** — keeps loaded images.

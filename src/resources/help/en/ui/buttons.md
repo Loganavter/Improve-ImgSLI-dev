@@ -1,11 +1,11 @@
 ## Buttons and Controls
 
-The toolbar sits above the canvas in a compare session. It holds the tools for that session — split line, view modes, magnifier, recording — while lists, add/save, and the settings gear live in the surrounding chrome.
+The toolbar sits above the canvas in a compare session. It holds the tools for that session — split line, view modes, magnifier, recording — while the lists, add/save, and settings buttons sit in the window around it.
 
 ### The toolbar {#toolbar}
 
-- **Toolbar** — strip of icon controls for the active session type: toggles, value nudges, and buttons that open a panel or dialog.
-- **{{tr:settings.ui_mode}}** — sets how many controls the toolbar shows.
+- **Toolbar** — strip of icon buttons for the active session type: toggles, value nudges, and buttons that open a panel or dialog.
+- **{{tr:settings.ui_mode}}** — sets how many buttons the toolbar shows.
 
 :::figure{side=block height=107}
 ![Session toolbar]({{img:ui.buttons.toolbar}})
@@ -18,7 +18,7 @@ The same tools are laid out differently in each {{tr:settings.ui_mode}}. First-r
 
 ### {{tr:settings.ui_mode_beginner}} {#mode-beginner}
 
-More separate buttons — one control ≈ one job.
+More separate buttons — one button, one action.
 
 :::figure{side=block height=65}
 ![Beginner toolbar layout]({{img:ui.buttons.mode_beginner}})
@@ -27,7 +27,7 @@ More separate buttons — one control ≈ one job.
 
 ### {{tr:settings.ui_mode_advanced}} {#mode-advanced}
 
-Fewer icons. Some controls already combine a short click with a scroll (for example orientation + thickness).
+Fewer icons. Some buttons already combine a short click with a scroll (for example orientation + thickness).
 
 :::figure{side=block height=65}
 ![Advanced toolbar layout]({{img:ui.buttons.mode_advanced}})
@@ -36,7 +36,7 @@ Fewer icons. Some controls already combine a short click with a scroll (for exam
 
 ### {{tr:settings.ui_mode_expert}} {#mode-expert}
 
-Densest strip: one control combines click, scroll, and other mouse buttons.
+Densest strip: one button combines click, scroll, and other mouse buttons.
 
 :::figure{side=block height=65}
 ![Expert toolbar layout]({{img:ui.buttons.mode_expert}})
@@ -45,7 +45,7 @@ Densest strip: one control combines click, scroll, and other mouse buttons.
 
 ### Minimal {#mode-minimal}
 
-Fewest controls — the essentials only; everything else stays reachable through {{tr:menu.find_action}}.
+Fewest buttons — the essentials only; everything else stays reachable through {{tr:menu.find_action}}.
 
 ### Multi-action controls {#multi-action}
 
@@ -54,7 +54,7 @@ In {{tr:settings.ui_mode_advanced}} and especially {{tr:settings.ui_mode_expert}
 - **Short click** — primary action or toggle.
 - **Scroll** — nudge a numeric value (divider thickness, magnifier size, …) without opening a dialog.
 - **Long-press** — stronger variant on some list buttons (clear a whole list; swap both lists).
-- **Other mouse buttons** (expert) — for example right-click for color or middle-click to reset on compact divider controls.
+- **Other mouse buttons** (expert) — for example right-click for color or middle-click to reset on compact divider buttons.
 
 {{tr:settings.ui_mode_beginner}} keeps those jobs on separate buttons instead of stacking them.
 
