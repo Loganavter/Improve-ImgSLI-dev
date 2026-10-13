@@ -4,9 +4,7 @@ The toolbar sits at the top and holds the action buttons you need.
 
 ### The toolbar {#toolbar}
 
-- **Toolbar** — strip of buttons at the top for the active tab.
-- **Contents** — each tab brings its own set: compare tabs hold split line, view modes, magnifier, recording; the gallery holds folder, filter, sorting. The session picker has no toolbar.
-- **Density** — in compare tabs follows {{tr:settings.ui_mode}}; other tabs keep a fixed set.
+Each tab brings its own buttons: compare tabs hold split line, view modes, magnifier, recording; the gallery holds folder, filter, sorting. The session picker has no toolbar. In compare tabs density follows {{tr:settings.ui_mode}}.
 
 :::figure{side=block height=107}
 ![Session toolbar]({{img:ui.buttons.toolbar}})
