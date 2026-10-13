@@ -15,17 +15,14 @@ Load images into session lists, paste from the clipboard, and open or save porta
 
 ### Lists {#lists}
 
-- **{{tr:workspace.session_types.image_compare}}** — left and right lists are independent; the list-manager panel covers reorder, rate, rename, path, properties, remove — [Lists and Panels](help://ui.lists_flyouts).
-- **{{tr:workspace.session_types.multi_compare}}** — per-slot drops instead of dual lists — [{{tr:workspace.session_types.multi_compare}}](help://multi_compare).
-
-Each session has its own tab; see [Tabs](help://tabs).
+Lists belong to their session — [Lists and Panels](help://ui.lists_flyouts). Each session has its own tab — [Tabs](help://tabs).
 
 ### Projects {#projects}
 
-- **Open** — `Ctrl+Shift+O`, or {{tr:menu.find_action}}, opens a `.imgsli` file from the File menu. Opening a project names the active tab after the file. The project restores workspace sessions, compare settings (split, diff, magnifier, and related features), and embedded image copies.
+- **Open** — `Ctrl+Shift+O`, or {{tr:menu.find_action}}, opens a `.imgsli` file from the File menu. Opening a project names the active tab after the file. The project restores workspace sessions, compare settings, and embedded image copies.
 - **Save** — `Shift+S` writes the current file; when no file exists yet, **Save As** opens instead. Saving also retargets the file basename when the tab was renamed.
 - **Save As** — `Ctrl+Shift+S`. Suggests a renamed tab title when the active tab is custom, otherwise {{tr:menu.project_untitled}}.
-- **Portable package** — the file is a ZIP: session JSON plus a `media/` folder with embedded copies of the images.
+- **Portable package** — a single file bundles the session layout, compare settings, and embedded copies of the images.
 - **Missing sources on save** — if a listed path no longer exists, the project still saves; that image is omitted and a warning lists it.
 - **App preferences** — theme, language, and hotkeys stay in application settings; they are not part of the project file.
 
