@@ -12,7 +12,7 @@ Click a **slot** (a grid cell holding one image) to focus it: the rest of the gr
 - **Wheel** — zooms from 1.0x to 50x in 1.1x steps; the point under the cursor stays in place.
 - **Pan limits** — panning stops at the edge of the image; at fit size or smaller the view snaps back.
 - **Middle-drag** — drag with the middle mouse button to pan.
-- **`0`** — resets zoom and pan.
+- `0` — resets zoom and pan.
 
 ### Keyboard {#keyboard}
 

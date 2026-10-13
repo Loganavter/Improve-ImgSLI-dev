@@ -30,7 +30,7 @@ The export dialog: **Preview** shows the composed result before the file is writ
 
 ### Quick save {#quick-save}
 
-- **`Ctrl+S`** — **Quick Save** writes the file with the last export settings without reopening the dialog.
+- `Ctrl+S` — **Quick Save** writes the file with the last export settings without reopening the dialog.
 - **Tray** — the tray-icon menu reopens the last saved file and its folder.
 
 ### Recording and video {#video-editor}

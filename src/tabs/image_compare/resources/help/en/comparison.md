@@ -20,7 +20,7 @@ The divider controls on the toolbar, in their compact and expanded forms.
 ### Scroll through images {#scroll-images}
 
 - **Canvas wheel** — scrolling steps the list on the side under the cursor: left of a vertical divider or above a horizontal one is side 1, the other half is side 2.
-- **`Shift` + wheel** — steps both lists together.
+- `Shift` + wheel — steps both lists together.
 - **Single-image preview** — with only one image shown, the wheel always steps the visible side.
 - **Dropdown wheel** — scrolling over a dropdown steps that side without opening its panel.
 - **Swap** (`X`) — a short click exchanges the current pair; a long press swaps both lists.

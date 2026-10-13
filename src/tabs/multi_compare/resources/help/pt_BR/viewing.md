@@ -12,7 +12,7 @@ Clique em um **slot** (uma célula da grade que contém uma imagem) para focaliz
 - **Roda** — aplica zoom de 1,0x a 50x em passos de 1,1x; o ponto sob o cursor permanece no lugar.
 - **Limites da panorâmica** — a panorâmica para na borda da imagem; no tamanho ajustado ou menor, a vista volta ao lugar.
 - **Arrastar com o botão do meio** — arraste com o botão do meio do mouse para fazer a panorâmica.
-- **`0`** — redefine o zoom e a panorâmica.
+- `0` — redefine o zoom e a panorâmica.
 
 ### Teclado {#keyboard}
 

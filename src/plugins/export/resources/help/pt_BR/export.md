@@ -30,7 +30,7 @@ O diálogo de exportação: a **Pré-visualização** mostra o resultado compost
 
 ### Salvamento rápido {#quick-save}
 
-- **`Ctrl+S`** — **Salvamento rápido** grava o arquivo com as últimas configurações de exportação sem reabrir o diálogo.
+- `Ctrl+S` — **Salvamento rápido** grava o arquivo com as últimas configurações de exportação sem reabrir o diálogo.
 - **Bandeja** — o menu do ícone na bandeja reabre o último arquivo salvo e a sua pasta.
 
 ### Gravação e vídeo {#video-editor}

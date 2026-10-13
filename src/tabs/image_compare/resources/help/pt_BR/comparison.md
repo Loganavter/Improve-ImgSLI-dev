@@ -20,7 +20,7 @@ Os controles do divisor na barra de ferramentas, nas formas compacta e expandida
 ### Percorrer imagens com a rolagem {#scroll-images}
 
 - **Rolagem no canvas** — a rolagem avança a lista do lado sob o cursor: à esquerda de um divisor vertical ou acima de um horizontal fica o lado 1, a outra metade é o lado 2.
-- **`Shift` + rolagem** — avança as duas listas juntas.
+- `Shift` + rolagem — avança as duas listas juntas.
 - **Pré-visualização de uma imagem** — com apenas uma imagem visível, a rolagem sempre avança o lado visível.
 - **Rolagem no menu suspenso** — rolar sobre um menu suspenso troca aquele lado sem abrir o painel.
 - **Trocar** (`X`) — um clique curto troca o par atual; um pressionamento longo troca as duas listas.
