@@ -1,6 +1,6 @@
 ## Comparison
 
-Two images on the full canvas: a movable split, optional filename labels, channel views, and difference modes — without opening the magnifier.
+Two images on the full canvas: a movable split, optional filename labels, channel views, and difference modes — without opening the magnifier. Live canvas, export stills, and video recording keep the same look.
 
 ### Split line {#split-line}
 
@@ -28,7 +28,7 @@ With the magnifier off, drag the divider across the pair.
 ### Labels {#labels-and-metrics}
 
 - **Show names** (`N`) — {{tr:image_compare.action.file_names}}; can burn into exports when enabled.
-- **Zoom** — labels hide while zoom is not `100%` and return at fit zoom.
+- **Zoom** — labels hide while zoomed in and return at fit zoom.
 - **Text settings** — {{tr:image_compare.action.text_settings}} opens a panel for size, weight, opacity, colors, background, and placement.
 
 ### Metrics {#metrics}
@@ -58,4 +58,4 @@ With the magnifier off, drag the divider across the pair.
 - **{{tr:image_compare.action.diff_edges}}** — edge-oriented difference
 - **{{tr:image_compare.action.diff_ssim}}** — structural similarity map when metrics support it
 
-Live canvas, export stills, and video recording keep the same look. Difference modes combine with channel views. For local inspection, use the [Magnifier](help://magnifier).
+Difference modes combine with channel views. For local inspection, use the [Magnifier](help://magnifier).
