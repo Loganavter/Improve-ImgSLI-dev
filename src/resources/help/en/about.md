@@ -1,14 +1,14 @@
 ## About
 
-{{tr:app.name}} is a desktop workspace for precise image and media comparison. Side-by-side and multi-image views with pixel-scale difference inspection; connected tabs add still export and comparison video recording.
+{{tr:app.name}} is a desktop workspace for precise image comparison. Connected tabs add still export and comparison video recording.
 
 ### What it is for {#purpose}
 
-Comparison of visual change with the context kept: retouching, upscaling QA, photography — sessions where a split, a magnifier, and an exportable result matter more than a one-off screenshot.
+Comparison of visual change with the context kept: retouching, upscaling QA, photography — sessions where context and a saved result matter more than a one-off screenshot.
 
 ### Workspace modes {#modes}
 
-One card per connected tab; the set grows with the installed tabs. {{tr:workspace.session_types.image_compare}} compares image pairs with a movable split, magnifiers, and difference modes — [Comparison](help://comparison). {{tr:workspace.session_types.multi_compare}} lays many images into a grid of slots — [{{tr:workspace.session_types.multi_compare}}](help://multi_compare). The session picker card opens, resumes, and manages sessions — [Workspace Tabs](help://session_picker). First orientation: [Getting Started](help://introduction).
+The home screen shows every connected tab type. Clicking any card opens its page.
 
 ### License and source {#license}
 

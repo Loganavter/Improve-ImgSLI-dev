@@ -4,7 +4,7 @@ The tab strip above the workspace holds one tab per open session. The active tab
 
 ### Tab strip {#tab-strip}
 
-- **Switch** — a click activates the session of that tab.
-- **Close** — the close button removes the tab's session. Closing the last session replaces it with the session picker, so the strip never stands empty.
-- **Context menu** — rename, duplicate, closing of the other tabs, and creation of a new tab of any connected type. Duplicate stays hidden on the session picker itself; closing of the others appears only with more than one session open.
-- **Automatic titles** — untouched tabs show the session-type name in the current language; a rename stores a custom title that survives language switches.
+- **Switch** — click a tab to activate its session.
+- **Close** — press the close button to remove the tab's session. Closing the last session replaces it with the session picker, so the strip never stands empty.
+- **Right-click** — rename, duplicate, close the other tabs, or create a new tab; the set depends on the tab.
+- **Read the title** — untouched tabs show the session-type name in the current language; a rename stores a custom title that survives language switches.

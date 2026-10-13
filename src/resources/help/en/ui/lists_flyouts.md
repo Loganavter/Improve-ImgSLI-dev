@@ -1,10 +1,10 @@
 ## Lists and Panels
 
-Dropdowns open in-window panels over the main window. An outside click or `Esc` dismisses the panel. Toolbar layout and multi-action gestures: [Buttons and Controls](help://ui.buttons). Filename label styling: [Comparison](help://comparison).
+Lists open as panels over the window; an outside click or `Esc` closes them.
 
 ### List manager {#list-manager}
 
-In a {{tr:workspace.session_types.image_compare}} session each side has a list dropdown. A click opens that side's list-manager panel; the panel stays closed if the list is empty. The same dropdown, an outside click, or a row pick closes it.
+Each tab manages its own image lists — list appearance and actions: [Comparison](help://comparison), [Magnifier](help://magnifier).
 
 :::figure{side=block width=320}
 ![List manager panel]({{img:ui.lists_flyouts.list_manager}})
@@ -13,21 +13,19 @@ List dropdown → list-manager panel.
 
 ### Toolbar buttons {#quick-list-actions}
 
-Buttons beside each dropdown add, swap, or remove images on that side. Short click versus long-press depends on the UI mode — [Buttons and Controls](help://ui.buttons#multi-action).
+Buttons beside each list act on that list. Toolbar layout and multi-action gestures: [Buttons and Controls](help://ui.buttons#multi-action). Which buttons each tab shows: [Comparison](help://comparison), [Magnifier](help://magnifier).
 
 ### Rows {#rows}
 
-- **Select** — click a row to make it current; the panel closes and the canvas updates. `Ctrl`/`Cmd`+click toggles rows for a multi-selection.
-- **Move** — drag rows to reorder one list or move them to the other list.
-- **Path tip** — hover a truncated name to see the full path.
+How rows are selected, moved, and described: [Comparison](help://comparison).
 
 ### Rating {#rating}
 
-Change the row score with the minus / plus buttons or a scroll over the chip, without leaving the panel.
+How row ratings change: [Comparison](help://comparison).
 
 ### Context menu {#context-menu}
 
-Right-click a list row or the current canvas frame for its action menu — properties, path, and list-membership actions. Properties opens [Image Properties](help://image_properties).
+Right-click menus over list rows and the canvas frame: [Comparison](help://comparison). Properties opens [Image Properties](help://image_properties).
 
 ### Scroll {#scroll-lists}
 
@@ -39,17 +37,11 @@ Files and clipboard images land in the session lists — full rules: [Files and 
 
 ### Label settings panel {#toolbar-flyouts}
 
-The panel opens from {{tr:image_compare.action.text_settings}} or a right-click on {{tr:image_compare.action.file_names}}; `Esc` or an outside click closes it.
-
-The panel covers font size, weight, opacity, text and background colors, draw-background, and label placement (edges / split line).
+Label and text styling panels: [Comparison](help://comparison), [Magnifier](help://magnifier).
 
 :::figure{side=block width=280}
 ![Label settings panel]({{img:ui.lists_flyouts.toolbar_flyouts}})
 {{tr:image_compare.action.text_settings}}.
 :::
 
-Split-line color and magnifier option panels are separate — [Comparison](help://comparison) and [Magnifier](help://magnifier).
-
-### {{tr:workspace.session_types.multi_compare}} {#multi-compare}
-
-A {{tr:workspace.session_types.multi_compare}} session has no dual-list panel — images go into grid slots. Label text settings still open a panel (without the placement radios from {{tr:workspace.session_types.image_compare}}). Details: [{{tr:workspace.session_types.multi_compare}}](help://multi_compare).
+Details for other tabs live in their own help topics.
