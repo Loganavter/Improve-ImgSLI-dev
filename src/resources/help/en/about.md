@@ -1,6 +1,6 @@
 ## About
 
-{{tr:app.name}} is a desktop workspace for precise image and media comparison. Side-by-side and multi-image views, pixel-scale difference inspection, still export, and comparison video recording.
+{{tr:app.name}} is a desktop workspace for precise image and media comparison. Side-by-side and multi-image views with pixel-scale difference inspection; connected tabs add still export and comparison video recording.
 
 ### What it is for {#purpose}
 

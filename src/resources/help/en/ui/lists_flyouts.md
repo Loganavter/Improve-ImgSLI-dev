@@ -4,47 +4,38 @@ Dropdowns open in-window panels over the main window. An outside click or `Esc` 
 
 ### List manager {#list-manager}
 
-In a {{tr:workspace.session_types.image_compare}} session each side has a list dropdown. A click opens that side's list-manager panel (rows, ratings, drag). The panel stays closed if the list is empty. The same dropdown, an outside click, or a row pick closes it. While rename or properties is open, the panel does not dismiss on focus loss.
+In a {{tr:workspace.session_types.image_compare}} session each side has a list dropdown. A click opens that side's list-manager panel; the panel stays closed if the list is empty. The same dropdown, an outside click, or a row pick closes it.
 
 :::figure{side=block width=320}
 ![List manager panel]({{img:ui.lists_flyouts.list_manager}})
 List dropdown → list-manager panel.
 :::
 
-### Scroll {#scroll-lists}
+### Toolbar buttons {#quick-list-actions}
 
-- **Dropdown wheel** — steps the current image on that side without opening the panel.
-- **Canvas wheel** — steps the side under the cursor; `Shift` + wheel steps both sides. Full rules: [Comparison → Scroll through images](help://comparison#scroll-images).
-- **Rating wheel** — changes the row score only, not the current index.
+Buttons beside each dropdown add, swap, or remove images on that side. Short click versus long-press depends on the UI mode — [Buttons and Controls](help://ui.buttons#multi-action).
 
 ### Rows {#rows}
 
-- **Select** — a click on a row makes it current; the panel closes and the canvas updates.
-- **Multi-select** — `Ctrl`/`Cmd`+click toggles rows; a drag across empty panel space draws a marquee. Dragging any selected row moves the whole set.
-- **Reorder** — dragging within one list.
-- **Move across lists** — a drag outside the single panel expands the double mode; dropping on the other list moves the rows.
-- **Path tip** — hovering a truncated name shows the full path.
+- **Select** — click a row to make it current; the panel closes and the canvas updates. `Ctrl`/`Cmd`+click toggles rows for a multi-selection.
+- **Move** — drag rows to reorder one list or move them to the other list.
+- **Path tip** — hover a truncated name to see the full path.
 
 ### Rating {#rating}
 
-Each row has a rating chip. Minus / plus buttons or a scroll over the chip change the score without leaving the panel.
+Change the row score with the minus / plus buttons or a scroll over the chip, without leaving the panel.
 
 ### Context menu {#context-menu}
 
-- **List row** — rename, copy path, properties, move, crop override, or remove.
-- **Canvas (current frame)** — copy path, duplicate, properties, move, crop override, and remove; rename stays list-only.
+Right-click a list row or the current canvas frame for its action menu — properties, path, and list-membership actions. Properties opens [Image Properties](help://image_properties).
 
-Properties opens [Image Properties](help://image_properties).
+### Scroll {#scroll-lists}
 
-### Toolbar buttons {#quick-list-actions}
-
-- **Add files** — button beside each dropdown; appends to that side only.
-- **Swap** (`X`) — short click exchanges the current pair; long-press swaps both lists.
-- **Remove** — short click drops the current frame on that side; long-press clears the whole list for that side.
+The wheel steps images without opening the panel — full rules: [Comparison → Scroll through images](help://comparison#scroll-images).
 
 ### Loading {#loading}
 
-A file drop lands in the list on the side under the cursor. `Ctrl+V` pastes a clipboard image and may show a side overlay — see [Files and Projects](help://file_management).
+Files and clipboard images land in the session lists — full rules: [Files and Projects](help://file_management#loading-images).
 
 ### Label settings panel {#toolbar-flyouts}
 
