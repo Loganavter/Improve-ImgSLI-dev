@@ -4,9 +4,9 @@ The magnifier samples a region of the compared pair and shows an enlarged view o
 
 ### Enabling {#enabling}
 
-- **Toggle** — {{tr:image_compare.action.magnifier}} on the toolbar, or `M`.
-- **Place** — click or drag on the image to set the capture area (red circle).
-- **Ring** — capture-ring size and color follow the lens styling.
+- **Turn on** — {{tr:image_compare.action.magnifier}} on the toolbar, or `M`.
+- **Click to place** — click or drag on the image to set the capture area (red circle).
+- **Style the ring** — capture-ring size and color follow the lens styling.
 
 :::figure{side=block width=280}
 ![Magnifier lens]({{img:workspace.image_compare.magnifier.enabling}})
@@ -15,10 +15,10 @@ The magnifier samples a region of the compared pair and shows an enlarged view o
 
 ### Size and movement {#size-and-movement}
 
-- **Lens size** — {{tr:image_compare.label.magnifier_size}}.
-- **Capture size** — {{tr:image_compare.label.capture_size}} (how much source area is sampled).
-- **Move** — `WASD` with the lens active; `QE` adjusts spacing when halves are separated.
-- **Speed** — {{tr:magnifier.move_speed}} on the magnifier panel when it is shown.
+- **Change the lens size** — {{tr:image_compare.label.magnifier_size}}.
+- **Change the capture size** — {{tr:image_compare.label.capture_size}} (how much source area is sampled).
+- **Move** — `WASD` with the lens active; `QE` adjusts the spacing between the halves (the two lens sides) when they are separated.
+- **Adjust the speed** — {{tr:magnifier.move_speed}} on the magnifier panel when it is shown.
 
 ### Freeze {#freeze}
 
@@ -26,21 +26,21 @@ The magnifier samples a region of the compared pair and shows an enlarged view o
 
 ### Divider, guides, and colors {#guides-and-colors}
 
-- **Orientation** — {{tr:image_compare.action.magnifier_orientation}}.
-- **Internal divider** — {{tr:image_compare.action.magnifier_divider_combined}} (scroll / right-click).
-- **Visibility** — {{tr:image_compare.action.magnifier_divider_visible}} and {{tr:image_compare.action.magnifier_guides}}, plus their widths.
-- **Colors** — {{tr:image_compare.action.magnifier_colors}} for per-instance outline colors.
+- **Flip orientation** — {{tr:image_compare.action.magnifier_orientation}}.
+- **Scroll or right-click** — {{tr:image_compare.action.magnifier_divider_combined}} adjusts the internal divider.
+- **Show or hide** — {{tr:image_compare.action.magnifier_divider_visible}} and {{tr:image_compare.action.magnifier_guides}} toggle the divider and guides, plus their widths.
+- **Pick colors** — {{tr:image_compare.action.magnifier_colors}} sets per-instance outline colors.
 
 ### Multiple instances {#instances}
 
-- **Add / remove** — {{tr:image_compare.action.magnifier_instances}} to watch several regions.
-- **Auto-color** — new instances can get distinct colors when that option is on in Settings.
+- **Add or remove** — {{tr:image_compare.action.magnifier_instances}} watches several regions.
+- **Recolor automatically** — new instances get distinct colors when that option is on in Settings.
 
 ### Combined mode {#combined-mode}
 
-- **Merge** — when both halves stay visible and their spacing closes to the combine threshold, they become one lens.
-- **Internal split** — drag with `RMB` inside the lens.
-- **Side preview** — `Space+Shift` forces one side inside the combined lens.
+- **Merge** — Drag the halves together to merge.
+- **Split inside** — drag with `RMB` inside the lens.
+- **Force one side** — `Space+Shift` forces one side inside the combined lens.
 
 :::figure{side=block width=280}
 ![Combined magnifier]({{img:workspace.image_compare.magnifier.combined_mode}})
@@ -49,10 +49,14 @@ The magnifier samples a region of the compared pair and shows an enlarged view o
 
 For a full-canvas compare without the lens, see [Comparison](help://comparison).
 
+### Toolbar in this tab {#toolbar}
+
+The magnifier buttons on the toolbar depend on {{tr:settings.ui_mode}}: beginner keeps nine separate buttons (magnifier, instances, freeze, orientation, divider visibility, colors, divider width, guides, guides width); advanced and expert keep six combined ones; minimal keeps two (magnifier, instances). The rest runs through {{tr:menu.find_action}}.
+
 ### Settings that affect the magnifier {#related-settings}
 
 Magnifier-related options live under [Settings](help://settings#image_compare):
 
-- Optimize magnifier movement and its interpolation
-- Intersection highlight between lenses
-- Auto-color for new instances
+- Speed up movement and its interpolation
+- Highlight intersections between lenses
+- Recolor new instances automatically
