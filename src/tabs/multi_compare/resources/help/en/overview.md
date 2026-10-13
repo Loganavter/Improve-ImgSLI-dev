@@ -1,6 +1,8 @@
 ## Multi Compare Overview
 
-One session compares many images in a layout grid with per-slot drops and focus mode.
+One session compares many images in a layout grid: drop files into slots and focus one slot to inspect it.
+
+The toolbar above the grid holds divider buttons (three in beginner, two in advanced, one in expert, none in minimal) plus label text settings in every density and quick save everywhere except minimal; the full save dialog lives in the footer bar.
 
 :::figure{side=block width=320}
 ![Multi Compare grid]({{img:workspace.multi_compare.overview.layouts}})
@@ -13,6 +15,6 @@ One session compares many images in a layout grid with per-slot drops and focus 
 
 ### What you can do {#capability-map}
 
-- [Layouts and slots](help://mc_layouts) — cells, gap splits, dividers, actions.
-- [Viewing and focus](help://mc_viewing) — focus, zoom, pan, labels, crop.
-- [Save and export](help://mc_export) — quick save, save dialog, sessions.
+- **Lay out slots** — [Layouts and slots](help://mc_layouts): cells, gap splits, dividers, actions.
+- **Inspect slots** — [Viewing and focus](help://mc_viewing): focus, zoom, pan, labels, crop.
+- **Save the grid** — [Save and export](help://mc_export): quick save, save dialog, sessions.
