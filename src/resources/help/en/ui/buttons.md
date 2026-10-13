@@ -4,8 +4,8 @@ The toolbar sits above the canvas in a compare session. It holds the tools for t
 
 ### The toolbar {#toolbar}
 
-- **Toolbar** — strip of icon controls for the active session type. Each control is a toggle, a value nudge, or a button that opens a panel or dialog.
-- **{{tr:settings.ui_mode}}** — sets how many controls the toolbar shows. First-run onboarding sets it; [Settings → Appearance](help://settings#interface) changes it later.
+- **Toolbar** — strip of icon controls for the active session type: toggles, value nudges, and buttons that open a panel or dialog.
+- **{{tr:settings.ui_mode}}** — sets how many controls the toolbar shows.
 
 :::figure{side=block height=107}
 ![Session toolbar]({{img:ui.buttons.toolbar}})
@@ -42,6 +42,10 @@ Densest strip: one control combines click, scroll, and other mouse buttons.
 ![Expert toolbar layout]({{img:ui.buttons.mode_expert}})
 {{tr:settings.ui_mode}} → {{tr:settings.ui_mode_expert}}.
 :::
+
+### Minimal {#mode-minimal}
+
+Fewest controls — the essentials only; everything else stays reachable through {{tr:menu.find_action}}.
 
 ### Multi-action controls {#multi-action}
 

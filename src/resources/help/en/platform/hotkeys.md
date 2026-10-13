@@ -17,7 +17,7 @@ Default chords below. Most action shortcuts remap under {{tr:menu.settings}} →
 - `Ctrl+Shift+O` / `Shift+S` / `Ctrl+Shift+S` — Open / save / save project as (`.imgsli`)
 - `Ctrl+Q` — Quit
 
-Exact labels follow the language pack; overrides live under Settings → Keyboard → platform group.
+Remap under [Settings → Keyboard](help://settings#keyboard).
 
 ### {{tr:workspace.session_types.image_compare}} {#image-compare}
 
@@ -28,7 +28,7 @@ Exact labels follow the language pack; overrides live under Settings → Keyboar
 - `R` / `Ctrl+E` — Record / Video Editor
 - `Ctrl+S` — Quick save
 - `WASD` / `QE` — Magnifier move / spacing (fixed)
-- `Shift` + `Space` — Side preview in combined mode (fixed)
+- `Space` + `Shift` + click — Side preview inside the combined lens (fixed)
 - `←↑↓→` / `+` / `-` — Pan / zoom (fixed)
 
 Details: [Comparison](help://comparison), [Magnifier](help://magnifier), [Video Editor](help://video).
@@ -51,7 +51,7 @@ See [Triage and Review](help://gallery_triage).
 
 ### Video editor window {#video-editor}
 
-While the editor is open: `Space` play/pause, `Ctrl+Z` / `Ctrl+Y` undo/redo, `Delete` / `Backspace` trim to selection. Full encode workflow: [Video Editor](help://video).
+Timeline keys (play, trim, undo) live on the [Video Editor](help://video#timeline) timeline.
 
 ### Keyboard navigation {#keyboard-navigation}
 
