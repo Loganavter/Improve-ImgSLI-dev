@@ -1,25 +1,23 @@
 ## Quality Metrics
 
-Every image gets a score from 0 to 100; higher is better. A score is a summary of several measurements of the image, such as sharpness, exposure, noise, and color, so a high score means the image does well across them.
+Every image gets a score from 0 to 100; higher is better. A score summarizes several measurements of the image, such as sharpness, exposure, noise, and color.
 
-### Measured metrics {#measured-metrics}
+### Measure the score {#measured-metrics}
 
-The score combines technical measurements of the image, including how it compares with the source when one is set. Quick Look shows the raw readings behind each score. When the optional learned backend is installed, perceptual distances and a naturalness reading are added as well.
+The score is computed automatically; see Quick Look for details.
 
-### Where scores appear {#where-scores}
+### See where scores show {#where-scores}
 
 - **Quick Look** — per-image metric rows with the raw readings.
-- **Card dots** — a small marker per artifact check on each card, showing whether the check is clean, mild, or flagged.
+- **Card dots** — dots on the card flag remarks.
 - **{{tr:image_gallery.sort_quality}}** — sorts by AI quality first; unscored items sink to the end.
 
-### Modes {#modes}
+### Compare with a reference {#modes}
 
-**Fidelity** is how closely an image matches the source. Fidelity mode holds only while a source is set; picking the source is always manual, never automatic.
+Compare against a reference: assign it yourself.
 
-Without a source, the folder is treated as camera or batch-synthetic. The mode decides which artifact checks apply to the card dots.
+### Assign the reference {#reference-source}
 
-### Reference source {#reference-source}
+**Source** is the image chosen as the reference to compare against.
 
-**Source** is the image chosen as the fidelity reference.
-
-{{tr:image_gallery.action.set_as_source}} sets the fidelity reference; fidelity analysis re-runs against it. Scores follow the new reference on the next pass.
+{{tr:image_gallery.action.set_as_source}} assigns the reference to compare against. Scores update after assignment.
