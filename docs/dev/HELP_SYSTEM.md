@@ -227,7 +227,10 @@ Banned in prose (RU): тулбар (→ Панель инструментов), 
 `{#anchors}` only). Banned in prose (EN): control track, keyframe, screen
 grab/raw screen, chrome, flyout (ids/anchors only).
 
-Intros: 1–2 sentences, what + when, no dangling qualifiers. Host pages
+Intros: 1–2 sentences, what + when, no dangling qualifiers. Every phrase
+must pass basic logic: no dangling genitives (`Линия раздела` — раздела
+чего?), every term either self-evident or defined on first use; if a
+heading needs `чего` to make sense, the heading is wrong. Host pages
 never enumerate concrete tabs (tabs are pluggable); tab specifics live in
 that tab's own help. Gate: `src/devtools/check_help_style.sh` (jargon grep
 + EN/RU `###` parity) must pass before any help merge, alongside
