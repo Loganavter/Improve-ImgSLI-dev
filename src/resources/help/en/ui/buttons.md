@@ -13,14 +13,14 @@ Each tab decides which buttons its toolbar shows.
 
 ### Interface modes {#ui-modes}
 
-Layout density follows the interface mode — see the active tab's help for details: [Comparison](help://comparison#toolbar), [Magnifier](help://magnifier#toolbar), [Layouts](help://mc_layouts#toolbar). Change the mode under [Settings → Appearance](help://settings#interface).
+Layout density follows the interface mode — see the active tab's help for details: [Comparison](help://comparison#toolbar), [Magnifier](help://magnifier#toolbar), [Layouts](help://mc_layouts#toolbar). The mode changes under [Settings → Appearance](help://settings#interface).
 
 ### Several actions on one button {#multi-action}
 
 Depending on the interface mode, one button can respond to several gestures:
 
 - **Short click** — primary action or toggle.
-- **Scroll** — adjust a value without opening a dialog.
+- **Scroll** — a value adjusted without opening a dialog.
 - **Long-press** — stronger variant on some buttons.
 - **Other mouse buttons** — extra variants in the densest mode.
 
@@ -29,6 +29,6 @@ Depending on the interface mode, one button can respond to several gestures:
 List button — short click vs long-press.
 :::
 
-### Find an action by name {#find-action}
+### Action lookup by name {#find-action}
 
-Open the palette with `Ctrl+Shift+P` ({{tr:menu.find_action}}), type part of the label, and run the action or press `Ctrl+Enter` to open {{tr:action.palette.learn_more}} when the row has a help topic.
+The palette opens with `Ctrl+Shift+P` ({{tr:menu.find_action}}); a typed label fragment narrows the list. An action runs from its row, and `Ctrl+Enter` opens {{tr:action.palette.learn_more}} when the row has a help topic.

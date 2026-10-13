@@ -230,7 +230,10 @@ grab/raw screen, chrome, flyout (ids/anchors only).
 Intros: 1–2 sentences, what + when, no dangling qualifiers. Every phrase
 must pass basic logic: no dangling genitives (`Линия раздела` — раздела
 чего?), every term either self-evident or defined on first use; if a
-heading needs `чего` to make sense, the heading is wrong. Host pages
+heading needs `чего` to make sense, the heading is wrong. Every section
+must pass the so-what test: `зачем` / `нахуя мне эта информация` from the
+reader's chair — if a section does not change what the user does next, it
+is deleted or folded into its neighbour. Host pages
 never enumerate concrete tabs (tabs are pluggable); tab specifics live in
 that tab's own help. Gate: `src/devtools/check_help_style.sh` (jargon grep
 + EN/RU `###` parity) must pass before any help merge, alongside

@@ -7,7 +7,7 @@ File metadata and in-app context for one loaded image. The dialog opens over the
 {{tr:image_properties.title}}.
 :::
 
-### Open the dialog {#open}
+### Dialog opening {#open}
 
 The {{tr:image_compare.action.context_properties}} entry in the image context menu opens {{tr:image_properties.title}} for that image. The {{tr:recent.action_properties}} entry in the recent-projects context menu opens it for that project.
 
@@ -26,6 +26,6 @@ The dialog hides empty rows and drops a section left with no values; it marks a 
 
 {{tr:image_properties.section_app}} shows how the session places the image (side, position, rating — depending on the session type). These rows are session state, not the file.
 
-### Close {#close}
+### Closing {#close}
 
-{{tr:image_properties.close}} dismisses the dialog. {{tr:image_properties.copy_all}} copies every visible row to the clipboard; to copy part of the page, select it and use {{tr:action.context_copy}} (or {{tr:action.context_select_all}} first).
+{{tr:image_properties.close}} dismisses the dialog. {{tr:image_properties.copy_all}} copies every visible row to the clipboard; a partial copy comes from a text selection via {{tr:action.context_copy}} (or {{tr:action.context_select_all}} first).

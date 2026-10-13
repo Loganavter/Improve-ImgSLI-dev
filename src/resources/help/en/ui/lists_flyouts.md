@@ -29,9 +29,9 @@ Right-click menus over list rows and the canvas frame: [Comparison](help://compa
 
 ### Scroll {#scroll-lists}
 
-The wheel steps images without opening the panel — full rules: [Comparison → Scroll through images](help://comparison#scroll-images).
+The wheel steps images without opening the panel — full rules: [Comparison → Image scrolling](help://comparison#scroll-images).
 
-### Loading {#loading}
+### Loading into lists {#loading}
 
 Files and clipboard images land in the session lists — full rules: [Files and Projects](help://file_management#loading-images).
 

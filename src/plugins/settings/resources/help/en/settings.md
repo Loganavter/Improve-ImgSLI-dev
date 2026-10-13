@@ -4,19 +4,19 @@ Application behavior in one dialog: built-in pages plus sections contributed by 
 
 Comparison options live in the [Comparison](help://comparison) help. Gallery AI settings live in the [Image Gallery](help://gallery_ask_ai) help.
 
-### Open Settings {#open-settings}
+### Settings opening {#open-settings}
 
-- **Menu** — open {{tr:menu.settings}} (`Ctrl+,`).
-- **Toolbar** — the toolbar sits at the top and holds the settings button; press it.
-- **Find Action** — press `Ctrl+Shift+P` ({{tr:menu.find_action}}) and type a page name ({{tr:settings.general}}, {{tr:settings.appearance}}, {{tr:settings.keyboard}}, …).
-- **{{tr:action.palette.learn_more}}** — open the help topic for a settings action, when one exists.
-- **{{tr:common.ok}}** — apply the current values and keep the dialog open.
-- **{{tr:common.cancel}}** — close the dialog.
+- **Menu** — {{tr:menu.settings}} (`Ctrl+,`).
+- **Toolbar** — the settings button at the top of the toolbar.
+- **Find Action** — `Ctrl+Shift+P` ({{tr:menu.find_action}}) plus a page name ({{tr:settings.general}}, {{tr:settings.appearance}}, {{tr:settings.keyboard}}, …).
+- **{{tr:action.palette.learn_more}}** — the help topic for a settings action, when one exists.
+- **{{tr:common.ok}}** — the current values applied, the dialog left open.
+- **{{tr:common.cancel}}** — the dialog closed.
 - **Esc** — never closes the Settings dialog; it clears the in-dialog search when one is active.
 
 ### Search inside Settings {#search}
 
-Type in the search field above the sidebar. Each matching section appears as one row, however deep the match sits (an option name, a group title, any language). Activate a row to open that section with the matched options highlighted. Press `Esc` to clear the search and restore the full sidebar.
+Text in the search field above the sidebar. Each matching section appears as one row, however deep the match sits (an option name, a group title, any language). An activated row opens that section with the matched options highlighted. `Esc` clears the search and restores the full sidebar.
 
 ### General {#general}
 
@@ -28,8 +28,8 @@ Type in the search field above the sidebar. Each matching section appears as one
 ### Appearance {#interface}
 
 - **{{tr:settings.ui_mode}}** — {{tr:settings.ui_mode_beginner}} / {{tr:settings.ui_mode_advanced}} / {{tr:settings.ui_mode_expert}} radios; beginner mode is selected by default.
-- **{{tr:settings.ui_font}}** — pick the builtin, system default, or a custom family.
-- **{{tr:settings.ui_scale}}** — drag the interface scale slider.
+- **{{tr:settings.ui_font}}** — the builtin, system default, or a custom family.
+- **{{tr:settings.ui_scale}}** — the interface scale slider.
 - **Limits** — caps on displayed values.
 
 ### Performance {#performance}
@@ -38,6 +38,6 @@ Type in the search field above the sidebar. Each matching section appears as one
 
 ### Keyboard {#keyboard}
 
-- **Remap** — shortcuts are grouped by owner.
-- **Reset** — reset one shortcut or all.
+- **Grouping** — shortcuts grouped by owner.
+- **Resetting** — one shortcut or all.
 - **Fixed** — canvas `WASD` and `Space` stay fixed — see [Hotkeys](help://hotkeys).

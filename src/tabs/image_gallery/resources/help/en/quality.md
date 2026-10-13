@@ -2,21 +2,21 @@
 
 Every image gets a score from 0 to 100; higher is better. A score summarizes several measurements of the image, such as sharpness, exposure, noise, and color.
 
-### Measure the score {#measured-metrics}
+### Score measurement {#measured-metrics}
 
-The score is computed automatically; see Quick Look for details.
+The score is computed automatically; details live in Quick Look.
 
-### See where scores show {#where-scores}
+### Score locations {#where-scores}
 
 - **Quick Look** — per-image metric rows with the raw readings.
 - **Card dots** — dots on the card flag remarks.
-- **{{tr:image_gallery.sort_quality}}** — sorts by AI quality first; unscored items sink to the end.
+- **{{tr:image_gallery.sort_quality}}** — AI quality first; unscored items sink to the end.
 
-### Compare with a reference {#modes}
+### Reference comparison {#modes}
 
-Compare against a reference: assign it yourself.
+Comparison against a reference, assigned manually.
 
-### Assign the reference {#reference-source}
+### Reference assignment {#reference-source}
 
 **Source** is the image chosen as the reference to compare against.
 

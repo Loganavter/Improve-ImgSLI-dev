@@ -7,7 +7,7 @@
 {{tr:image_properties.title}}.
 :::
 
-### Открыть диалог {#open}
+### Открытие диалога {#open}
 
 Пункт {{tr:image_compare.action.context_properties}} в контекстном меню изображения открывает {{tr:image_properties.title}} для этого изображения. Пункт {{tr:recent.action_properties}} в контекстном меню недавних проектов открывает его для этого проекта.
 
@@ -28,4 +28,4 @@
 
 ### Закрытие {#close}
 
-{{tr:image_properties.close}} закрывает диалог. {{tr:image_properties.copy_all}} копирует все видимые строки в буфер обмена; чтобы скопировать часть страницы, выделите её и используйте {{tr:action.context_copy}} (или сначала {{tr:action.context_select_all}}).
+{{tr:image_properties.close}} закрывает диалог. {{tr:image_properties.copy_all}} копирует все видимые строки в буфер обмена; часть страницы копируется из выделения через {{tr:action.context_copy}} (или сначала {{tr:action.context_select_all}}).

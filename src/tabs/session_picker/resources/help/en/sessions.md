@@ -1,21 +1,21 @@
 ## Session Picker
 
-Open a project or start a new one.
+Project opening and new-project start.
 
 :::figure{side=block width=420}
 ![Session Picker]({{img:platform.workspace.session_picker}})
 {{tr:action.workspace.open_session_picker}}.
 :::
 
-### Open a session {#session-picker}
+### Session opening {#session-picker}
 
-- The home screen lists all connected tab types. Click any card to open that page.
-- Recent — open a recent project below.
-- Drag a project file onto the list to add it to the app.
+- The home screen lists all connected tab types. A click on any card opens that page.
+- Recent projects below for reopening.
+- A project file dragged onto the list lands in the app.
 
-### Open without the picker {#new-session-actions}
+### Opening without the picker {#new-session-actions}
 
-Open through {{tr:menu.find_action}} (`Ctrl+Shift+P`).
+Opening through {{tr:menu.find_action}} (`Ctrl+Shift+P`).
 
 {{tr:action.workspace.open_session_picker}} returns to the home page.
 

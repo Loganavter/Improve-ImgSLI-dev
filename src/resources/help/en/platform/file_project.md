@@ -4,7 +4,7 @@ Loading images into sessions and portable project files.
 
 ### Loading images {#loading-images}
 
-- **Add files** — pick one or more files through {{tr:menu.find_action}} or the tab's own add buttons.
+- **Files** — one or more files through {{tr:menu.find_action}} or the tab's own add buttons.
 - **Drag-and-drop** — a drop into the window lands in the active session — where exactly, see the tab's help: [Comparison](help://comparison), [Magnifier](help://magnifier).
 - **Paste** (`Ctrl+V`) — clipboard image; where it lands, see the tab's help.
 
@@ -19,8 +19,8 @@ Lists belong to their session — [Lists and Panels](help://ui.lists_flyouts). E
 
 ### Projects {#projects}
 
-- **Open** — `Ctrl+Shift+O` or {{tr:menu.find_action}} opens a `.imgsli` file. Opening a project names the active tab after the file.
-- **Save** — `Shift+S` writes the current file; when no file exists yet, **Save As** opens instead.
+- **Opening** — `Ctrl+Shift+O` or {{tr:menu.find_action}} opens a `.imgsli` file. Opening a project names the active tab after the file.
+- **Saving** — `Shift+S` writes the current file; when no file exists yet, **Save As** opens instead.
 - **Save As** — `Ctrl+Shift+S`. Suggests the renamed tab title, otherwise {{tr:menu.project_untitled}}.
 - **Portable package** — a single file bundles the session layout, session settings, and embedded copies of the images.
 - **Missing sources on save** — if a listed path no longer exists, the project still saves; that image is omitted and a warning lists it.
@@ -28,4 +28,4 @@ Lists belong to their session — [Lists and Panels](help://ui.lists_flyouts). E
 
 ### Windows file association {#windows-file-association}
 
-On Windows, double-clicking an `.imgsli` file opens it in the app. If the system asks which application to use, pick Improve ImgSLI once.
+On Windows, double-clicking an `.imgsli` file opens it in the app. If the system asks which application to use, one pick of Improve ImgSLI applies.

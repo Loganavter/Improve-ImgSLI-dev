@@ -1,19 +1,19 @@
 ## Getting Started
 
-Orientation for a fresh install. First launch shows a full-screen window: pick a UI mode, then start working.
+Orientation for a fresh install. First launch shows a full-screen window: a UI mode first, then the workspace.
 
-### Pick a UI mode {#ui-mode}
+### UI mode {#ui-mode}
 
-- Compare the modes in the full-screen window — {{tr:settings.ui_mode_beginner}}, {{tr:settings.ui_mode_advanced}}, {{tr:settings.ui_mode_expert}} — and flip through the slides with the mode buttons or dots.
-- Confirm the highlighted mode with **{{tr:onboarding.start_button}}** to open the workspace.
-- Switch modes any time later under [Settings](help://settings) → {{tr:settings.appearance}}.
+- The modes side by side in the full-screen window — {{tr:settings.ui_mode_beginner}}, {{tr:settings.ui_mode_advanced}}, {{tr:settings.ui_mode_expert}} — with slide switching via the mode buttons or dots.
+- The highlighted mode confirmed with **{{tr:onboarding.start_button}}** opens the workspace.
+- Later mode switches live under [Settings](help://settings) → {{tr:settings.appearance}}.
 
-### Start comparing {#start-comparing}
+### First comparison {#start-comparing}
 
-Do the main work — compare two images: [Comparison](help://comparison).
+The main work — two-image comparison: [Comparison](help://comparison).
 
 For three or more — [Multi Compare](help://multi_compare).
 
-### Discover features {#discover}
+### Feature discovery {#discover}
 
-Press `Ctrl+Shift+P` to search and run any action; {{tr:action.palette.learn_more}} opens the matching help topic. Press `F1` to open the palette filtered to the focused element. Inside the Help window, type in the search field above the topic list to jump to matching pages. Next: [Comparison](help://comparison), [Settings](help://settings).
+`Ctrl+Shift+P` searches and runs any action; {{tr:action.palette.learn_more}} opens the matching help topic. `F1` opens the palette filtered to the focused element. In the Help window, text in the search field above the topic list jumps to matching pages. Next: [Comparison](help://comparison), [Settings](help://settings).

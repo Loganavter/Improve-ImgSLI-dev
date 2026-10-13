@@ -2,7 +2,7 @@
 
 Default key combinations below — most can be reassigned under {{tr:menu.settings}} → {{tr:settings.keyboard}}. Canvas `WASD`, arrow, `Space` movement and `+`/`-` zoom stay fixed.
 
-### Discover first {#discover}
+### Palette search {#discover}
 
 `Ctrl+Shift+P` plus a typed name beats memorizing a list — [find any action by name](help://ui.buttons#find-action). `F1` highlights the action in the palette.
 
@@ -17,7 +17,7 @@ Default key combinations below — most can be reassigned under {{tr:menu.settin
 - `Ctrl+Shift+O` / `Shift+S` / `Ctrl+Shift+S` — Open / save / save project as (`.imgsli`) — [Files and Projects](help://file_management#projects)
 - `Ctrl+Q` — Quit
 
-Reassign under [Settings → Keyboard](help://settings#keyboard).
+Reassignment lives under [Settings → Keyboard](help://settings#keyboard).
 
 ### Tab shortcuts {#tab-shortcuts}
 
