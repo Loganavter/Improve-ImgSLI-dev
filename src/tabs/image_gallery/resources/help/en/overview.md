@@ -16,7 +16,7 @@ Loaded folders group near-duplicates into series.
 - **Group again** — reopen the folder to group again.
 - **Keep a card in place** — drag a card into another series to keep it there; Reset returns automatic grouping.
 
-### Read the toolbar {#toolbar}
+### Toolbar {#toolbar}
 
 Read the fixed row at the top from left to right: the open-folder button, then the filter field, then Sort, then the Algorithms|AI switch; the grid/list view sits at the right edge. Sort by AI quality is offered only in the AI domain.
 

@@ -213,6 +213,26 @@ the section is about a visible surface (panel, dialog, layout).
   into the prose or end with `### Next topics` / `### Дальше по темам` when
   a short outbound list helps.
 
+### Voice (frozen 2026-10-13)
+
+Neutral descriptive voice everywhere, RU and EN: no address, no ты-форма
+(`Переключи`), no infinitive-imperative for actions (`Откройте`,
+`Перетащите`). Screens are described (`На экране отображены…`, `Клик
+открывает…`), actions are stated as facts, never as commands. Headers are
+noun phrases, not verbs.
+
+Banned in prose (RU): тулбар (→ Панель инструментов), контрол/контроллы,
+хром, шестерёнка, треки/дорожки, скринкаст, кейфреймы, точки записи,
+оверлей (→ окно/экран), бэкенды, кластеризация, пульсация, flyout (ids and
+`{#anchors}` only). Banned in prose (EN): control track, keyframe, screen
+grab/raw screen, chrome, flyout (ids/anchors only).
+
+Intros: 1–2 sentences, what + when, no dangling qualifiers. Host pages
+never enumerate concrete tabs (tabs are pluggable); tab specifics live in
+that tab's own help. Gate: `src/devtools/check_help_style.sh` (jargon grep
++ EN/RU `###` parity) must pass before any help merge, alongside
+`check_help_figures.py` and `test_help_tree.py`/`test_help_interpolate.py`.
+
 ### Definition-style inventories (Blender-like, within our subset)
 
 We do **not** have Sphinx definition lists or blue term headings yet. Approximate:
