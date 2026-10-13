@@ -8,13 +8,12 @@ Slots sit in a split grid with per-cell drops, gap splits, and draggable divider
 - **Empty slots** — stay open for new drops.
 - **Outside drops** — file-manager drops, clipboard paste, or **Move** from another tab auto-place with a loading toast.
 - **Auto-place** — new images split the largest cell along its longer axis.
-- **Gap drop** — a drop in a divider gap splits a new cell between the neighbours.
+- **Rearrange** — drag a slot onto another slot to swap them; drop into a gap to insert between; see [Gap split zones](#gap-split-zones).
 - **Layout change** — keeps loaded images.
 
 ### Gap split zones {#gap-split-zones}
 
-- **Vertical divider gap** — dropping on the top quarter of the gap places the image above the row, the bottom quarter below it, and the middle half between the two neighbouring slots.
-- **Horizontal divider gap** — dropping on the left quarter of the gap places the image left of the column, the right quarter right of it, and the middle half between the two neighbouring slots.
+Drop into a divider gap to split a new cell between the neighbours; a drop at the outer edge places outside the row or column.
 
 ### Dividers {#dividers}
 
@@ -33,4 +32,3 @@ Per-image actions:
 - **Move** — drags the image onto another tab, where it loads and is placed automatically.
 - **Crop** — turns crop on or off for this slot; see [Viewing](help://mc_viewing#slot-crop).
 - **Remove** — drops the slot from the grid.
-- **Cap** — the grid holds at most 12 images.

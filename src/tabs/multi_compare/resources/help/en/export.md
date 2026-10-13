@@ -6,7 +6,7 @@ The grid saves as one image through quick save or the save dialog. A session kee
 
 - **Quick save** (`Ctrl+S`) — {{tr:multi_compare.action.quick_save}} writes the image with the settings you used last, without a dialog.
 - **Save dialog** — {{tr:multi_compare.action.save}} via {{tr:menu.find_action}}; see [Export](help://export).
-- **Result** — the saved image shows the grid as it appears on screen.
+- **Result** — the saved image matches the on-screen grid at tested sizes; very large exports are untested (see below).
 - **Crop** — each slot's crop is applied before the slots are combined.
 - **Empty slots** — slots without an image are left out of the saved image.
 - **Large exports** — if the longer side is over 16384 px, a warning asks whether to continue. Sizes beyond that have not been tested, so the export may fail or run out of memory. Cancel stops the export. Checking "Don't show again" turns the warning off for later exports.
