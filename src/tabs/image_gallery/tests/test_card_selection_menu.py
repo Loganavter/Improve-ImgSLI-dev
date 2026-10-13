@@ -274,7 +274,7 @@ def test_reject_label_tracks_state(monkeypatch) -> None:
     popup_gallery_card_context_menu(
         SimpleNamespace(), owner, Path("/a.png"), global_pos=None, selection_count=2,
     )
-    assert _action_text(captured["entries"], "gallery.reject") == "↩ Unreject"
+    assert _action_text(captured["entries"], "gallery.reject") == "Unreject"
 
     owner = _owner_with_items(
         {Path("/a.png"), Path("/b.png")},
@@ -283,19 +283,19 @@ def test_reject_label_tracks_state(monkeypatch) -> None:
     popup_gallery_card_context_menu(
         SimpleNamespace(), owner, Path("/a.png"), global_pos=None, selection_count=2,
     )
-    assert _action_text(captured["entries"], "gallery.reject") == "✕ Reject"
+    assert _action_text(captured["entries"], "gallery.reject") == "Reject"
 
     owner = _owner_with_items(set(), [_triage_item("/a.png", True)])
     popup_gallery_card_context_menu(
         SimpleNamespace(), owner, Path("/a.png"), global_pos=None, selection_count=0,
     )
-    assert _action_text(captured["entries"], "gallery.reject") == "↩ Unreject"
+    assert _action_text(captured["entries"], "gallery.reject") == "Unreject"
 
     owner = _owner_with_items(set(), [_triage_item("/a.png")])
     popup_gallery_card_context_menu(
         SimpleNamespace(), owner, Path("/a.png"), global_pos=None, selection_count=0,
     )
-    assert _action_text(captured["entries"], "gallery.reject") == "✕ Reject"
+    assert _action_text(captured["entries"], "gallery.reject") == "Reject"
 
 
 def test_remove_action_calls_remove_from_grid(monkeypatch) -> None:
