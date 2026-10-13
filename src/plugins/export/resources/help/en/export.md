@@ -20,7 +20,7 @@ Still-image export of the current canvas.
 - **Size** — width and height fields with an aspect-ratio lock.
 - **Quality** — {{tr:label.quality}} appears for lossy formats only.
 - **PNG** — compression level and {{tr:export.optimize_png}}.
-- **Fill** — {{tr:export.fill_background}} paints the area around an image that is placed smaller than the frame. On an image that fills the frame, the option switches off.
+- **Fill** — {{tr:export.fill_background}} paints the empty margins around the image; {{tr:export.background_color}} picks the paint color. Where there is nothing to fill, the option is unavailable.
 
 ### Metadata and favorites {#metadata-and-favorites}
 

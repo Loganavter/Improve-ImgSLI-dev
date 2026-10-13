@@ -1,6 +1,12 @@
 ## Getting Started
 
-Orientation for a fresh install. First launch shows a UI-mode picker; the choice is written once and lives on as the Appearance setting. The palette ({{tr:menu.find_action}}, `Ctrl+Shift+P`) runs any action.
+Orientation for a fresh install. First launch shows a full-window overlay: pick a UI mode, then start working. The palette ({{tr:menu.find_action}}, `Ctrl+Shift+P`) runs any action.
+
+### Pick a UI mode {#ui-mode}
+
+- The overlay previews each mode — {{tr:settings.ui_mode_beginner}}, {{tr:settings.ui_mode_advanced}}, {{tr:settings.ui_mode_expert}} — with sample controls; mode buttons and dots switch between the slides.
+- **{{tr:onboarding.start_button}}** confirms the highlighted mode and opens the workspace.
+- The choice is not final: switch modes any time under [Settings](help://settings) → {{tr:settings.appearance}}.
 
 ### {{tr:workspace.session_types.image_compare}} workflow {#basic-workflow}
 
