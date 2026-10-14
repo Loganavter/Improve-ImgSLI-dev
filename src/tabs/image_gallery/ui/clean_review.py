@@ -69,13 +69,15 @@ REVIEW_CARD_RADIUS_PX = 12
 
 
 class _ReviewPlate(QWidget):
-    """S3 clean-review card plate — ``gallery.card.background`` fill + border, rx12.
+    """S3 clean-review card plate — ``gallery.panel.background`` fill + border, rx12.
 
     Mirrors quick-look ``_CardPlate``
     (``ui/quick_look/overlay_build.py``): painter pipeline owns visuals
-    (explicit paintEvent, theme-subscribed); no QSS, no palette. Token
-    chains mirror the grid-card seam. All QColor() calls take resolved
-    variables — never literals
+    (explicit paintEvent, theme-subscribed); no QSS, no palette. The plate
+    shares the scroll-host panel token (``_apply_panel_background``) so the
+    overlay is ONE flat surface — dark mockup svg:42 pins the plate at
+    ``#303030``, not the grid-card ``#383838``. All QColor() calls take
+    resolved variables — never literals
     (contracts/test_no_hardcoded_qcolor.py baseline).
     """
 
@@ -103,7 +105,7 @@ class _ReviewPlate(QWidget):
             from ui.theming import try_resolve_theme_color
 
             mgr = ThemeManager.get_instance()
-            for token in ("gallery.card.background", "surface.list", "surface.background"):
+            for token in ("gallery.panel.background", "gallery.card.background", "surface.list", "surface.background"):
                 c = try_resolve_theme_color(mgr, token)
                 if c is not None:
                     return c if isinstance(c, QColor) else QColor(c)
@@ -113,7 +115,7 @@ class _ReviewPlate(QWidget):
             from tabs.image_gallery.ui.quick_look.labels_theme import _is_dark_theme, _token_color
 
             return _token_color(
-                "gallery.card.background", "#ffffff" if not _is_dark_theme() else "#383838"
+                "gallery.panel.background", "#ffffff" if not _is_dark_theme() else "#303030"
             )
         except Exception:
             return None

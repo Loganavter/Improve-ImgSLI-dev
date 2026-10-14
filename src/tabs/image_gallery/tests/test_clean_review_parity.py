@@ -843,7 +843,10 @@ def test_review_plate_bg_border_match_themes_json_in_both_themes(
         assert plate._border is not None, f"border unresolvable under {theme}"
         # QColor.name() drops alpha on both sides, so the dark 8-digit
         # border ("#1EFFFFFF") still compares exactly.
-        assert plate._bg.name().lower() == QColor(data[theme]["gallery.card.background"]).name().lower(), theme
+        # The plate shares the flat overlay surface token with the scroll-host
+        # panels (no recess seam): ``gallery.panel.background``, not the
+        # grid-card ``gallery.card.background``.
+        assert plate._bg.name().lower() == QColor(data[theme]["gallery.panel.background"]).name().lower(), theme
         assert plate._border.name().lower() == QColor(data[theme]["gallery.card.border"]).name().lower(), theme
         # Repaint path must not crash offscreen on either theme.
         assert not plate.grab().isNull()
@@ -868,11 +871,11 @@ def test_review_plate_tracks_light_dark_flip(qtbot, qapp, _production_palettes):
         except Exception:
             pass
         QApplication.processEvents()
-        assert plate._bg.name().lower() == QColor(data[theme]["gallery.card.background"]).name().lower(), theme
+        assert plate._bg.name().lower() == QColor(data[theme]["gallery.panel.background"]).name().lower(), theme
         assert plate._border.name().lower() == QColor(data[theme]["gallery.card.border"]).name().lower(), theme
         assert not plate.grab().isNull()
 
-    assert plate._bg.name().lower() == QColor(data["light"]["gallery.card.background"]).name().lower()
+    assert plate._bg.name().lower() == QColor(data["light"]["gallery.panel.background"]).name().lower()
     assert plate._border.name().lower() == QColor(data["light"]["gallery.card.border"]).name().lower()
 
 
