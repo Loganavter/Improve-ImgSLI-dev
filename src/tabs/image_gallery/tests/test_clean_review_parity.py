@@ -213,6 +213,33 @@ def test_filmstrip_no_tile_under_cap(qtbot, tmp_path):
     assert overlay.findChild(QWidget, "clean_review_filmstrip_more") is None
 
 
+def test_filmstrip_cell_is_one_hover_surface(qtbot, tmp_path):
+    """The card lights its Restore button: the cell declares a hover host.
+
+    Red-before: hovering the filmstrip cell (thumb / plate) did not light the
+    embedded Restore button (``HoverCoordinator`` lit a widget only from its
+    own area). Green-after: the button's ``hover_host`` is its cell, and the
+    cell itself is coordinator-registered so the wash survives the pointer
+    moving onto a child.
+    """
+    from sli_ui_toolkit.widgets import Button
+
+    from sli_ui_toolkit.ui.widgets.helpers import hover_coordinator
+
+    owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
+    overlay = _make_overlay(qtbot, owner)
+    filmstrip = overlay.findChild(QWidget, "clean_review_filmstrip")
+    assert filmstrip is not None
+    cell = filmstrip.findChild(QWidget, "clean_review_filmstrip_cell")
+    assert cell is not None
+    btn = cell.findChild(Button, "clean_review_restore")
+    assert btn is not None
+
+    assert btn.hover_host is cell
+    # The cell takes the coordinator contract (wash stays on over children).
+    assert cell in hover_coordinator()._widgets
+
+
 # -- S3-4 -----------------------------------------------------------
 
 
@@ -1324,9 +1351,12 @@ def test_quick_look_close_returns_to_s3(qtbot, tmp_path):
 
 
 def test_filmstrip_cards_have_hover_wash(qtbot, tmp_path):
-    """Rejected cards tint on hover; the modal plate itself never does."""
-    from PySide6.QtCore import QEvent
+    """Rejected cards tint on hover; the modal plate itself never does.
 
+    Hover is driven by the HoverCoordinator contract (``setHoverActive``),
+    not raw enter/leave — raw leave fires per child and would drop the wash
+    when the pointer moves onto the thumb or the Restore button.
+    """
     from tabs.image_gallery.ui.clean_review import _ReviewPlate
 
     owner = _make_owner(tmp_path, [str(tmp_path / "a.jpg")])
@@ -1336,11 +1366,11 @@ def test_filmstrip_cards_have_hover_wash(qtbot, tmp_path):
     assert isinstance(cell, _ReviewPlate)
     assert cell._hover_wash_enabled is True
     assert cell._hovered is False
-    cell.enterEvent(QEvent(QEvent.Type.Enter))
+    cell.setHoverActive(True)
     assert cell._hovered is True
-    cell.leaveEvent(QEvent(QEvent.Type.Leave))
+    cell.setHoverActive(False)
     assert cell._hovered is False
 
     assert overlay._content._hover_wash_enabled is False
-    overlay._content.enterEvent(QEvent(QEvent.Type.Enter))
+    overlay._content.setHoverActive(True)
     assert overlay._content._hovered is False

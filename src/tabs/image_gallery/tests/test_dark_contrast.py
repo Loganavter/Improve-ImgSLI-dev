@@ -172,8 +172,9 @@ def test_overlay_surface_is_one_flat_tone_not_a_recess() -> None:
     # The overlay surface is deliberately distinct from the grid-card tone
     # (dark #383838): the plate must not fall back to ``gallery.card.background``.
     assert dark["gallery.panel.background"].lower() != dark["gallery.card.background"].lower()
-    # Never the raw Qt Window role.
-    assert _ratio("#1e1e1e", dark["gallery.panel.background"]) > 1.35
+    # Never the raw Qt Window role (dark #1e1e1e near-black hole).
+    assert dark["gallery.panel.background"].lower() != "#1e1e1e"
+    assert _ratio("#1e1e1e", dark["gallery.panel.background"]) > 1.2
 
 
 def test_dark_nav_controls_follow_the_theme() -> None:

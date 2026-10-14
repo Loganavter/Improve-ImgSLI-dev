@@ -96,6 +96,18 @@ class _ReviewPlate(QWidget):
             ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
         except Exception:
             pass
+        # HoverCoordinator contract: the filmstrip cell is one hover surface.
+        # Registered (not raw enter/leave) so the wash survives the pointer
+        # moving onto a child (thumb / Restore) — raw leaveEvent fires per
+        # child and would drop the wash. The inner Restore button declares this
+        # cell as its hover host so the card lights it from the same source.
+        if self._hover_wash_enabled:
+            try:
+                from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
+
+                register_hover_widget(self)
+            except Exception:
+                pass
 
     @staticmethod
     def _resolve_bg():
@@ -188,27 +200,22 @@ class _ReviewPlate(QWidget):
     def on_theme_changed(self) -> None:
         self._on_theme_changed()
 
-    def enterEvent(self, event) -> None:  # noqa: N802
-        if self._hover_wash_enabled:
-            self._hovered = True
-            try:
-                self.update()
-            except Exception:
-                pass
-        try:
-            super().enterEvent(event)
-        except Exception:
-            pass
+    def setHoverActive(self, active: bool) -> None:
+        """HoverCoordinator contract — wash the whole cell as one surface.
 
-    def leaveEvent(self, event) -> None:  # noqa: N802
-        if self._hover_wash_enabled:
-            self._hovered = False
-            try:
-                self.update()
-            except Exception:
-                pass
+        The coordinator owns on/off (not raw enter/leave, which fire per
+        child): the wash stays on while the pointer is anywhere in the cell
+        subtree, and the embedded Restore button's hover host is this cell,
+        so hovering the card lights the button too.
+        """
+        if not self._hover_wash_enabled:
+            return
+        active = bool(active)
+        if active == self._hovered:
+            return
+        self._hovered = active
         try:
-            super().leaveEvent(event)
+            self.update()
         except Exception:
             pass
 
@@ -1550,6 +1557,13 @@ class CleanReviewOverlay(TopLevelInWindowOverlay):
                 parent=cell,
             )
             restore_btn.setObjectName("clean_review_restore")
+            # The cell is one hover surface: hovering anywhere on the card
+            # (thumb or plate) lights this Restore button too
+            # (HoverCoordinator hover host — mirror of the parent-stays-lit rule).
+            try:
+                restore_btn.setHoverHost(cell)
+            except Exception:
+                pass
             try:
                 restore_btn.setToolTip(str(name))
             except Exception:
