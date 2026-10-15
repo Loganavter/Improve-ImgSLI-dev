@@ -42,6 +42,7 @@ from tabs.image_gallery.models import (
 from tabs.image_gallery.services.activity import clear_activity, set_activity
 from tabs.image_gallery.services.ai_cache import load_cached_analysis, save_analysis
 from tabs.image_gallery.services.ai_client import (
+    _ai_debug,
     AiAuthError,
     AiClientError,
     AiNetworkError,
@@ -1744,6 +1745,9 @@ class GalleryController:
             self.state.rank_domain = "ai" if dom == "ai" else "algorithms"
         except Exception:
             pass
+        # WHY Jev did / did not run: the domain switch is the only trigger for
+        # the AI ranker (algorithms ⇒ no Jev call at all). Same IMGSLI_AI_DEBUG key.
+        _ai_debug("judgment domain -> %s (%s)", dom, "Jev on" if dom == "ai" else "Jev off")
         if dom != "ai":
             # Back to Algorithms: re-derive the deterministic fusion rank (a
             # Jev rank is only authoritative while the AI domain owns the rank).
@@ -1808,6 +1812,7 @@ class GalleryController:
         except Exception:
             groups = []
         if not groups:
+            _ai_debug("jev ranks: no series — nothing to rank")
             return
         try:
             vis = getattr(self.widget, "visible_paths", None)
@@ -1818,17 +1823,24 @@ class GalleryController:
             vkeys = {str(p) for p in (visible or [])}
         except Exception:
             vkeys = set()
+        small = hidden = 0
         ran = 0
         for entry in groups:
             members = GalleryController._section_members(entry)
             if len(members) < 2:
+                small += 1
                 continue
             if vkeys and not any(str(getattr(m, "path", "")) in vkeys for m in members):
+                hidden += 1
                 continue
             if ran >= self._AI_VISIBLE_CAP:
                 break
             ran += 1
             self._run_jev_rank_for_series(members)
+        _ai_debug(
+            "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d cap=%d)",
+            len(groups), ran, small, hidden, self._AI_VISIBLE_CAP,
+        )
 
     def _run_series_priority(self) -> None:
         """Schedule ONE cross-series routing pass (additive "needs a human first").
@@ -1954,10 +1966,15 @@ class GalleryController:
         ):
             from tabs.image_gallery.services.jev_client import JEV_REASON_NOT_CONFIGURED
 
+            _ai_debug("jev rank skip: AI not configured (series items=%d)", len(members))
             self._degrade_jev(members, JEV_REASON_NOT_CONFIGURED)
             return
 
         mode = getattr(self.state, "mode", None)
+        _ai_debug(
+            "jev rank scheduled: series items=%d mode=%s",
+            len(members), getattr(mode, "value", mode),
+        )
         gen = self._folder_gen
         snapshot = list(members)
         for m in snapshot:
@@ -2025,6 +2042,7 @@ class GalleryController:
                     self.widget.refresh_card(it)
                 except Exception:
                     pass
+            _ai_debug("jev rank applied: items=%d source=jev", len(current))
             return
         reason = getattr(outcome, "reason", None) or "AI (Jev) rank unavailable"
         self._degrade_jev(current, reason)
@@ -2038,6 +2056,7 @@ class GalleryController:
         and the reason is logged.
         """
         logger.debug("jev rank degraded: %s", reason)
+        _ai_debug("jev rank degraded: %s", reason)
         for m in list(members or ()):
             it = self._find_item(getattr(m, "path", None)) or m
             try:
