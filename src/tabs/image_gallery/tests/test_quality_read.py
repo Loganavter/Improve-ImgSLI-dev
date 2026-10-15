@@ -7,6 +7,7 @@ the local detectors. Neither may silently fall back to the other
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from tabs.image_gallery.models import AiAnalysisResult, AiDefect, GalleryItem
@@ -86,3 +87,30 @@ def test_ai_domain_unanalyzed_is_empty_not_detector_fallback():
     item = _item(metrics={"sharpness": 200.0})  # measured, never analyzed
     assert quality_read.domain_axis_scores(item, domain="ai") == {}
     assert quality_read.domain_artifact_severity(item, "halo", domain="ai") == "clean"
+
+
+def test_ai_read_survives_parse_to_read_with_distinct_values():
+    """A5 content: distinct per-axis VLM values survive parse → read (not counts)."""
+    from tabs.image_gallery.services.ai_client import parse_response
+
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "axes": {"sharpness": 11, "noise": 22, "exposure": 33},
+                            "composition": 44,
+                            "verdict": "keep",
+                        }
+                    )
+                }
+            }
+        ]
+    }
+    result = parse_response(payload, model="m")
+    item = _item(analysis=result, metrics={"sharpness": 999.0, "noise": 0.0})
+    read = quality_read.domain_axis_scores(item, domain="ai")
+    assert read == {"sharpness": 11, "noise": 22, "exposure": 33, "composition": 44}
+    # Identity, not presence: the four payloads are distinguishable.
+    assert len(set(read.values())) == len(read)
