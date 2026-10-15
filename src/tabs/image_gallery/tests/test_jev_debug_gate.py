@@ -120,6 +120,75 @@ def test_ai_domain_commit_schedules_ai_and_jev(caplog, monkeypatch) -> None:
     assert calls == []
 
 
+def test_jev_ranks_skips_series_without_metrics() -> None:
+    """Jev ranks the measured vector: a series with no metrics is skipped, not
+    called with an empty vector (the triage commit runs before the quality pass)."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+
+    calls: list[str] = []
+    items = [SimpleNamespace(path=f"/g/{i}.png", metrics={}) for i in range(2)]
+    group = SimpleNamespace(members=items)
+    ctrl = SimpleNamespace(
+        state=SimpleNamespace(series=[group]),
+        widget=SimpleNamespace(visible_paths=lambda: [it.path for it in items]),
+        _AI_VISIBLE_CAP=12,
+        _run_jev_rank_for_series=lambda members: calls.append("jev"),
+    )
+    GalleryController._run_jev_ranks(ctrl)
+    assert calls == []
+
+    # Metrics land -> the same series is now rankable.
+    for it in items:
+        it.metrics = {"sharpness": 50}
+    GalleryController._run_jev_ranks(ctrl)
+    assert calls == ["jev"]
+
+
+def test_metrics_ready_reruns_jev_on_the_ai_domain() -> None:
+    """Measured metrics landing on the AI domain (re)runs Jev (the triage commit
+    ran before metrics existed)."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+
+    calls: list[str] = []
+    ctrl = SimpleNamespace(
+        widget=SimpleNamespace(refresh_cards=lambda items: None),
+        _judgment_domain="ai",
+        _run_jev_ranks=lambda: calls.append("jev"),
+    )
+    GalleryController._refresh_changed_metrics(ctrl, [SimpleNamespace(path="/g/a.png")], "camera")
+    assert calls == ["jev"]
+
+    calls.clear()
+    ctrl._judgment_domain = "algorithms"
+    GalleryController._refresh_changed_metrics(ctrl, [SimpleNamespace(path="/g/a.png")], "camera")
+    assert calls == []
+
+
+def test_benign_jev_degrade_clears_activity_but_a_fault_paints_error() -> None:
+    """An abstain must NOT show the per-card "error" chip (it then flipped to
+    "done"); only a real transport fault paints one."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+
+    it = SimpleNamespace(
+        path="/g/a.png", activity_phase="queued", activity_source="ai", activity_at=1e18
+    )
+    ctrl = SimpleNamespace(
+        _find_item=lambda p: it, widget=SimpleNamespace(refresh_card=lambda x: None)
+    )
+    GalleryController._degrade_jev(ctrl, [it], "AI (Jev) abstained (Noul) — kept the Algorithms rank")
+    assert it.activity_phase is None  # benign: cleared, no error chip
+
+    GalleryController._degrade_jev(ctrl, [it], "AI (Jev) request failed", as_error=True)
+    assert it.activity_phase == "error"
+
+
+
 def test_state_replacement_does_not_drop_the_ai_domain(caplog, monkeypatch) -> None:
     """A restored ``ai`` domain must survive ``open_folder`` replacing ``state``.
 
