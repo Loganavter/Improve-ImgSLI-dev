@@ -1827,6 +1827,7 @@ class GalleryController:
         except Exception:
             vkeys = set()
         small = hidden = 0
+        no_metrics = 0
         ran = 0
         for entry in groups:
             members = GalleryController._section_members(entry)
@@ -1836,13 +1837,20 @@ class GalleryController:
             if vkeys and not any(str(getattr(m, "path", "")) in vkeys for m in members):
                 hidden += 1
                 continue
+            # Jev ranks the MEASURED vector: skip a series until its metrics
+            # exist. The triage commit runs BEFORE the quality pass, so an empty
+            # vector would only make Jev abstain (Noul) — `_refresh_changed_metrics`
+            # re-runs this once the measured numbers land.
+            if not any(getattr(m, "metrics", None) for m in members):
+                no_metrics += 1
+                continue
             if ran >= self._AI_VISIBLE_CAP:
                 break
             ran += 1
             self._run_jev_rank_for_series(members)
         _ai_debug(
-            "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d cap=%d)",
-            len(groups), ran, small, hidden, self._AI_VISIBLE_CAP,
+            "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d no-metrics=%d cap=%d)",
+            len(groups), ran, small, hidden, no_metrics, self._AI_VISIBLE_CAP,
         )
 
     def note_judgment_domain(self, domain: str) -> None:
@@ -2018,7 +2026,7 @@ class GalleryController:
             from tabs.image_gallery.services.jev_client import JEV_REASON_NOT_CONFIGURED
 
             _ai_debug("jev rank skip: AI not configured (series items=%d)", len(members))
-            self._degrade_jev(members, JEV_REASON_NOT_CONFIGURED)
+            self._degrade_jev(members, JEV_REASON_NOT_CONFIGURED, as_error=True)
             return
 
         mode = getattr(self.state, "mode", None)
@@ -2060,7 +2068,7 @@ class GalleryController:
             logger.debug("jev rank worker error: %r", error_info, exc_info=True)
             from tabs.image_gallery.services.jev_client import JEV_REASON_ERROR
 
-            self._degrade_jev(snapshot, JEV_REASON_ERROR)
+            self._degrade_jev(snapshot, JEV_REASON_ERROR, as_error=True)
 
         worker.signals.result.connect(_on_result)
         worker.signals.error.connect(_on_error)
@@ -2098,20 +2106,25 @@ class GalleryController:
         reason = getattr(outcome, "reason", None) or "AI (Jev) rank unavailable"
         self._degrade_jev(current, reason)
 
-    def _degrade_jev(self, members, reason: str) -> None:
+    def _degrade_jev(self, members, reason: str, *, as_error: bool = False) -> None:
         """Keep the Algorithms (fusion) rank and surface a visible reason.
 
         The stored rank is never touched here — a failed Jev rank must not
-        fabricate a number or re-rank a subset (no silent fallback). The item
-        carries an explicit AI error activity phase so the degrade is visible,
-        and the reason is logged.
+        fabricate a number or re-rank a subset (no silent fallback). A BENIGN
+        outcome (abstain / low confidence / malformed — no transport fault)
+        clears the AI activity so the card shows the Algorithms rank, not a
+        false "error" chip that then flips to "done" once the metrics land; only
+        a real fault (``as_error``) paints an error. The reason is always logged.
         """
         logger.debug("jev rank degraded: %s", reason)
         _ai_debug("jev rank degraded: %s", reason)
         for m in list(members or ()):
             it = self._find_item(getattr(m, "path", None)) or m
             try:
-                set_activity(it, ActivityPhase.ERROR, "ai")
+                if as_error:
+                    set_activity(it, ActivityPhase.ERROR, "ai")
+                else:
+                    clear_activity(it)
                 self.widget.refresh_card(it)
             except Exception:
                 pass
@@ -3334,6 +3347,14 @@ class GalleryController:
                             pass
             except Exception:
                 pass
+        # The measured numbers just landed: on the AI domain (re)run Jev now that
+        # the rank vector has values — the triage commit ran before metrics
+        # existed and skipped the series (see _run_jev_ranks / _schedule_ai_domain_work).
+        if changed and str(getattr(self, "_judgment_domain", "") or "") == "ai":
+            try:
+                self._run_jev_ranks()
+            except Exception:
+                logger.debug("ai-domain Jev on metrics-ready failed", exc_info=True)
 
     def _on_camera_metrics_ready(self, result: object, gen: int | None = None) -> None:
         if gen is not None and not self._is_current_folder_gen(gen):
