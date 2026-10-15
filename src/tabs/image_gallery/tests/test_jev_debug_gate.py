@@ -95,3 +95,28 @@ def test_domain_switch_trace_under_key(caplog, monkeypatch) -> None:
     assert "[ai] judgment domain -> ai (Jev on)" in caplog.text
     assert "[ai] jev ranks: no series — nothing to rank" in caplog.text
 
+
+def test_ai_domain_commit_schedules_ai_and_jev(caplog, monkeypatch) -> None:
+    """A series commit on the AI domain ranks (AI analysis + Jev); Algorithms no-ops."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+
+    calls: list[str] = []
+    fake = SimpleNamespace(
+        state=SimpleNamespace(rank_domain="ai"),
+        _run_ai_for_visible=lambda: calls.append("analyze"),
+        _run_jev_ranks=lambda: calls.append("jev"),
+    )
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    with caplog.at_level(logging.WARNING, logger="ImproveImgSLI"):
+        GalleryController._schedule_ai_domain_work(fake)
+    assert calls == ["analyze", "jev"]
+    assert "[ai] ai domain commit -> scheduling AI analysis + Jev ranks" in caplog.text
+
+    calls.clear()
+    fake.state.rank_domain = "algorithms"
+    GalleryController._schedule_ai_domain_work(fake)
+    assert calls == []
+
+

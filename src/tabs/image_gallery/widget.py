@@ -867,13 +867,15 @@ class ImageGalleryWidget(QWidget):
             pass
 
     def apply_view_prefs(self, *, view_list: bool, judgment_domain: str) -> None:
-        """Restore both switches from the session slot (quiet domain).
+        """Restore both switches from the session slot.
 
         The view is applied directly (widget ``_view_mode`` + grid) so it never
         relies on the toolbar's exclusive helper emitting ``viewToggled`` (which
-        early-returns when the toolbar is already in the matching state). The
-        domain is set with signals blocked so a restored ``ai`` domain does NOT
-        fire a network run on open — the user triggers AI explicitly.
+        early-returns when the toolbar is already in the matching state). A
+        restored ``ai`` domain RANKS on open: the controller schedules AI
+        analysis + Jev at the first series commit (cache-first, bounded) — see
+        ``_schedule_ai_domain_work``. The toolbar stays signal-blocked so it
+        never double-emits the toggle.
         """
         is_list = bool(view_list)
         self._view_mode = is_list
@@ -902,16 +904,16 @@ class ImageGalleryWidget(QWidget):
             state = getattr(ctrl, "state", None)
             if state is not None:
                 state.judgment_domain = dom
+                # Mirror the ranker domain so the first series commit schedules
+                # AI + Jev when the restored domain is ``ai`` (see controller
+                # ``_schedule_ai_domain_work``).
+                state.rank_domain = "ai" if dom == "ai" else "algorithms"
         except Exception:
             pass
-        # WHY Jev does NOT run on open: this restore is deliberately quiet (no
-        # network/Jev until the user switches the domain). Same IMGSLI_AI_DEBUG key.
         try:
             from tabs.image_gallery.services.ai_client import _ai_debug
 
-            _ai_debug(
-                "view restored: judgment_domain=%s — Jev runs only on an explicit switch", dom
-            )
+            _ai_debug("view restored: judgment_domain=%s", dom)
         except Exception:
             pass
 
