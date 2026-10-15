@@ -54,6 +54,10 @@ logger = logging.getLogger("ImproveImgSLI")
 #: stays :func:`ai_client.call_sync` (no second client, no bespoke endpoint).
 JEV_MODEL = "typesafe/jev-router"
 
+#: Transport timeout (s) for one Jev rank call: the router's latency is opaque
+#: and observed 7–37 s (probe 2026-10-15) — over the 30 s ``call_sync`` default.
+JEV_TIMEOUT_S = 60.0
+
 #: Confidence gate: a *present* Score below this is indecisive (Algorithms rank
 #: survives). A decision with no ``score`` is still decisive when explicit: the
 #: live ``typesafe/jev-router`` omits any number (probe 2026-10-15), so requiring
@@ -468,14 +472,15 @@ def make_client(base_url: str, api_key: str) -> RankClient:
     Jev is OpenAI-compatible on OpenRouter (``typesafe/jev-router``), so the
     request goes over ``<base_url>/chat/completions`` exactly like every other
     gallery AI call — with its retry/rate-limit handling and no second client.
-    Resolved through the module attribute so tests can monkeypatch
-    ``ai_client.call_sync`` and drive the whole seam without a network.
+    Uses ``JEV_TIMEOUT_S`` (not the 30 s default): the router's latency is
+    opaque and observed over 30 s. Resolved through the module attribute so
+    tests can monkeypatch ``ai_client.call_sync``.
     """
 
     def _client(payload: dict) -> dict:
         from tabs.image_gallery.services import ai_client
 
-        return ai_client.call_sync(base_url, api_key, payload)
+        return ai_client.call_sync(base_url, api_key, payload, timeout=JEV_TIMEOUT_S)
 
     return _client
 
@@ -483,6 +488,7 @@ def make_client(base_url: str, api_key: str) -> RankClient:
 __all__ = [
     "JEV_MIN_CONFIDENCE",
     "JEV_MODEL",
+    "JEV_TIMEOUT_S",
     "JEV_REASON_EMPTY",
     "JEV_REASON_ERROR",
     "JEV_REASON_LOW_CONFIDENCE",
