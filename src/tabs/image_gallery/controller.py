@@ -2369,7 +2369,8 @@ class GalleryController:
         except Exception:
             pass
 
-        # Measured metrics ride along as authoritative context for the model.
+        # Local (Algorithms-domain) numbers ride along as CONTEXT; the AI
+        # returns its own per-axis scorecard (the AI-domain read).
         try:
             _metrics = dict(getattr(item, "metrics", None) or {})
         except Exception:
@@ -2381,6 +2382,7 @@ class GalleryController:
             base_url=settings.base_url,
             api_key=settings.api_key,
             model=settings.model,
+            mode=getattr(self.state, "mode", None),
             metrics=_metrics,
             on_phase=bridge.phase.emit,
         )
