@@ -28,6 +28,7 @@ from core.state_management.gallery_actions import (
 )
 from tabs.image_gallery.bootstrap_reducers import GALLERY_SLOT_NAME
 from tabs.image_gallery.state import selectors as _gallery_selectors
+from tabs.image_gallery.use_cases import pipeline_stages as _pipeline_stages
 
 from tabs.image_gallery.models import (
     ActivityPhase,
@@ -136,6 +137,16 @@ _GALLERY_SCHED_MAX_THREADS = 8
 # toolbar/background-scanning hooks only when multi-chunk.
 _GALLERY_PROXY_CHUNK = 50
 
+# -- AI-domain ranker lifecycle (S2/J1, plan-gallery-jev-pipeline) -----------
+#: Declared gallery stage for the AI-domain series ranker. Its declared input is
+#: the settled measured-metrics pass; the controller drives Jev ONLY from that
+#: settle (and the explicit domain switch), and the single-flight gate dedups.
+#: Declared here as data (never a scheduling framework — see
+#: ``use_cases/pipeline_stages``); Jev is never triggered at triage commit nor
+#: per metrics chunk.
+_JEV_STAGE = "jev_rank"
+_pipeline_stages.register_stage(_JEV_STAGE, requires=("metrics_ready",))
+
 # Proxy decode-cache bound: owned by services/proxy.py (PROXY_CACHE_LIMIT);
 # batch delivery trims oldest-inserted entries down to that bound (96 x
 # <= ~3 MB ~= <= 288 MB while covering a typical folder's working set;
@@ -210,6 +221,11 @@ class GalleryController:
         # live there; ``state``/widget are read-only projections (see
         # plan-gallery-jev-pipeline-2026-10-15 S1).
         self._judgment_domain = "algorithms"
+        # S2/J1: single-flight + completed ledger for the declared stages,
+        # scoped by folder generation. Per controller, so two live copies (or
+        # two tests) never share a key; the AI-domain Jev batch is the only
+        # registrant today.
+        self._stage_gate = _pipeline_stages.StageGate()
         # Manual series overrides (Wave B): controller-local
         # ``dict[str(path), series_id | None]`` — None = forced UNGROUPED.
         # In-memory only (no cross-restart persistence, explicitly out of
@@ -309,6 +325,15 @@ class GalleryController:
     def _next_folder_gen(self) -> int:
         """Bump the folder generation: all in-flight workers go stale."""
         self._folder_gen += 1
+        # Fresh world: the declared-stage ledger is invalidated — a completed
+        # ``jev_rank`` fingerprint from the previous folder must never block the
+        # new folder's pass (S2/J1).
+        try:
+            gate = getattr(self, "_stage_gate", None)
+            if gate is not None:
+                gate.invalidate()
+        except Exception:
+            logger.debug("stage gate invalidate failed", exc_info=True)
         # Fresh world: drop paused background entries — even if one were
         # started it could never be delivered (gen check is the backstop).
         try:
@@ -1813,14 +1838,24 @@ class GalleryController:
     # -- AI domain ranker: Jev (TypeSafe System One) -----------------------
 
     def _run_jev_ranks(self) -> None:
-        """Schedule ONE Jev rank per series on the AI domain (lazy + bounded).
+        """Schedule ONE Jev rank batch on the AI domain (declared-readiness gate).
 
-        Mirrors the predecessor epic's lazy-AI rule: only series that have a
-        currently-visible member are picked, and the number of series is capped,
-        so flipping to AI never turns into a whole-folder API flood. The cache
-        (``services.jev_cache``) pins each series, so a re-run over unchanged
-        paths+mtimes+payload costs no second request.
+        The AI domain is a durable view setting: after the measured-metrics pass
+        for a folder settles, each series with **≥2 members carrying an applicable
+        MEASURED vector** is ranked once from its complete vector. Driven from the
+        pass settle (``_settle_metrics_pass``) and the explicit domain switch —
+        the single-flight gate dedups, so a second trigger over unchanged inputs
+        is a no-op. The domain is read from the DURABLE authority
+        (``_judgment_domain``), never ``state`` (replaced by open_folder/append/
+        clear_to_empty), so a restored ``ai`` domain ranks too.
+
+        Bounded lazy-AI rule (unchanged): only series with a currently-visible
+        member are picked and the count is capped, so an AI-domain switch never
+        floods the API. ``services.jev_cache`` pins each series, so a re-run over
+        unchanged paths+mtimes+payload costs no second request.
         """
+        if str(getattr(self, "_judgment_domain", "algorithms") or "").strip().lower() != "ai":
+            return
         try:
             groups = list(getattr(self.state, "series", None) or [])
         except Exception:
@@ -1828,6 +1863,7 @@ class GalleryController:
         if not groups:
             _ai_debug("jev ranks: no series — nothing to rank")
             return
+        mode = getattr(self.state, "mode", None)
         try:
             vis = getattr(self.widget, "visible_paths", None)
             visible = vis() if callable(vis) else None
@@ -1837,8 +1873,8 @@ class GalleryController:
             vkeys = {str(p) for p in (visible or [])}
         except Exception:
             vkeys = set()
-        small = hidden = 0
-        ran = 0
+        small = hidden = no_metrics = 0
+        ready: list = []
         for entry in groups:
             members = GalleryController._section_members(entry)
             if len(members) < 2:
@@ -1847,14 +1883,120 @@ class GalleryController:
             if vkeys and not any(str(getattr(m, "path", "")) in vkeys for m in members):
                 hidden += 1
                 continue
-            if ran >= self._AI_VISIBLE_CAP:
+            # Readiness is the APPLICABLE MEASURED VECTOR, not "any metrics":
+            # an axis Jev cannot score (or a non-applicable axis for this mode)
+            # must not earn a call, and a <2-scored series would only abstain.
+            vector = self._jev_measured_vector(members, mode)
+            if self._jev_scored_count(vector) < 2:
+                no_metrics += 1
+                continue
+            if len(ready) >= self._AI_VISIBLE_CAP:
                 break
-            ran += 1
-            self._run_jev_rank_for_series(members)
+            ready.append((members, vector))
+        if not ready:
+            _ai_debug(
+                "jev ranks: series=%d scheduled=0 (too-small=%d not-visible=%d no-metrics=%d)",
+                len(groups), small, hidden, no_metrics,
+            )
+            return
+        scope = self._folder_gen
+        fingerprint = GalleryController._jev_series_fingerprint(ready, mode)
+        gate = getattr(self, "_stage_gate", None)
+        claimed = True
+        if gate is not None:
+            try:
+                claimed = bool(gate.begin(_JEV_STAGE, scope, fingerprint))
+            except Exception:
+                claimed = True
+        if not claimed:
+            _ai_debug("jev ranks: gate skip (already ranked/in flight) series=%d", len(ready))
+            return
         _ai_debug(
-            "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d cap=%d)",
-            len(groups), ran, small, hidden, self._AI_VISIBLE_CAP,
+            "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d no-metrics=%d)",
+            len(groups), len(ready), small, hidden, no_metrics,
         )
+        self._launch_jev_batch(ready, scope)
+
+    # -- Jev batch plumbing (S2/J1) -----------------------------------------
+
+    @staticmethod
+    def _jev_measured_vector(members, mode) -> dict:
+        """Applicable MEASURED vector for *members* (per-mode axes only)."""
+        try:
+            from tabs.image_gallery.services.jev_client import build_measured_vector
+
+            return build_measured_vector(members, mode=mode)
+        except Exception:
+            logger.debug("jev measured vector build failed", exc_info=True)
+            return {"mode": "", "items": []}
+
+    @staticmethod
+    def _jev_scored_count(vector) -> int:
+        """Members carrying at least one applicable MEASURED score."""
+        try:
+            return sum(1 for e in (vector or {}).get("items", ()) if e.get("scores"))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _jev_series_fingerprint(ready, mode) -> str:
+        """Content key for one Jev batch: ready-series identities + vectors.
+
+        Stable for unchanged inputs, so the single-flight gate blocks a second
+        settle over the same series/vectors (plan §Risks: two triggers over
+        unchanged inputs must not spawn two workers).
+        """
+        import hashlib
+        import json
+
+        entries = []
+        for members, vector in ready or ():
+            try:
+                ident = sorted(
+                    (str(getattr(m, "path", "")), int(getattr(m, "mtime_ns", 0) or 0))
+                    for m in members
+                )
+            except Exception:
+                ident = []
+            entries.append({"members": ident, "vector": vector})
+        entries.sort(key=lambda e: json.dumps(e, sort_keys=True, default=str))
+        try:
+            raw = json.dumps(
+                {"mode": str(getattr(mode, "value", mode) or ""), "series": entries},
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except Exception:
+            raw = repr(entries)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+    def _launch_jev_batch(self, ready, scope) -> None:
+        """Run one Jev rank worker per ready series; release the gate at the end.
+
+        The gate is released once, after the LAST attempt reports (result or
+        error): a decisive or benign non-answer records completion; a fault
+        passes ``ok=False`` so the same fingerprint stays retryable.
+        """
+        gate = getattr(self, "_stage_gate", None)
+        progress = {"remaining": len(ready), "fault": False}
+
+        def _complete(ok: bool) -> None:
+            try:
+                if not ok:
+                    progress["fault"] = True
+                progress["remaining"] = max(0, int(progress["remaining"]) - 1)
+                if progress["remaining"] <= 0 and gate is not None:
+                    gate.finished(_JEV_STAGE, scope, ok=not progress["fault"])
+            except Exception:
+                logger.debug("jev gate finished failed", exc_info=True)
+
+        for members, _vector in ready:
+            try:
+                self._run_jev_rank_for_series(members, on_complete=_complete)
+            except Exception:
+                logger.debug("jev rank series launch failed", exc_info=True)
+                _complete(False)
 
     def _run_series_priority(self) -> None:
         """Schedule ONE cross-series routing pass (additive "needs a human first").
