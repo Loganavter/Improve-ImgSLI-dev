@@ -71,18 +71,19 @@ JEV_REASON_LOW_CONFIDENCE = "AI (Jev) was not confident enough — kept the Algo
 JEV_REASON_ERROR = "AI (Jev) request failed — kept the Algorithms rank"
 JEV_REASON_MALFORMED = "AI (Jev) returned an unusable response — kept the Algorithms rank"
 
-#: Degrade reasons that are a genuine FAULT, not a benign deterministic
-#: non-answer: a transport error, an unconfigured client or an unusable reply.
-#: A fault paints the per-card error chip and keeps the readiness gate retryable
-#: (``ok=False``); a benign non-answer (``Noul`` / low confidence / nothing to
-#: rank) clears the activity and records completion.
-JEV_FAULT_REASONS = (JEV_REASON_ERROR, JEV_REASON_NOT_CONFIGURED, JEV_REASON_MALFORMED)
+#: Degrade reasons that are a genuine FAULT, not a benign non-answer: a transport
+#: error or an unconfigured client (plan §J1.4). A fault paints the per-card error
+#: chip and keeps the readiness gate retryable (``ok=False``); a benign non-answer
+#: (``Noul`` / low confidence / nothing to rank / malformed) clears the activity
+#: and records completion — malformed is a deterministic "no usable answer", not
+#: a transport fault, so it must not re-introduce the mass false-error chip.
+JEV_FAULT_REASONS = (JEV_REASON_ERROR, JEV_REASON_NOT_CONFIGURED)
 
 
 def reason_is_fault(reason: str | None) -> bool:
     """True when *reason* is a genuine fault (error chip + gate retry), not a
-    benign deterministic non-answer. Prefix match: transport errors append the
-    exception text after :data:`JEV_REASON_ERROR`."""
+    benign non-answer. Prefix match: transport errors append the exception text
+    after :data:`JEV_REASON_ERROR`."""
     text = str(reason or "")
     return any(text.startswith(prefix) for prefix in JEV_FAULT_REASONS)
 

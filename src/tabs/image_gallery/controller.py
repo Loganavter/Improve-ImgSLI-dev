@@ -1784,6 +1784,18 @@ class GalleryController:
             domain = "algorithms"
         # Single authoritative setter; state/widget mirror it for rendering.
         dom = GalleryController._set_judgment_domain(self, domain)
+        # An EXPLICIT domain switch re-opens the rank stage: switching back to AI
+        # must re-apply the pinned Jev rank (cache-first, no second HTTP) even
+        # though the same fingerprint already completed for this folder
+        # generation (the Algorithms switch re-derived the ranks to fusion in
+        # between). The settled-pass trigger does NOT invalidate, so a second
+        # settle over unchanged inputs stays a no-op.
+        try:
+            gate = getattr(self, "_stage_gate", None)
+            if gate is not None:
+                gate.invalidate()
+        except Exception:
+            logger.debug("domain switch stage-gate invalidate failed", exc_info=True)
         # WHY Jev did / did not run: the domain switch is the only trigger for
         # the AI ranker (algorithms ⇒ no Jev call at all). Same IMGSLI_AI_DEBUG key.
         _ai_debug("judgment domain -> %s (%s)", dom, "Jev on" if dom == "ai" else "Jev off")
@@ -1886,8 +1898,8 @@ class GalleryController:
             # Readiness is the APPLICABLE MEASURED VECTOR, not "any metrics":
             # an axis Jev cannot score (or a non-applicable axis for this mode)
             # must not earn a call, and a <2-scored series would only abstain.
-            vector = self._jev_measured_vector(members, mode)
-            if self._jev_scored_count(vector) < 2:
+            vector = GalleryController._jev_measured_vector(members, mode)
+            if GalleryController._jev_scored_count(vector) < 2:
                 no_metrics += 1
                 continue
             if len(ready) >= self._AI_VISIBLE_CAP:
@@ -1915,7 +1927,7 @@ class GalleryController:
             "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d no-metrics=%d)",
             len(groups), len(ready), small, hidden, no_metrics,
         )
-        self._launch_jev_batch(ready, scope)
+        GalleryController._launch_jev_batch(self, ready, scope)
 
     # -- Jev batch plumbing (S2/J1) -----------------------------------------
 
@@ -2100,15 +2112,27 @@ class GalleryController:
         except Exception:
             pass
 
-    def _run_jev_rank_for_series(self, members) -> None:
+    def _run_jev_rank_for_series(self, members, *, on_complete=None) -> None:
         """Run one Jev rank worker for one series (cache-first, visible degrade).
 
         Pending is visible via the item activity phase; on a decisive answer the
         ranks are applied (``rank_source="jev"``), otherwise the Algorithms rank
-        is kept and the reason surfaced. Never blocks the UI thread.
+        is kept and the reason surfaced with the benign-vs-fault rule. Calls
+        ``on_complete(ok)`` exactly once when this series' attempt ends (used by
+        the batch gate: a fault passes ``ok=False`` so it stays retryable).
+        Never blocks the UI thread.
         """
         members = list(members or ())
+
+        def _done(ok: bool) -> None:
+            if callable(on_complete):
+                try:
+                    on_complete(bool(ok))
+                except Exception:
+                    logger.debug("jev series completion hook failed", exc_info=True)
+
         if len(members) < 2:
+            _done(True)
             return
         try:
             settings = self._ai_settings_store.load()
@@ -2123,7 +2147,8 @@ class GalleryController:
             from tabs.image_gallery.services.jev_client import JEV_REASON_NOT_CONFIGURED
 
             _ai_debug("jev rank skip: AI not configured (series items=%d)", len(members))
-            self._degrade_jev(members, JEV_REASON_NOT_CONFIGURED)
+            self._degrade_jev(members, JEV_REASON_NOT_CONFIGURED, as_error=True)
+            _done(False)
             return
 
         mode = getattr(self.state, "mode", None)
@@ -2156,20 +2181,37 @@ class GalleryController:
 
         def _on_result(outcome, gen=gen):
             if not self._is_current_folder_gen(gen):
-                return  # folder switched mid-rank — late answer dropped
+                _done(True)  # stale scope: release the gate, apply nothing
+                return
             self._apply_jev_outcome(snapshot, outcome)
+            _done(GalleryController._jev_outcome_ok(outcome))
 
         def _on_error(error_info, gen=gen):
             if not self._is_current_folder_gen(gen):
+                _done(True)
                 return
             logger.debug("jev rank worker error: %r", error_info, exc_info=True)
             from tabs.image_gallery.services.jev_client import JEV_REASON_ERROR
 
-            self._degrade_jev(snapshot, JEV_REASON_ERROR)
+            self._degrade_jev(snapshot, JEV_REASON_ERROR, as_error=True)
+            _done(False)
 
         worker.signals.result.connect(_on_result)
         worker.signals.error.connect(_on_error)
         self._pool_start(worker, None)
+
+    @staticmethod
+    def _jev_outcome_ok(outcome) -> bool:
+        """Gate completion: a decisive or benign non-answer is done; a fault is
+        a handled failure (``ok=False``) so the same fingerprint stays retryable."""
+        try:
+            if bool(getattr(outcome, "decided", False)):
+                return True
+            from tabs.image_gallery.services.jev_client import reason_is_fault
+
+            return not reason_is_fault(getattr(outcome, "reason", None))
+        except Exception:
+            return True
 
     def _apply_jev_outcome(self, members, outcome) -> None:
         """Apply one Jev result: ranks + ``rank_source="jev"`` or a visible degrade."""
@@ -2199,27 +2241,68 @@ class GalleryController:
                 except Exception:
                     pass
             _ai_debug("jev rank applied: items=%d source=jev", len(current))
+            GalleryController._refresh_rank_provenance(self)
             return
         reason = getattr(outcome, "reason", None) or "AI (Jev) rank unavailable"
-        self._degrade_jev(current, reason)
+        try:
+            from tabs.image_gallery.services.jev_client import reason_is_fault
 
-    def _degrade_jev(self, members, reason: str) -> None:
+            as_error = bool(reason_is_fault(reason))
+        except Exception:
+            as_error = False
+        GalleryController._degrade_jev(self, current, reason, as_error=as_error)
+        GalleryController._refresh_rank_provenance(self)
+
+    def _degrade_jev(self, members, reason: str, *, as_error: bool = False) -> None:
         """Keep the Algorithms (fusion) rank and surface a visible reason.
 
         The stored rank is never touched here — a failed Jev rank must not
-        fabricate a number or re-rank a subset (no silent fallback). The item
-        carries an explicit AI error activity phase so the degrade is visible,
-        and the reason is logged.
+        fabricate a number or re-rank a subset (no silent fallback). A BENIGN
+        non-answer (abstain / low confidence / nothing to rank / unusable reply)
+        CLEARS the AI activity so the card shows the Algorithms rank instead of a
+        false "error" chip that later flips to "done"; only a real fault
+        (``as_error``: transport error / not configured) paints the error chip.
+        The reason is always logged.
         """
         logger.debug("jev rank degraded: %s", reason)
         _ai_debug("jev rank degraded: %s", reason)
         for m in list(members or ()):
             it = self._find_item(getattr(m, "path", None)) or m
             try:
-                set_activity(it, ActivityPhase.ERROR, "ai")
+                if as_error:
+                    set_activity(it, ActivityPhase.ERROR, "ai")
+                else:
+                    clear_activity(it)
                 self.widget.refresh_card(it)
             except Exception:
                 pass
+
+    def _refresh_rank_provenance(self) -> None:
+        """State which ranker produced the series ranks (stats-strip chip).
+
+        Reads the ACTUAL ``rank_source`` of the ranked members — never the
+        intended domain: an AI domain that degraded to the Algorithms rank must
+        say "Algorithms", not "AI (Jev)". Falls back to the judgment domain when
+        nothing is ranked yet. Never raises.
+        """
+        src = ""
+        try:
+            for entry in (getattr(self.state, "series", None) or ()):
+                for m in GalleryController._section_members(entry):
+                    s = str(getattr(m, "rank_source", "") or "")
+                    if getattr(m, "rank", None) is not None and s in ("fusion", "jev", "manual"):
+                        src = s
+                        break
+                if src:
+                    break
+        except Exception:
+            src = ""
+        try:
+            self.widget.set_rank_provenance(
+                src or None, domain=str(getattr(self, "_judgment_domain", "algorithms"))
+            )
+        except Exception:
+            logger.debug("rank provenance refresh failed", exc_info=True)
 
     def _begin_analysis(self, item: GalleryItem) -> None:
         settings = self._ai_settings_store.load()
@@ -3168,6 +3251,33 @@ class GalleryController:
         except Exception:
             logger.debug("local-pass activity refresh failed", exc_info=True)
 
+    def _settle_metrics_pass(self, items) -> None:
+        """The measured-metrics pass for a folder settled (S2/J1 trigger).
+
+        Retires the local "done" badge (the quality dots are in) AND, on the AI
+        domain, ranks the ready series — the declared ``jev_rank`` stage requires
+        ``metrics_ready``, and this settle is where that fact is published. The
+        gate dedups, so the explicit domain switch triggering the same run is
+        harmless. Reads the DURABLE domain authority (``_judgment_domain``), not
+        ``state`` (replaced by open_folder/append/clear_to_empty).
+        """
+        try:
+            self._mark_local_pass(list(items or []), ActivityPhase.DONE)
+        except Exception:
+            logger.debug("metrics settle local done failed", exc_info=True)
+        GalleryController._run_jev_on_settle(self)
+
+    def _run_jev_on_settle(self) -> None:
+        """Run the AI-domain Jev batch from a metrics-pass settle (AI domain only)."""
+        if str(getattr(self, "_judgment_domain", "algorithms") or "").strip().lower() != "ai":
+            return
+        runner = getattr(self, "_run_jev_ranks", None)
+        if callable(runner):
+            try:
+                runner()
+            except Exception:
+                logger.debug("jev rank on metrics settle failed", exc_info=True)
+
     def _begin_append_processing(self, items: list[GalleryItem]) -> None:
         """Append path: mirror the first-load processing UX for NEW items.
 
@@ -3210,6 +3320,13 @@ class GalleryController:
                 done()
         except Exception:
             logger.debug("append processing indicator hide failed", exc_info=True)
+        # The append proxy pass settled too: on the AI domain, rank the ready
+        # series from the (now complete) measured vector. Gate-deduped.
+        try:
+            GalleryController._run_jev_on_settle(self)
+        except Exception:
+            logger.debug("append jev on settle failed", exc_info=True)
+
     def _run_artifacts_sync(self, items: list[GalleryItem], source_path: Path | None) -> dict[str, dict]:
         """Pure worker for GenericWorker: analyze 7 artifacts per item."""
         from tabs.image_gallery.services.artifacts import analyze_artifacts
@@ -3718,6 +3835,10 @@ class GalleryController:
         # inline fast path.
         self._apply_fusion_ranks(series, mode=mode)
         self._emit_triage_finished("done")
+        # The applied rank_source just changed (fresh fusion ranks): refresh the
+        # stats-strip provenance chip. Jev is NOT triggered here — the declared
+        # ``jev_rank`` gate owns ordering (the metrics-pass settle / switch).
+        GalleryController._refresh_rank_provenance(self)
         return series
 
     @staticmethod
@@ -3782,8 +3903,10 @@ class GalleryController:
         if analyses_current:
             logger.debug("triage tail: analyses unchanged, skipping restarts")
             # Nothing to compute — retire the local "analyzing" badge now, or it
-            # would stick forever (no proxy settle will fire to stamp done).
-            self._mark_local_pass(list(self.state.items), ActivityPhase.DONE)
+            # would stick forever (no proxy settle will fire to stamp done). The
+            # metrics are already current, so this also IS the pass settle: on a
+            # restored AI domain the gate ranks here (domain authority read).
+            GalleryController._settle_metrics_pass(self, list(self.state.items))
         else:
             try:
                 self._last_analysis_fingerprint = fingerprint
@@ -3806,14 +3929,14 @@ class GalleryController:
                     list(self.state.items),
                     source,
                     mode,
-                    on_done=lambda: self._mark_local_pass(
-                        list(self.state.items), ActivityPhase.DONE
+                    on_done=lambda: GalleryController._settle_metrics_pass(
+                        self, list(self.state.items)
                     ),
                 )
             except Exception:
                 logger.debug("proxy analysis start failed", exc_info=True)
                 # Fail-open: never leave the badge stuck in "analyzing".
-                self._mark_local_pass(list(self.state.items), ActivityPhase.DONE)
+                GalleryController._settle_metrics_pass(self, list(self.state.items))
         # Stage 3: targeted tie-break for top-2 when local metrics within epsilon (badge pending)
         try:
             for ser in series or []:
