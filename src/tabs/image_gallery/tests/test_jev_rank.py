@@ -119,13 +119,18 @@ def _ranks_by_name(items) -> dict:
 # --------------------------------------------------------------------------
 
 
-def test_rank_request_is_a_single_user_message_chat_body() -> None:
+def test_rank_request_has_an_output_contract_and_a_user_vector() -> None:
     a = _item("a.png", ssim=0.90, noise=0.10)
     b = _item("b.png", ssim=0.50, noise=0.10)
     payload = build_rank_request([a, b], mode="fidelity")
 
     assert payload["model"] == JEV_MODEL
-    assert [m["role"] for m in payload["messages"]] == ["user"]  # no system prompt
+    assert [m["role"] for m in payload["messages"]] == ["system", "user"]
+    system = payload["messages"][0]["content"]
+    assert "ranking" in system  # the output contract (probe 2026-10-15)
+    # The contract is format-only: no identity and no image bytes.
+    for bad in ("/gallery/", "a.png", "b.png", "base64", "data:image"):
+        assert bad not in system
 
 
 def test_rank_request_asks_for_a_json_object() -> None:
@@ -146,7 +151,8 @@ def test_payload_is_measured_vector_only_no_paths_no_bytes_no_prose() -> None:
     assert set(vector) == {"mode", "items"}
     assert vector["mode"] == "fidelity"
 
-    blob = json.dumps(payload)
+    # The measured VECTOR (the user message) carries no identity / bytes / prose.
+    blob = json.dumps(vector)
     # No file identity of any kind.
     assert "/gallery/" not in blob and "a.png" not in blob and "b.png" not in blob
     # No image bytes / vision envelope.
