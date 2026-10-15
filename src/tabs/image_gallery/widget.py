@@ -867,13 +867,14 @@ class ImageGalleryWidget(QWidget):
             pass
 
     def apply_view_prefs(self, *, view_list: bool, judgment_domain: str) -> None:
-        """Restore both switches from the session slot (quiet domain).
+        """Restore both switches from the session slot.
 
         The view is applied directly (widget ``_view_mode`` + grid) so it never
         relies on the toolbar's exclusive helper emitting ``viewToggled`` (which
         early-returns when the toolbar is already in the matching state). The
-        domain is set with signals blocked so a restored ``ai`` domain does NOT
-        fire a network run on open — the user triggers AI explicitly.
+        domain is the controller's single authority (``_set_judgment_domain``);
+        the toolbar stays signal-blocked so it never double-emits. Whether Jev
+        runs on open is decided by the readiness gate (S2/J1), not here.
         """
         is_list = bool(view_list)
         self._view_mode = is_list
@@ -899,19 +900,17 @@ class ImageGalleryWidget(QWidget):
             ctrl = getattr(self, "_controller", None) or getattr(
                 self, "_attached_controller", None
             )
-            state = getattr(ctrl, "state", None)
-            if state is not None:
-                state.judgment_domain = dom
+            setter = getattr(ctrl, "_set_judgment_domain", None)
+            if callable(setter):
+                setter(dom)
         except Exception:
             pass
-        # WHY Jev does NOT run on open: this restore is deliberately quiet (no
-        # network/Jev until the user switches the domain). Same IMGSLI_AI_DEBUG key.
+        # WHY Jev does / does not run: observability only (Jev scheduling is the
+        # readiness gate's job, S2/J1). Same IMGSLI_AI_DEBUG key.
         try:
             from tabs.image_gallery.services.ai_client import _ai_debug
 
-            _ai_debug(
-                "view restored: judgment_domain=%s — Jev runs only on an explicit switch", dom
-            )
+            _ai_debug("view restored: judgment_domain=%s", dom)
         except Exception:
             pass
 

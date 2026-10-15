@@ -562,7 +562,7 @@ def test_switch_back_to_algorithms_re_derives_the_fusion_rank() -> None:
     # Simulate a Jev rank currently displayed on the AI domain.
     b.rank, b.rank_source = 1, "jev"
     a.rank, a.rank_source = 2, "jev"
-    ctrl.state.rank_domain = "ai"
+    ctrl._judgment_domain = "ai"
 
     ctrl.activate_judgment_domain("algorithms")
     assert ctrl.state.rank_domain == "algorithms"
@@ -578,7 +578,8 @@ def test_jev_rank_survives_a_regroup_while_on_the_ai_domain() -> None:
     ctrl = _FakeController([a, b], _series(a, b))
     b.rank, b.rank_source = 1, "jev"
     a.rank, a.rank_source = 2, "jev"
-    ctrl.state.rank_domain = "ai"
+    # S1: the domain authority is the controller field, not ``state``.
+    ctrl._judgment_domain = "ai"
 
     GalleryController._apply_fusion_ranks(ctrl, ctrl.state.series)
     assert b.rank == 1 and b.rank_source == "jev"

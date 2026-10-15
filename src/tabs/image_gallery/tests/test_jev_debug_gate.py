@@ -95,3 +95,21 @@ def test_domain_switch_trace_under_key(caplog, monkeypatch) -> None:
     assert "[ai] judgment domain -> ai (Jev on)" in caplog.text
     assert "[ai] jev ranks: no series — nothing to rank" in caplog.text
 
+
+def test_judgment_domain_survives_state_rebuild() -> None:
+    """S1: the domain is the controller's durable authority, NOT ``state``
+    (open_folder / append / clear_to_empty replace the ``GalleryState``)."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.models import GalleryState
+
+    ctrl = SimpleNamespace(state=GalleryState())
+    GalleryController._set_judgment_domain(ctrl, "ai")
+    assert ctrl._judgment_domain == "ai"
+    assert ctrl.state.rank_domain == "ai"  # projection
+
+    ctrl.state = GalleryState()  # open_folder/append/clear replaces the object
+    assert ctrl.state.rank_domain == "algorithms"  # projection lost...
+    assert ctrl._judgment_domain == "ai"  # ...but the authority survives
+
