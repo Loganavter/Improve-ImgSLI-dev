@@ -91,8 +91,8 @@ class _FakeController:
     def _apply_jev_outcome(self, members, outcome):
         return GalleryController._apply_jev_outcome(self, members, outcome)
 
-    def _degrade_jev(self, members, reason):
-        return GalleryController._degrade_jev(self, members, reason)
+    def _degrade_jev(self, members, reason, *, as_error=False):
+        return GalleryController._degrade_jev(self, members, reason, as_error=as_error)
 
     def activate_judgment_domain(self, domain):
         return GalleryController.activate_judgment_domain(self, domain)

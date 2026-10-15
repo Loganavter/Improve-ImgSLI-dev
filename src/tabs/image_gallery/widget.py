@@ -2195,6 +2195,18 @@ class ImageGalleryWidget(QWidget):
         except Exception:
             pass
 
+    def set_rank_provenance(self, source: str | None = None, *, domain: str | None = None) -> None:
+        """Show which ranker produced the series ranks (stats-strip chip).
+
+        *source* is a ``rank_source`` token (``fusion``/``jev``/``manual``); when
+        absent, *domain* ("algorithms"|"ai") picks the label. The strip hides the
+        chip when neither is known (never a fabricated ranker).
+        """
+        try:
+            self.stats_strip.set_rank_provenance(source, domain=domain)
+        except Exception:
+            pass
+
     def refresh_card(self, item: GalleryItem) -> None:
         # Re-stamp the display badge (rank/source may have changed since the
         # last triage) before the card renders it — same single computation.

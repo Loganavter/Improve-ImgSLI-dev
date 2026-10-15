@@ -71,6 +71,22 @@ JEV_REASON_LOW_CONFIDENCE = "AI (Jev) was not confident enough — kept the Algo
 JEV_REASON_ERROR = "AI (Jev) request failed — kept the Algorithms rank"
 JEV_REASON_MALFORMED = "AI (Jev) returned an unusable response — kept the Algorithms rank"
 
+#: Degrade reasons that are a genuine FAULT, not a benign non-answer: a transport
+#: error or an unconfigured client (plan §J1.4). A fault paints the per-card error
+#: chip and keeps the readiness gate retryable (``ok=False``); a benign non-answer
+#: (``Noul`` / low confidence / nothing to rank / malformed) clears the activity
+#: and records completion — malformed is a deterministic "no usable answer", not
+#: a transport fault, so it must not re-introduce the mass false-error chip.
+JEV_FAULT_REASONS = (JEV_REASON_ERROR, JEV_REASON_NOT_CONFIGURED)
+
+
+def reason_is_fault(reason: str | None) -> bool:
+    """True when *reason* is a genuine fault (error chip + gate retry), not a
+    benign non-answer. Prefix match: transport errors append the exception text
+    after :data:`JEV_REASON_ERROR`."""
+    text = str(reason or "")
+    return any(text.startswith(prefix) for prefix in JEV_FAULT_REASONS)
+
 #: A transport takes the chat/completions request and returns the parsed JSON
 #: response. Injectable so tests never touch the network.
 RankClient = Callable[[dict], dict]
@@ -166,6 +182,24 @@ JEV_SYSTEM_PROMPT = (
 )
 
 
+def _request_from_vector(vector: dict) -> dict:
+    """The chat/completions body for a prebuilt measured vector (one shape).
+
+    Split out so :func:`rank_series_jev_detailed` can build the vector ONCE
+    (readiness check + payload) and the contract shape is defined in a single
+    place — the payload test and the wire call cannot drift.
+    """
+    text = json.dumps(vector, sort_keys=True, separators=(",", ":"))
+    return {
+        "model": JEV_MODEL,
+        "messages": [
+            {"role": "system", "content": JEV_SYSTEM_PROMPT},
+            {"role": "user", "content": [{"type": "text", "text": text}]},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+
+
 def build_rank_request(items, *, mode: str) -> dict:
     """OpenAI-compatible rank request for Jev (text-only, measured vector).
 
@@ -178,16 +212,7 @@ def build_rank_request(items, *, mode: str) -> dict:
     model answered a narrative object with no ranking, so every call degraded as
     unusable (probe 2026-10-15); the parser still tolerates key/shape variance.
     """
-    vector = build_measured_vector(items, mode=mode)
-    text = json.dumps(vector, sort_keys=True, separators=(",", ":"))
-    return {
-        "model": JEV_MODEL,
-        "messages": [
-            {"role": "system", "content": JEV_SYSTEM_PROMPT},
-            {"role": "user", "content": [{"type": "text", "text": text}]},
-        ],
-        "response_format": {"type": "json_object"},
-    }
+    return _request_from_vector(build_measured_vector(items, mode=mode))
 
 
 def _normalize_alias(value: Any, aliases: dict[str, str]) -> str | None:
@@ -416,16 +441,27 @@ def rank_series_jev_detailed(
     *reason* the caller surfaces when the Algorithms rank is kept. Cache-first:
     a hit (including a pinned abstain) is returned without calling ``client``.
     A transport exception is caught, is **not** pinned (a later pass may retry),
-    and degrades to ``None``. Never raises.
+    and degrades to ``None``.
+
+    Precondition (plan §J1.3): a series is only a valid Jev question when **at
+    least two members carry a non-empty applicable MEASURED vector**. A vector
+    with fewer scored aliases degrades with :data:`JEV_REASON_EMPTY` and is
+    **NOT pinned** — pinning a non-answer that arose from missing inputs would
+    poison the cache and hide a later, complete run. Never raises.
     """
     member_list = list(items or ())
     if len(member_list) < 2:
         return JevRankOutcome(None, reason=JEV_REASON_EMPTY)
     try:
-        payload = build_rank_request(member_list, mode=mode)
+        vector = build_measured_vector(member_list, mode=mode)
     except Exception:
-        logger.debug("jev rank payload build failed", exc_info=True)
+        logger.debug("jev rank vector build failed", exc_info=True)
         return JevRankOutcome(None, reason=JEV_REASON_MALFORMED)
+    scored = sum(1 for entry in vector.get("items", ()) if entry.get("scores"))
+    if scored < 2:
+        _ai_debug("jev rank skip: measured vector has %d scored aliases (<2)", scored)
+        return JevRankOutcome(None, reason=JEV_REASON_EMPTY)
+    payload = _request_from_vector(vector)
 
     cache_obj = cache if cache is not None else jev_cache.default_cache()
     try:
@@ -505,6 +541,7 @@ def make_client(base_url: str, api_key: str) -> RankClient:
 
 
 __all__ = [
+    "JEV_FAULT_REASONS",
     "JEV_MIN_CONFIDENCE",
     "JEV_MODEL",
     "JEV_TIMEOUT_S",
@@ -520,4 +557,5 @@ __all__ = [
     "make_client",
     "rank_series_jev",
     "rank_series_jev_detailed",
+    "reason_is_fault",
 ]
