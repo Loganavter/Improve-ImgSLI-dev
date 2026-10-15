@@ -1822,7 +1822,7 @@ class GalleryController:
             logger.debug("domain switch card refresh failed", exc_info=True)
         if dom != "ai":
             # Back to Algorithms: re-derive the deterministic fusion rank (a
-            # Jev rank is only authoritative while the AI domain owns the rank).
+            # Jev rank is only in effect while the AI domain owns the rank).
             try:
                 self._apply_fusion_ranks(getattr(self.state, "series", None))
             except Exception:
