@@ -205,6 +205,11 @@ class GalleryController:
     def __init__(self, widget, *, thread_pool: QThreadPool | None = None, context=None):
         self.widget = widget
         self.state = GalleryState()
+        # Single authoritative judgment domain (Algorithms vs AI). ``state`` is
+        # REPLACED by open_folder/append/clear_to_empty, so the domain must NOT
+        # live there; ``state``/widget are read-only projections (see
+        # plan-gallery-jev-pipeline-2026-10-15 S1).
+        self._judgment_domain = "algorithms"
         # Manual series overrides (Wave B): controller-local
         # ``dict[str(path), series_id | None]`` — None = forced UNGROUPED.
         # In-memory only (no cross-restart persistence, explicitly out of
@@ -920,7 +925,7 @@ class GalleryController:
                 # Algorithms domain clears this and fusion re-derives.
                 return (
                     getattr(m, "rank_source", None) == "jev"
-                    and str(getattr(self.state, "rank_domain", "algorithms") or "")
+                    and str(getattr(self, "_judgment_domain", "algorithms") or "")
                     == "ai"
                 )
             except Exception:
@@ -1717,6 +1722,24 @@ class GalleryController:
     #: so flipping to AI never turns into a whole-folder API flood.
     _AI_VISIBLE_CAP = 12
 
+    def _set_judgment_domain(self, domain: str) -> str:
+        """The ONLY writer of the judgment domain (Algorithms vs AI).
+
+        ``self._judgment_domain`` is the single authority and survives the
+        ``GalleryState`` rebuilds done by open_folder / append / clear_to_empty;
+        ``state.judgment_domain``/``state.rank_domain`` are read-only projections
+        kept for rendering. Returns the normalized value.
+        """
+        dom = str(domain or "").strip().lower()
+        dom = dom if dom in ("algorithms", "ai") else "algorithms"
+        self._judgment_domain = dom
+        try:
+            self.state.judgment_domain = dom
+            self.state.rank_domain = dom
+        except Exception:
+            pass
+        return dom
+
     def activate_judgment_domain(self, domain: str) -> None:
         """Apply the toolbar domain switch (plan-gallery-two-domain-axes).
 
@@ -1730,21 +1753,12 @@ class GalleryController:
         try:
             from tabs.image_gallery.models import JUDGMENT_DOMAINS
 
-            dom = str(domain or "").strip().lower()
-            if dom not in tuple(JUDGMENT_DOMAINS):
-                dom = "algorithms"
+            if str(domain or "").strip().lower() not in tuple(JUDGMENT_DOMAINS):
+                domain = "algorithms"
         except Exception:
-            dom = "algorithms"
-        try:
-            self.state.judgment_domain = dom
-        except Exception:
-            pass
-        # The AI domain's ranker is Jev; mirror it so a fusion regroup never
-        # silently re-derives a Jev rank while the AI domain is active.
-        try:
-            self.state.rank_domain = "ai" if dom == "ai" else "algorithms"
-        except Exception:
-            pass
+            domain = "algorithms"
+        # Single authoritative setter; state/widget mirror it for rendering.
+        dom = GalleryController._set_judgment_domain(self, domain)
         # WHY Jev did / did not run: the domain switch is the only trigger for
         # the AI ranker (algorithms ⇒ no Jev call at all). Same IMGSLI_AI_DEBUG key.
         _ai_debug("judgment domain -> %s (%s)", dom, "Jev on" if dom == "ai" else "Jev off")
