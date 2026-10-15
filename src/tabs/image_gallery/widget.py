@@ -904,6 +904,16 @@ class ImageGalleryWidget(QWidget):
                 state.judgment_domain = dom
         except Exception:
             pass
+        # WHY Jev does NOT run on open: this restore is deliberately quiet (no
+        # network/Jev until the user switches the domain). Same IMGSLI_AI_DEBUG key.
+        try:
+            from tabs.image_gallery.services.ai_client import _ai_debug
+
+            _ai_debug(
+                "view restored: judgment_domain=%s — Jev runs only on an explicit switch", dom
+            )
+        except Exception:
+            pass
 
     # -- card interaction -------------------------------------------------
 
