@@ -513,3 +513,70 @@ def test_series_and_ungrouped_tail_header_navigation(qtbot) -> None:
     QTest.qWait(20)
     assert gv.focused_card() is tail_first
 
+
+def _banded_gallery(qtbot):
+    """Wide viewport + one series -> left section and UNGROUPED tail side by side."""
+    w = ImageGalleryWidget()
+    qtbot.addWidget(w)
+    w.resize(1900, 900)
+    w.show()
+    qtbot.waitExposed(w)
+    items = _items(27)
+    w.rebuild_grid(items)
+    qtbot.wait(400)  # let the debounced adaptive reflow settle
+    gv = w._grid_view
+    gv.set_series([items[:25]], hub_names=["HUB-A"], collapsed={})
+    QTest.qWait(40)
+    assert gv._band_state is not None, "expected a side-by-side banded layout"
+    return gv, int(gv._band_state[2])
+
+
+def test_banded_down_reaches_the_right_band(qtbot) -> None:
+    """Side-by-side bands are one vertical strip: Down must not dead-end at
+    the left band's bottom row.
+
+    Falsification (pre-repair): block-scoped Up/Down treated every band as a
+    closed strip, so ``Down`` at the left band's last row returned ``False``
+    and the right band became keyboard-unreachable.
+    """
+    gv, sep_col = _banded_gallery(qtbot)
+    cards = gv._live_cards_in_order()
+    assert gv.focus_card(cards[0])
+
+    reached_right = False
+    for _ in range(60):
+        if gv.move_focus(Qt.Key.Key_Down) is not True:
+            break
+        card = gv.focused_card()
+        if card is None:  # focus parked on a series/tail header — keep walking
+            continue
+        idx = gv.items_layout.indexOf(card)
+        if idx >= 0 and int(gv.items_layout.getItemPosition(idx)[1]) >= sep_col:
+            reached_right = True
+    assert reached_right, "Down dead-ended at the left band"
+
+
+def test_banded_up_reaches_the_left_band(qtbot) -> None:
+    """Walking Up from the bottom card must climb back through the right band
+    into the left one instead of yielding at the band boundary.
+
+    Parity guard, not a falsification test: pre-repair the flat index
+    arithmetic happened to cross the boundary too. It pins that the
+    block-scoped Up keeps doing so after the band-crossing repair.
+    """
+    gv, sep_col = _banded_gallery(qtbot)
+    cards = gv._live_cards_in_order()
+    assert gv.focus_card(cards[-1])
+
+    reached_left = False
+    for _ in range(60):
+        if gv.move_focus(Qt.Key.Key_Up) is not True:
+            break
+        card = gv.focused_card()
+        if card is None:
+            continue
+        idx = gv.items_layout.indexOf(card)
+        if idx >= 0 and int(gv.items_layout.getItemPosition(idx)[1]) < sep_col:
+            reached_left = True
+    assert reached_left, "Up dead-ended at the right band"
+

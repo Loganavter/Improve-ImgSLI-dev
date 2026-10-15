@@ -1745,6 +1745,23 @@ class GalleryGridView(QWidget):
             bands.append(blocks)
         return bands
 
+    @staticmethod
+    def _block_entry(blk):
+        """Target entering *blk* from a neighbouring row: header, else 1st card."""
+        if blk.get("header") is not None:
+            return blk["header"]
+        cards = blk.get("cards") or []
+        return cards[0] if cards else None
+
+    @staticmethod
+    def _block_exit(blk):
+        """Target leaving *blk* upward: first card of its last row, else header."""
+        cards = blk.get("cards") or []
+        if not cards:
+            return blk.get("header")
+        cols = max(1, int(blk.get("cols") or 1))
+        return cards[((len(cards) - 1) // cols) * cols]
+
     def move_focus(self, key) -> bool:
         """Move focus one step for *key*: 2D in grid, Up/Down in list.
 
@@ -1755,6 +1772,9 @@ class GalleryGridView(QWidget):
         - Up from the topmost header (or first row with no header) -> yields
           (``False``) so NavigationManager hands off upward.
         - Left/Right on a header yield at row edges without wrapping.
+
+        Side-by-side bands are one vertical strip per band, so Up/Down walk
+        on into the adjacent band instead of dead-ending at its edge.
         """
         cards = self._live_cards_in_order()
         headers = self._live_headers_in_order()
@@ -1772,31 +1792,33 @@ class GalleryGridView(QWidget):
                 self.ensure_card_visible(cur_hdr)
                 return False
             if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-                for band_blocks in self._nav_bands():
+                bands = self._nav_bands()
+                for band_i, band_blocks in enumerate(bands):
                     for bi, blk in enumerate(band_blocks):
-                        if blk["header"] is cur_hdr:
-                            if key == Qt.Key.Key_Down:
-                                blk_cards = blk["cards"]
-                                if blk_cards:
-                                    return self.focus_card(blk_cards[0])
-                                if bi + 1 < len(band_blocks) and band_blocks[bi + 1]["header"] is not None:
-                                    return self.focus_card(band_blocks[bi + 1]["header"])
-                                self.ensure_card_visible(cur_hdr)
-                                return False
-                            # Key_Up
-                            if bi == 0:
-                                self.ensure_card_visible(cur_hdr)
-                                return False
-                            prev_blk = band_blocks[bi - 1]
-                            prev_cards = prev_blk["cards"]
-                            if prev_cards:
-                                pcols = max(1, int(prev_blk["cols"]))
-                                last_row_start = ((len(prev_cards) - 1) // pcols) * pcols
-                                return self.focus_card(prev_cards[last_row_start])
-                            if prev_blk["header"] is not None:
-                                return self.focus_card(prev_blk["header"])
+                        if blk["header"] is not cur_hdr:
+                            continue
+                        if key == Qt.Key.Key_Down:
+                            if blk["cards"]:
+                                return self.focus_card(blk["cards"][0])
+                            nxt = None
+                            if bi + 1 < len(band_blocks):
+                                nxt = self._block_entry(band_blocks[bi + 1])
+                            elif band_i + 1 < len(bands) and bands[band_i + 1]:
+                                nxt = self._block_entry(bands[band_i + 1][0])
+                            if nxt is not None:
+                                return self.focus_card(nxt)
                             self.ensure_card_visible(cur_hdr)
                             return False
+                        # Key_Up
+                        prev = band_blocks[bi - 1] if bi > 0 else None
+                        if prev is None and band_i > 0 and bands[band_i - 1]:
+                            prev = bands[band_i - 1][-1]
+                        if prev is not None:
+                            tgt = self._block_exit(prev)
+                            if tgt is not None:
+                                return self.focus_card(tgt)
+                        self.ensure_card_visible(cur_hdr)
+                        return False
                 self.ensure_card_visible(cur_hdr)
                 return False
             return False
@@ -1819,7 +1841,8 @@ class GalleryGridView(QWidget):
                 cols = int(self.grid_columns)
             if cols < 1:
                 cols = 1
-            for band_blocks in self._nav_bands():
+            bands = self._nav_bands()
+            for band_i, band_blocks in enumerate(bands):
                 for bi, blk in enumerate(band_blocks):
                     blk_cards = blk["cards"]
                     if cur_card not in blk_cards:
@@ -1830,13 +1853,25 @@ class GalleryGridView(QWidget):
                             return self.focus_card(blk_cards[pos - cols])
                         if blk["header"] is not None:
                             return self.focus_card(blk["header"])
+                        prev = band_blocks[bi - 1] if bi > 0 else None
+                        if prev is None and band_i > 0 and bands[band_i - 1]:
+                            prev = bands[band_i - 1][-1]
+                        if prev is not None:
+                            tgt = self._block_exit(prev)
+                            if tgt is not None:
+                                return self.focus_card(tgt)
                         self.ensure_card_visible(cur_card)
                         return False
                     # Key_Down
                     if pos + cols < len(blk_cards):
                         return self.focus_card(blk_cards[pos + cols])
-                    if bi + 1 < len(band_blocks) and band_blocks[bi + 1]["header"] is not None:
-                        return self.focus_card(band_blocks[bi + 1]["header"])
+                    nxt = None
+                    if bi + 1 < len(band_blocks):
+                        nxt = self._block_entry(band_blocks[bi + 1])
+                    elif band_i + 1 < len(bands) and bands[band_i + 1]:
+                        nxt = self._block_entry(bands[band_i + 1][0])
+                    if nxt is not None:
+                        return self.focus_card(nxt)
                     self.ensure_card_visible(cur_card)
                     return False
             step = -cols if key == Qt.Key.Key_Up else cols
