@@ -70,8 +70,9 @@ def _apply_session_state(tab, context: TabContext, session_id: str) -> None:
     """Apply the session's toolbar chrome (unconditional; never pool-gated).
 
     ``SessionState.apply_from_slot`` reads the LIVE slot (QSettings fallback)
-    and binds the facade to ``session_id``. The judgment domain is applied
-    quietly by the widget, so a restored ``ai`` domain never fires a run.
+    and binds the facade to ``session_id``. The judgment domain is applied by
+    the widget, which records it on the controller durably
+    (``note_judgment_domain``) so a restored ``ai`` domain ranks on open.
     """
     state = getattr(tab, "_session_state", None)
     if state is None:

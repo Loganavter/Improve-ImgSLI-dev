@@ -872,10 +872,10 @@ class ImageGalleryWidget(QWidget):
         The view is applied directly (widget ``_view_mode`` + grid) so it never
         relies on the toolbar's exclusive helper emitting ``viewToggled`` (which
         early-returns when the toolbar is already in the matching state). A
-        restored ``ai`` domain RANKS on open: the controller schedules AI
-        analysis + Jev at the first series commit (cache-first, bounded) — see
-        ``_schedule_ai_domain_work``. The toolbar stays signal-blocked so it
-        never double-emits the toggle.
+        restored ``ai`` domain RANKS on open: the controller records the domain
+        durably and schedules AI analysis + Jev (cache-first, bounded) — see
+        ``GalleryController.note_judgment_domain``. The toolbar stays
+        signal-blocked so it never double-emits the toggle.
         """
         is_list = bool(view_list)
         self._view_mode = is_list
@@ -904,10 +904,12 @@ class ImageGalleryWidget(QWidget):
             state = getattr(ctrl, "state", None)
             if state is not None:
                 state.judgment_domain = dom
-                # Mirror the ranker domain so the first series commit schedules
-                # AI + Jev when the restored domain is ``ai`` (see controller
-                # ``_schedule_ai_domain_work``).
-                state.rank_domain = "ai" if dom == "ai" else "algorithms"
+            # Durable: ``state`` is REPLACED by open_folder/append/clear, so
+            # record the domain on the controller (which also schedules AI + Jev
+            # when it is ``ai``). See controller ``note_judgment_domain``.
+            note = getattr(ctrl, "note_judgment_domain", None)
+            if callable(note):
+                note(dom)
         except Exception:
             pass
         try:
