@@ -33,7 +33,7 @@ No Qt; the transport (``client``) is injectable so tests are network-free. All
 sync calls must run on a ``GenericWorker``, never the UI thread.
 """
 
-# Audit-Meta: pattern=wire-client size=516 reason="one Jev rank seam: measured-vector request + decision parser + degrade contract + pin belong together — splitting scatters the wire contract"
+# Audit-Meta: pattern=wire-client size=523 reason="one Jev rank seam: measured-vector request + decision parser + degrade contract + pin belong together — splitting scatters the wire contract"
 
 from __future__ import annotations
 
@@ -159,8 +159,10 @@ def build_measured_vector(items, *, mode: str) -> dict:
 #: Carries no image bytes, no paths, no measured values: a format contract only.
 JEV_SYSTEM_PROMPT = (
     "You rank items by their measured quality scores. Reply with ONLY a JSON "
-    'object {"ranking": ["<alias>", ...]} ordering the aliases best to worst, '
-    'or {"noul": true} when the numbers cannot decide. No prose.'
+    'object {"ranking": ["<alias>", ...]} ordering the aliases best to worst — '
+    "a full ranking whenever at least two aliases carry scores (break near ties "
+    'by your best judgement). Reply {"noul": true} only when fewer than two '
+    "aliases carry scores. No prose."
 )
 
 
@@ -442,6 +444,11 @@ def rank_series_jev_detailed(
                 return JevRankOutcome({str(p): int(r) for p, r in ranks.items()}, cached=True)
             return JevRankOutcome(None, reason=hit.get("reason") or JEV_REASON_NOUL, cached=True)
 
+    try:
+        _vec = payload["messages"][-1]["content"][0]["text"]
+    except Exception:
+        _vec = "?"
+    _ai_debug("jev rank vector: %.400s", _vec)
     _ai_debug("jev rank mode=%s items=%d (call)", _mode_token(mode), len(member_list))
     try:
         raw = client(payload)

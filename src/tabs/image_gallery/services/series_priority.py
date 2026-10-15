@@ -53,8 +53,10 @@ PRIORITY_REASON_MALFORMED = "AI (Jev) series priority returned an unusable respo
 #: ``jev_client.JEV_SYSTEM_PROMPT`` for why the shape must be constrained.
 PRIORITY_SYSTEM_PROMPT = (
     "You order series by which needs a human first. Reply with ONLY a JSON "
-    'object {"ranking": ["<alias>", ...]} most-attention-first, or '
-    '{"noul": true} when the signals cannot decide. No prose.'
+    'object {"ranking": ["<alias>", ...]} most-attention-first — a full ranking '
+    "whenever at least two series carry signals (break near ties by your best "
+    'judgement). Reply {"noul": true} only when fewer than two series carry '
+    "signals. No prose."
 )
 
 #: A transport takes the chat/completions request and returns the parsed JSON.
