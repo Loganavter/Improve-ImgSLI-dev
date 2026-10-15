@@ -8,10 +8,11 @@ to ``<base_url>/chat/completions`` on OpenRouter — under the model id
 bespoke HTTP client** here: one transport, one retry/fallback idiom for the
 whole gallery.
 
-The request is a chat/completions call whose *user message* is the measured
-vector: the mode plus, per variant, an opaque alias (``img_N``) and the 0..100
-score of every applicable MEASURED axis — **no image bytes, no paths, no prose**.
-Jev answers with a Choice / Noul / Score decision (JSON in the assistant message).
+The request is a chat/completions call with a fixed **output contract** (a
+system message: rank aliases or abstain) and a *user message* that is the
+measured vector: the mode plus, per variant, an opaque alias (``img_N``) and the
+0..100 score of every applicable MEASURED axis — **no image bytes, no paths**.
+Jev answers with a Ranking / Choice / Noul decision (JSON in the assistant message).
 
 Determinism (design, not a bug): the AI domain is explicitly non-deterministic;
 reproducibility is bought by the **pin** (:mod:`tabs.image_gallery.services.jev_cache`).
@@ -31,6 +32,8 @@ Degrade contract (never silent, never partial):
 No Qt; the transport (``client``) is injectable so tests are network-free. All
 sync calls must run on a ``GenericWorker``, never the UI thread.
 """
+
+# Audit-Meta: pattern=wire-client size=516 reason="one Jev rank seam: measured-vector request + decision parser + degrade contract + pin belong together — splitting scatters the wire contract"
 
 from __future__ import annotations
 
@@ -149,23 +152,37 @@ def build_measured_vector(items, *, mode: str) -> dict:
     return {"mode": mid, "items": entries}
 
 
+#: Output contract, sent as the system message. The live ``typesafe/jev-router``
+#: currently routes to a *chat* model that free-forms a narrative
+#: ("summary/observations/next_steps") with no ranking at all when asked only for
+#: a JSON object (probe 2026-10-15) — so the output shape must be constrained.
+#: Carries no image bytes, no paths, no measured values: a format contract only.
+JEV_SYSTEM_PROMPT = (
+    "You rank items by their measured quality scores. Reply with ONLY a JSON "
+    'object {"ranking": ["<alias>", ...]} ordering the aliases best to worst, '
+    'or {"noul": true} when the numbers cannot decide. No prose.'
+)
+
+
 def build_rank_request(items, *, mode: str) -> dict:
     """OpenAI-compatible rank request for Jev (text-only, measured vector).
 
-    A chat/completions body: ``model = JEV_MODEL`` and ONE user message whose
+    A chat/completions body: ``model = JEV_MODEL``, ONE system message carrying
+    the output contract (:data:`JEV_SYSTEM_PROMPT`) and ONE user message whose
     text part is the canonical JSON measured vector
-    (:func:`build_measured_vector`) — no system prompt, no image parts, no file
-    paths (``tests/test_jev_rank.py``). ``response_format={"type": "json_object"}``
-    pins the reply shape: without it the live ``typesafe/jev-router`` alternates
-    prose / fenced-JSON / bare object (probe 2026-10-15); the parser still
-    tolerates the key/shape variance.
+    (:func:`build_measured_vector`) — no image parts, no file paths
+    (``tests/test_jev_rank.py``). ``response_format={"type": "json_object"}`` **and**
+    the contract pin the reply shape: without the contract the live router's chat
+    model answered a narrative object with no ranking, so every call degraded as
+    unusable (probe 2026-10-15); the parser still tolerates key/shape variance.
     """
     vector = build_measured_vector(items, mode=mode)
     text = json.dumps(vector, sort_keys=True, separators=(",", ":"))
     return {
         "model": JEV_MODEL,
         "messages": [
-            {"role": "user", "content": [{"type": "text", "text": text}]}
+            {"role": "system", "content": JEV_SYSTEM_PROMPT},
+            {"role": "user", "content": [{"type": "text", "text": text}]},
         ],
         "response_format": {"type": "json_object"},
     }
