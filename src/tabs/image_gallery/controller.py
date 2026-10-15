@@ -1842,6 +1842,31 @@ class GalleryController:
             len(groups), ran, small, hidden, self._AI_VISIBLE_CAP,
         )
 
+    def _schedule_ai_domain_work(self) -> None:
+        """Run AI analysis + Jev ranks after a series commit on the AI domain.
+
+        The AI domain's ranker is Jev (plan-gallery-rank-backends §Goal 3), so a
+        restored ``ai`` domain must RANK on open. A restored pool comes back flat
+        and the series only exist at the triage commit — this is that choke
+        point (async worker and inline fast path both land here). Cache-first +
+        bounded, so a re-run over unchanged series costs no request; a regroup
+        in the AI domain keeps the Jev rank fresh. Never fires on Algorithms.
+        """
+        try:
+            if str(getattr(self.state, "rank_domain", "algorithms") or "") != "ai":
+                return
+        except Exception:
+            return
+        _ai_debug("ai domain commit -> scheduling AI analysis + Jev ranks")
+        for label, run in (
+            ("analyze", self._run_ai_for_visible),
+            ("jev", self._run_jev_ranks),
+        ):
+            try:
+                run()
+            except Exception:
+                logger.debug("ai-domain %s on commit failed", label, exc_info=True)
+
     def _run_series_priority(self) -> None:
         """Schedule ONE cross-series routing pass (additive "needs a human first").
 
@@ -3562,6 +3587,7 @@ class GalleryController:
         # inline fast path.
         self._apply_fusion_ranks(series, mode=mode)
         self._emit_triage_finished("done")
+        GalleryController._schedule_ai_domain_work(self)
         return series
 
     @staticmethod
