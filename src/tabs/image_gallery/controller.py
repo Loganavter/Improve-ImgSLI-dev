@@ -2236,7 +2236,9 @@ class GalleryController:
                 pass
             for it in current:
                 try:
-                    clear_activity(it)
+                    # Complete the badge UX: queued -> done (lingers ~1s -> fades),
+                    # never an abrupt clear that kills the chip mid-ux.
+                    set_activity(it, ActivityPhase.DONE, "ai")
                     self.widget.refresh_card(it)
                 except Exception:
                     pass
@@ -2272,7 +2274,10 @@ class GalleryController:
                 if as_error:
                     set_activity(it, ActivityPhase.ERROR, "ai")
                 else:
-                    clear_activity(it)
+                    # Benign non-answer: the Jev work FINISHED — let the chip
+                    # complete its ux (done lingers, then fades) instead of an
+                    # abrupt clear mid-flight.
+                    set_activity(it, ActivityPhase.DONE, "ai")
                 self.widget.refresh_card(it)
             except Exception:
                 pass

@@ -177,6 +177,26 @@ def _apply_rejected_visuals(card: Button, item: GalleryItem, translate=None) -> 
                         badge_text = str(tr("image_gallery.badge.source", badge_text))
                     except Exception:
                         pass
+            if badge_kind == "rank" and badge_text:
+                # help ranking.md §Reading the badge promises the CARD badge
+                # states the ranker. Fusion is the default ("#N" alone); the
+                # opt-in AI (Jev) / Manual rankers are shown explicitly so the
+                # user can see WHO ranked the card without a hidden strip chip.
+                _src = str(getattr(item, "badge_source", "") or "")
+                if _src in ("jev", "manual"):
+                    try:
+                        from tabs.image_gallery.services.rank_badge import RANK_SOURCE_LABEL
+
+                        _key, _label = RANK_SOURCE_LABEL.get(_src, ("", ""))
+                        if callable(translate):
+                            try:
+                                _label = str(translate(_key, _label)) or _label
+                            except Exception:
+                                pass
+                        if _label:
+                            badge_text = f"{badge_text} · {_label}"
+                    except Exception:
+                        pass
             if badge_text:
                 try:
                     card.setBadge(None)

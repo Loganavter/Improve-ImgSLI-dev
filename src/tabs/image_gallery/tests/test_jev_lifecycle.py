@@ -297,7 +297,7 @@ def test_reason_is_fault_classification() -> None:
     assert not reason_is_fault(None)
 
 
-def test_benign_degrade_clears_activity_but_a_fault_paints_error() -> None:
+def test_benign_degrade_completes_the_badge_ux_but_a_fault_paints_error() -> None:
     it = SimpleNamespace(
         path="/g/a.png", activity_phase="queued", activity_source="ai", activity_at=1e18
     )
@@ -305,7 +305,9 @@ def test_benign_degrade_clears_activity_but_a_fault_paints_error() -> None:
         _find_item=lambda p: it, widget=SimpleNamespace(refresh_card=lambda x: None)
     )
     GalleryController._degrade_jev(ctrl, [it], JEV_REASON_NOUL)
-    assert it.activity_phase is None  # benign: cleared, no false error chip
+    # Benign: the Jev work FINISHED -> the chip completes (done), not a false error
+    # and not an abrupt mid-ux clear.
+    assert it.activity_phase == "done"
 
     GalleryController._degrade_jev(ctrl, [it], JEV_REASON_ERROR, as_error=True)
     assert it.activity_phase == "error"
