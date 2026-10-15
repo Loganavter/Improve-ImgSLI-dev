@@ -70,15 +70,14 @@ def _metric_label(overlay, spec_id: str, default: str) -> str:
 def _overlay_judgment_domain(overlay) -> str:
     """The judgment domain the open report renders for ("algorithms" | "ai").
 
-    Read from the overlay's owner (the gallery widget), the same authority the
-    toolbar switch writes; unknown falls back to Algorithms.
+    Read from the overlay's owner (the gallery widget), the durable authority the
+    toolbar switch writes (``state.judgment_domain`` is a transient mirror that
+    is wholesale replaced — never read as an authority, plan-gallery-jev-pipeline
+    §S1). Unknown/absent falls back to Algorithms.
     """
     try:
         owner = getattr(overlay, "_owner", None)
         domain = getattr(owner, "_judgment_domain", None)
-        if domain is None:
-            state = getattr(owner, "state", None)
-            domain = getattr(state, "judgment_domain", None) if state is not None else None
         return "ai" if str(domain or "").strip().lower() == "ai" else "algorithms"
     except Exception:
         return "algorithms"

@@ -258,7 +258,8 @@ def _axis_flags_from_defects(defects) -> tuple:
 
     Uses ``axis_policy.degrade_unknown`` so an observation that maps to a known
     axis id gets it; anything else degrades to ``flag-for-review``. These are
-    candidate flags (see plan-gallery-two-domain-axes), not measurements.
+    candidate flags (text; see plan-gallery-two-domain-axes) — the numeric
+    per-axis answer is the scorecard (``AiAnalysisResult.axes``), never a flag.
     """
     from tabs.image_gallery.models import AiAxisFlag
     from tabs.image_gallery.services.axis_policy import degrade_unknown

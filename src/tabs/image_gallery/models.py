@@ -72,8 +72,10 @@ class Artifact(str, Enum):
 class MetricKind(str, Enum):
     """What an axis *is* — the slot that lets non-measured axes exist.
 
-    ``MEASURED`` — a local detector produces a number (0-100 quality). The
-    algorithms domain owns these; AI never overwrites them.
+    ``MEASURED`` — an axis answered by a number (0-100 quality). In the
+    Algorithms domain a local detector produces it; on the AI domain the VLM's
+    scorecard answers the same axes (see
+    ``plan-gallery-ai-backend-owns-quality``).
     ``CANDIDATE`` — a flag "possible X" (no number): a learned detector OR an
     AI/human observation, always marked unverified.
     ``JUDGMENT`` — plausibility/behaviour (e.g. a hallucination): AI/human only,
@@ -113,8 +115,9 @@ class AiAxisFlag:
     """An AI-sourced non-measured axis: a candidate flag or a judgment.
 
     ``kind`` is a ``MetricKind`` value (``candidate`` | ``judgment``) — never
-    ``measured`` (numbers stay with the local detectors). ``id`` is an existing
-    axis id when the observation maps to one, else ``flag-for-review``.
+    ``measured`` (a measured axis is the domain's numeric read, never a flag).
+    ``id`` is an existing axis id when the observation maps to one, else
+    ``flag-for-review``.
     See ``plan-gallery-two-domain-axes``.
     """
 
