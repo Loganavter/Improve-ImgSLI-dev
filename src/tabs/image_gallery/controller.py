@@ -204,6 +204,7 @@ _ERROR_KEYS = {
 class GalleryController:
     def __init__(self, widget, *, thread_pool: QThreadPool | None = None, context=None):
         self.widget = widget
+        self._judgment_domain = "algorithms"  # durable; see note_judgment_domain
         self.state = GalleryState()
         # Manual series overrides (Wave B): controller-local
         # ``dict[str(path), series_id | None]`` — None = forced UNGROUPED.
@@ -1745,6 +1746,8 @@ class GalleryController:
             self.state.rank_domain = "ai" if dom == "ai" else "algorithms"
         except Exception:
             pass
+        # Keep the durable field in step (state may already have been replaced).
+        self._judgment_domain = dom
         # WHY Jev did / did not run: the domain switch is the only trigger for
         # the AI ranker (algorithms ⇒ no Jev call at all). Same IMGSLI_AI_DEBUG key.
         _ai_debug("judgment domain -> %s (%s)", dom, "Jev on" if dom == "ai" else "Jev off")
@@ -1842,20 +1845,43 @@ class GalleryController:
             len(groups), ran, small, hidden, self._AI_VISIBLE_CAP,
         )
 
+    def note_judgment_domain(self, domain: str) -> None:
+        """Record the judgment domain durably and, on AI, rank what exists now.
+
+        Called by the widget when a restored domain is applied. Unlike a write to
+        ``state.rank_domain`` (that object is REPLACED by ``open_folder`` /
+        append / ``clear_to_empty``), ``self._judgment_domain`` survives a state
+        rebuild — so the triage-commit hook still schedules Jev after restore,
+        and the pool-restored-before-domain ordering cannot skip it.
+        """
+        dom = str(domain or "").strip().lower()
+        dom = dom if dom in ("algorithms", "ai") else "algorithms"
+        self._judgment_domain = dom
+        try:
+            self.state.rank_domain = "ai" if dom == "ai" else "algorithms"
+        except Exception:
+            pass
+        # Series may already exist (restored pool); rank them now.
+        GalleryController._schedule_ai_domain_work(self)
+
     def _schedule_ai_domain_work(self) -> None:
-        """Run AI analysis + Jev ranks after a series commit on the AI domain.
+        """Run AI analysis + Jev ranks when the AI domain owns the rank.
 
         The AI domain's ranker is Jev (plan-gallery-rank-backends §Goal 3), so a
-        restored ``ai`` domain must RANK on open. A restored pool comes back flat
-        and the series only exist at the triage commit — this is that choke
-        point (async worker and inline fast path both land here). Cache-first +
-        bounded, so a re-run over unchanged series costs no request; a regroup
-        in the AI domain keeps the Jev rank fresh. Never fires on Algorithms.
+        restored ``ai`` domain must RANK on open. The domain is read from the
+        DURABLE controller field (set by ``note_judgment_domain`` /
+        ``activate_judgment_domain``) — never ``state`` alone, which is replaced
+        by ``open_folder`` and would drop the domain. Cache-first + bounded, so a
+        re-run over unchanged series costs no request. Never fires on Algorithms.
         """
         try:
-            if str(getattr(self.state, "rank_domain", "algorithms") or "") != "ai":
-                return
+            dom = str(getattr(self, "_judgment_domain", "") or "").strip().lower()
         except Exception:
+            dom = ""
+        if dom != "ai":
+            dom = str(getattr(self.state, "rank_domain", "algorithms") or "").strip().lower()
+        if dom != "ai":
+            _ai_debug("ai domain: domain=%s — Jev not scheduled", dom or "algorithms")
             return
         _ai_debug("ai domain commit -> scheduling AI analysis + Jev ranks")
         for label, run in (

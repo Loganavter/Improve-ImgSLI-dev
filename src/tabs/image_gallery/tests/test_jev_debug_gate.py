@@ -120,3 +120,39 @@ def test_ai_domain_commit_schedules_ai_and_jev(caplog, monkeypatch) -> None:
     assert calls == []
 
 
+def test_state_replacement_does_not_drop_the_ai_domain(caplog, monkeypatch) -> None:
+    """A restored ``ai`` domain must survive ``open_folder`` replacing ``state``.
+
+    Falsification (pre-fix): the domain lived only on ``state.rank_domain``; a
+    folder open / append / clear builds a fresh ``GalleryState`` (rank_domain
+    back to 'algorithms'), so the later triage commit silently skipped Jev —
+    the live 'Jev is dead after restore' report."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.models import GalleryState
+
+    calls: list[str] = []
+    fake = SimpleNamespace(
+        state=GalleryState(),
+        _run_ai_for_visible=lambda: calls.append("analyze"),
+        _run_jev_ranks=lambda: calls.append("jev"),
+        _judgment_domain="algorithms",
+    )
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+
+    GalleryController.note_judgment_domain(fake, "ai")
+    calls.clear()
+
+    # open_folder / append / clear_to_empty replace the state object:
+    fake.state = GalleryState()
+    assert fake.state.rank_domain == "algorithms"  # the dropped domain
+
+    # The next triage commit must STILL schedule (durable field), not no-op.
+    with caplog.at_level(logging.WARNING, logger="ImproveImgSLI"):
+        GalleryController._schedule_ai_domain_work(fake)
+    assert calls == ["analyze", "jev"]
+    assert "[ai] ai domain commit -> scheduling AI analysis + Jev ranks" in caplog.text
+
+
+
