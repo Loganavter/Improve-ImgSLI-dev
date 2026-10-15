@@ -206,7 +206,8 @@ def test_focus_survives_removing_the_focused_card(qtbot) -> None:
 
 
 def test_move_focus_at_top_edge_yields(qtbot) -> None:
-    """Up/Left on the first card must not be consumed ("never yours to keep").
+    """Up at the topmost header (or first row with no header) and Left on the
+    first card must not be consumed ("never yours to keep").
 
     Pre-fix ``move_focus`` kept focus put but still returned ``True``, so the
     key was swallowed and NavigationManager's trial-dispatch (or any ancestor)
@@ -216,9 +217,23 @@ def test_move_focus_at_top_edge_yields(qtbot) -> None:
     first = gv.card_for(items[0].path)
     assert first is not None
     assert gv.focus_card(first)
-    assert gv.move_focus(Qt.Key.Key_Up) is False
     assert gv.move_focus(Qt.Key.Key_Left) is False
     assert gv.focused_card() is first
+    # First Up reaches the topmost header above row 0; Up from there yields.
+    assert gv.move_focus(Qt.Key.Key_Up) is True
+    top_hdr = gv.focused_header()
+    assert top_hdr is not None
+    assert gv.move_focus(Qt.Key.Key_Up) is False
+    assert gv.focused_header() is top_hdr
+
+    # Header-less flat grid: Up from the first row yields directly.
+    gv.rebuild_grid(items)
+    QTest.qWait(20)
+    flat_first = gv.card_for(items[0].path)
+    assert flat_first is not None
+    assert gv.focus_card(flat_first)
+    assert gv.move_focus(Qt.Key.Key_Up) is False
+    assert gv.focused_card() is flat_first
 
 
 def test_move_focus_at_bottom_edge_yields(qtbot) -> None:
@@ -236,6 +251,8 @@ def test_handle_navigation_key_ignores_edge_arrow(qtbot) -> None:
     first = gv.card_for(items[0].path)
     assert first is not None
     assert gv.focus_card(first)
+    # Step onto the topmost header, then Up is at the top edge and must yield.
+    assert gv.move_focus(Qt.Key.Key_Up) is True
     ev = QKeyEvent(
         QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier
     )
@@ -258,7 +275,7 @@ class _FakeKeyEvent:
 
 
 def test_edge_up_hands_off_to_toolbar_via_trial_dispatch(qtbot, monkeypatch) -> None:
-    """NavigationManager trial-dispatch: an unhandled Up at the top row must
+    """NavigationManager trial-dispatch: an unhandled Up at the top edge must
     hand off to the toolbar section above the grid (not be swallowed)."""
     from sli_ui_toolkit.managers import (
         NavigationManager,
@@ -288,8 +305,13 @@ def test_edge_up_hands_off_to_toolbar_via_trial_dispatch(qtbot, monkeypatch) -> 
         )
         first = gv.card_for(items[0].path)
         assert first is not None
+        assert gv.focus_card(first)
+        # First Up moves from row 0 card to the topmost header above it.
+        assert gv.move_focus(Qt.Key.Key_Up) is True
+        top_hdr = gv.focused_header()
+        assert top_hdr is not None
         monkeypatch.setattr(
-            _nm.QApplication, "focusWidget", staticmethod(lambda: first)
+            _nm.QApplication, "focusWidget", staticmethod(lambda: top_hdr)
         )
         handled = mgr.eventFilter(None, _FakeKeyEvent(Qt.Key.Key_Up))
         assert handled is True
@@ -406,3 +428,88 @@ def test_empty_grid_area_is_owned_and_a_key_reaches_a_card(qtbot) -> None:
     QTest.qWait(10)
     assert section.navigate(Qt.Key.Key_Down, gv.scroll_area) is True
     assert gv.focused_card() is not None
+
+
+def test_up_from_first_card_reaches_series_header_and_enter_collapses(qtbot) -> None:
+    """Up from the first card of a series block focuses its header Button;
+    Enter/Space toggles collapse/expand and keeps focus sane."""
+    from sli_ui_toolkit.widgets import Button
+
+    w, gv, items = _shown_widget(qtbot, 8)
+    gv.set_series([items[:4], items[4:]], hub_names=["A", "B"], collapsed={})
+    QTest.qWait(20)
+
+    hdr0 = gv.findChild(Button, "GallerySeriesHeaderBtn_0")
+    first = gv.card_for(items[0].path)
+    assert hdr0 is not None and first is not None
+    assert gv.focus_card(first)
+
+    # Up from first card of Series 0 -> Series 0 header
+    QTest.keyClick(first, Qt.Key.Key_Up)
+    QTest.qWait(20)
+    assert QApplication.focusWidget() is hdr0
+    assert gv.focused_header() is hdr0
+
+    # Up at topmost header yields (False) so NavigationManager can hand off upward
+    assert gv.move_focus(Qt.Key.Key_Up) is False
+    # Left/Right on a full-width header yield at row edges without wrapping
+    assert gv.move_focus(Qt.Key.Key_Left) is False
+    assert gv.move_focus(Qt.Key.Key_Right) is False
+    assert QApplication.focusWidget() is hdr0
+
+    # Down from Series 0 header -> first card of Series 0
+    QTest.keyClick(hdr0, Qt.Key.Key_Down)
+    QTest.qWait(20)
+    assert gv.focused_card() is first
+
+    # Up back to Series 0 header, then Enter collapses Series 0
+    QTest.keyClick(first, Qt.Key.Key_Up)
+    QTest.qWait(20)
+    assert QApplication.focusWidget() is hdr0
+    QTest.keyClick(hdr0, Qt.Key.Key_Return)
+    QTest.qWait(20)
+    assert gv._collapsed.get(0) is True
+    assert gv.card_for(items[0].path) is None
+    assert QApplication.focusWidget() is hdr0
+
+    # Space on focused header expands Series 0 back
+    QTest.keyClick(hdr0, Qt.Key.Key_Space)
+    QTest.qWait(20)
+    assert gv._collapsed.get(0) is False
+    assert gv.card_for(items[0].path) is not None
+    assert QApplication.focusWidget() is hdr0
+
+
+def test_series_and_ungrouped_tail_header_navigation(qtbot) -> None:
+    """Second series header and UNGROUPED tail header are reachable via Up/Down."""
+    from sli_ui_toolkit.widgets import Button
+
+    w, gv, items = _shown_widget(qtbot, 6)
+    gv.set_series([items[:2], items[2:4]], hub_names=["A", "B"], collapsed={})
+    QTest.qWait(20)
+
+    hdr1 = gv.findChild(Button, "GallerySeriesHeaderBtn_1")
+    tail_hdr = gv.findChild(Button, "GallerySeriesHeader_ungrouped_btn")
+    s1_first = gv.card_for(items[2].path)
+    tail_first = gv.card_for(items[4].path)
+    assert hdr1 is not None and tail_hdr is not None
+    assert s1_first is not None and tail_first is not None
+
+    # Up from first card of Series 1 -> Series 1 header; Down -> back to first card
+    assert gv.focus_card(s1_first)
+    QTest.keyClick(s1_first, Qt.Key.Key_Up)
+    QTest.qWait(20)
+    assert QApplication.focusWidget() is hdr1
+    QTest.keyClick(hdr1, Qt.Key.Key_Down)
+    QTest.qWait(20)
+    assert gv.focused_card() is s1_first
+
+    # Up from first card of ungrouped tail -> tail header; Down -> first tail card
+    assert gv.focus_card(tail_first)
+    QTest.keyClick(tail_first, Qt.Key.Key_Up)
+    QTest.qWait(20)
+    assert QApplication.focusWidget() is tail_hdr
+    QTest.keyClick(tail_hdr, Qt.Key.Key_Down)
+    QTest.qWait(20)
+    assert gv.focused_card() is tail_first
+
