@@ -1799,6 +1799,9 @@ class GalleryController:
         # WHY Jev did / did not run: the domain switch is the only trigger for
         # the AI ranker (algorithms ⇒ no Jev call at all). Same IMGSLI_AI_DEBUG key.
         _ai_debug("judgment domain -> %s (%s)", dom, "Jev on" if dom == "ai" else "Jev off")
+        # The open quick-look report/dots are domain-scoped: re-render them for
+        # the new domain (VLM read ↔ detectors) without a reopen.
+        self._refresh_open_quick_look()
         if dom != "ai":
             # Back to Algorithms: re-derive the deterministic fusion rank (a
             # Jev rank is only authoritative while the AI domain owns the rank).
@@ -2407,64 +2410,44 @@ class GalleryController:
         set_activity(item, phase, "ai")
         self.widget.refresh_card(item)
 
-    def _merge_measured_metrics(self, result, item):
-        """Overwrite the model's sharpness/noise/exposure with MEASURED
-        quality scores (the detectors are authoritative); keep the AI-only
-        composition axis. Returns the (possibly) replaced result. Never
-        raises — on any failure the original result is returned."""
-        try:
-            from dataclasses import replace
-
-            from tabs.image_gallery.services import metric_scores as _ms
-        except Exception:
-            return result
-        try:
-            metrics = getattr(item, "metrics", None) or {}
-            if not isinstance(metrics, dict) or not metrics:
-                return result
-            axes = {sid: score for sid, _label, _raw, score in _ms.measured_scores(metrics)}
-        except Exception:
-            return result
-        kwargs = {}
-        sharp = axes.get("sharpness")
-        if sharp is not None:
-            kwargs["sharpness"] = sharp
-        noise = axes.get("noise")  # already positive "Clean" quality
-        if noise is not None:
-            kwargs["noise"] = noise
-        exposure = axes.get("exposure")
-        if exposure is not None:
-            kwargs["exposure"] = exposure
-        if not kwargs:
-            return result
-        try:
-            return replace(result, **kwargs)
-        except Exception:
-            return result
-
     def _on_analysis_ready(self, path: Path, mtime_ns: int, result, gen: int | None = None) -> None:
         if gen is not None and not self._is_current_folder_gen(gen):
             return  # folder switched — late analysis dropped
         item = self._find_item(path)
         if item is None:
             return
-        result = self._merge_measured_metrics(result, item)
+        # The VLM's result IS the AI-domain read (plan-gallery-ai-backend-owns-
+        # quality): no detector merge here — the Algorithms domain keeps reading
+        # ``item.metrics`` through ``services.quality_read``.
         save_analysis(path, mtime_ns, result)
         item.analysis = result
         item.analysis_status = AnalysisStatus.DONE
         item.analysis_error = None
         set_activity(item, ActivityPhase.DONE, "ai")
         self.widget.refresh_card(item)
-        # Axis notes ride the metric/artifact row headers — rebuild the open
-        # overlay's rows in place so the notes appear without a walk/reopen.
+        # The AI scorecard IS the AI-domain read — rebuild the open overlay's
+        # rows/dots in place so they switch to the VLM numbers without a reopen.
+        self._refresh_open_quick_look()
+
+    def _refresh_open_quick_look(self) -> None:
+        """Rebuild the open quick-look report rows + dots for the current domain.
+
+        The report is domain-scoped (``services.quality_read``); a domain switch
+        or a fresh analysis must re-render it in place, not on reopen.
+        """
         try:
             ql = getattr(self.widget, "_quick_look_overlay", None)
-            if ql is not None and hasattr(ql, "refresh_metrics"):
+            if ql is None:
+                return
+            item = getattr(ql, "_current_item", None)
+            if item is None:
+                return
+            if hasattr(ql, "refresh_metrics"):
                 ql.refresh_metrics(item)
-            if ql is not None and hasattr(ql, "refresh_artifacts"):
+            if hasattr(ql, "refresh_artifacts"):
                 ql.refresh_artifacts(item)
         except Exception:
-            pass
+            logger.debug("quick-look domain refresh failed", exc_info=True)
 
     def _on_analysis_error(self, path: Path, error_info, gen: int | None = None) -> None:
         if gen is not None and not self._is_current_folder_gen(gen):
