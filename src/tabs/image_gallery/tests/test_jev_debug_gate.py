@@ -188,6 +188,47 @@ def test_benign_jev_degrade_clears_activity_but_a_fault_paints_error() -> None:
     assert it.activity_phase == "error"
 
 
+def test_jev_apply_sets_the_strip_provenance_to_ai_jev() -> None:
+    """The stats-strip provenance chip (the documented "AI (Jev)" surface) is
+    driven from the APPLIED rank_source — previously set_rank_provenance had no
+    caller, so the chip never appeared."""
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.services.jev_client import JevRankOutcome
+
+    seen: list[tuple] = []
+    a = SimpleNamespace(path="/g/a.png", rank=None, rank_source=None)
+    b = SimpleNamespace(path="/g/b.png", rank=None, rank_source=None)
+    ctrl = SimpleNamespace(
+        state=SimpleNamespace(rank_domain="ai", series=[SimpleNamespace(members=[a, b])]),
+        _judgment_domain="ai",
+        _find_item=lambda p: None,
+        widget=SimpleNamespace(
+            refresh_card=lambda x: None,
+            set_rank_provenance=lambda s=None, domain=None: seen.append((s, domain)),
+        ),
+    )
+    GalleryController._apply_jev_outcome(
+        ctrl, [a, b], JevRankOutcome({"/g/a.png": 1, "/g/b.png": 2})
+    )
+    assert a.rank_source == "jev"
+    assert ("jev", "ai") in seen
+
+
+def test_widget_proxies_rank_provenance_to_the_strip(qtbot) -> None:
+    """The widget forwards to the StatsStrip chip that actually renders it."""
+    from tabs.image_gallery.widget import ImageGalleryWidget
+
+    w = ImageGalleryWidget()
+    qtbot.addWidget(w)
+    w.set_rank_provenance("jev")
+    assert "AI (Jev)" in w.stats_strip.rank_provenance_label.text()
+    w.set_rank_provenance("fusion")
+    assert "Algorithms" in w.stats_strip.rank_provenance_label.text()
+
+
+
 
 def test_state_replacement_does_not_drop_the_ai_domain(caplog, monkeypatch) -> None:
     """A restored ``ai`` domain must survive ``open_folder`` replacing ``state``.

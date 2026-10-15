@@ -1901,6 +1901,33 @@ class GalleryController:
             except Exception:
                 logger.debug("ai-domain %s on commit failed", label, exc_info=True)
 
+    def _refresh_rank_provenance(self) -> None:
+        """State which ranker produced the series ranks (stats-strip chip).
+
+        Reads the ACTUAL ``rank_source`` of the ranked members — never the
+        intended domain: an AI domain that degraded to the Algorithms rank must
+        say "Algorithms", not "AI (Jev)". Falls back to the judgment domain when
+        nothing is ranked yet. Never raises.
+        """
+        src = ""
+        try:
+            for entry in (getattr(self.state, "series", None) or ()):
+                for m in GalleryController._section_members(entry):
+                    s = str(getattr(m, "rank_source", "") or "")
+                    if getattr(m, "rank", None) is not None and s in ("fusion", "jev", "manual"):
+                        src = s
+                        break
+                if src:
+                    break
+        except Exception:
+            src = ""
+        try:
+            self.widget.set_rank_provenance(
+                src or None, domain=str(getattr(self, "_judgment_domain", "algorithms"))
+            )
+        except Exception:
+            logger.debug("rank provenance refresh failed", exc_info=True)
+
     def _run_series_priority(self) -> None:
         """Schedule ONE cross-series routing pass (additive "needs a human first").
 
@@ -2102,9 +2129,11 @@ class GalleryController:
                 except Exception:
                     pass
             _ai_debug("jev rank applied: items=%d source=jev", len(current))
+            GalleryController._refresh_rank_provenance(self)
             return
         reason = getattr(outcome, "reason", None) or "AI (Jev) rank unavailable"
         self._degrade_jev(current, reason)
+        GalleryController._refresh_rank_provenance(self)
 
     def _degrade_jev(self, members, reason: str, *, as_error: bool = False) -> None:
         """Keep the Algorithms (fusion) rank and surface a visible reason.
@@ -3634,6 +3663,7 @@ class GalleryController:
         # inline fast path.
         self._apply_fusion_ranks(series, mode=mode)
         self._emit_triage_finished("done")
+        GalleryController._refresh_rank_provenance(self)
         GalleryController._schedule_ai_domain_work(self)
         return series
 
