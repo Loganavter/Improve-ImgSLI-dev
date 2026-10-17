@@ -124,7 +124,18 @@ def _plant_close_cover(self, shot) -> None:
         pass
 
 
+def _unregister_nav(overlay) -> None:
+    """Leave the navigation graph (idempotent; see quick_look/nav_section.py)."""
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section
+
+        nav_section.unregister(overlay)
+    except Exception:
+        pass
+
+
 def hide(self) -> None:  # noqa: N802
+    _unregister_nav(self)
     # Cover-then-release-then-hide, all while still visible: planting in
     # hideEvent would be too late (hidden parent never paints). Covers
     # every path — direct hide(), close() (via its internal hide) and
@@ -147,6 +158,7 @@ def hide(self) -> None:  # noqa: N802
 
 
 def hideEvent(self, event) -> None:  # noqa: N802
+    _unregister_nav(self)
     try:
         self._release_preview_resources()
     except Exception:
@@ -155,6 +167,7 @@ def hideEvent(self, event) -> None:  # noqa: N802
 
 
 def closeEvent(self, event) -> None:  # noqa: N802
+    _unregister_nav(self)
     # Same cover-then-release order as hide(): the default closeEvent
     # hides only at its end, but our release runs first — grab the
     # frame here while the canvas still presents. The internal hide()

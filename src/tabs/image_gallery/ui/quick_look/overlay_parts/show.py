@@ -98,6 +98,16 @@ def show_for(self, item, owner=None) -> None:
         self.setFocus(Qt.FocusReason.PopupFocusReason)
     except Exception:
         pass
+    # The overlay owns its keys through the app's navigation model while it is
+    # visible: arrows move the strip cursor, Enter confirms, ↓/↑ reach the
+    # action row (quick_look/nav_section.py). Registered after the focus grab so
+    # the section bootstrap lands the cursor on the item already on screen.
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        _nav.register(self)
+    except Exception:
+        pass
     # Re-assert the modal input grab AFTER show: populate-time rebuilds
     # must never leave the overlay disabled/transparent (a visible but
     # hit-test-invisible veil passes every press to the gallery beneath

@@ -295,6 +295,28 @@ class QuickLookOverlay(TopLevelInWindowOverlay):
     def _walk(self, delta: int) -> None:
         _populate_parts._walk(self, delta)
 
+    # -- strip cursor (keyboard-first navigation; quick_look/nav_section.py) --
+
+    def _move_cursor(self, delta: int) -> None:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        _nav.move_cursor(self, delta)
+
+    def _commit_cursor(self) -> bool:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        return _nav.commit_cursor(self)
+
+    def _focus_action_row(self) -> bool:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        return _nav.focus_action_row(self)
+
+    def _focus_strip(self) -> bool:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        return _nav.focus_strip(self)
+
     # -- triage dispatch: bottom-bar buttons (overlay_parts/dispatch.py) -----
 
     def _on_compare(self) -> None:

@@ -188,11 +188,20 @@ def leaveEvent(self, event) -> None:  # noqa: N802
 
 def keyPressEvent(self, event) -> None:  # noqa: N802
     k = event.key()
-    # Esc closes via the toolkit base (close_on_escape=True); ←→ still
-    # walk the series here.
+    # Esc closes via the toolkit base (close_on_escape=True).
+    # W11 contract, revised: ←/→ move the STRIP CURSOR only — the picture
+    # follows on Enter (or a thumb click), so a series can be read without
+    # re-decoding an image per keystroke. The overlay is a navigation section
+    # while visible (quick_look/nav_section.py), so this handler is the
+    # fallback for a key that reached the overlay without section routing.
+    from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
     if k in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-        delta = -1 if k == Qt.Key.Key_Left else 1
-        self._walk(delta)
+        _nav.move_cursor(self, -1 if k == Qt.Key.Key_Left else 1)
+        event.accept()
+        return
+    if k in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        _nav.commit_cursor(self)
         event.accept()
         return
     TopLevelInWindowOverlay.keyPressEvent(self, event)

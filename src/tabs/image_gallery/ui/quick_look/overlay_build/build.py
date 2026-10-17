@@ -47,6 +47,16 @@ QUICK_LOOK_NAV_GLYPH_PT = 24
 # -- UI construction helpers (thin owner delegation) -------------------------
 
 
+def _nav_move_cursor(overlay, delta: int) -> None:
+    """Move the strip cursor (lazy import: nav_section imports this package)."""
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section
+
+        nav_section.move_cursor(overlay, delta)
+    except Exception:
+        pass
+
+
 def build_overlay_ui(overlay) -> None:
     """Construct QuickLookOverlay layout (thin owner delegator).
 
@@ -173,7 +183,11 @@ def build_overlay_ui(overlay) -> None:
             overlay._prev_btn.set_border_color(_nav_border)
     except Exception:
         pass
-    overlay._prev_btn.clicked.connect(lambda: overlay._walk(-1))
+    # ‹/› move the strip CURSOR (the picture follows on Enter) — the same
+    # keyboard-first contract as ←/→ (quick_look/nav_section.py).
+    overlay._prev_btn.clicked.connect(
+        lambda: _nav_move_cursor(overlay, -1)
+    )
     preview_host = QWidget(left)
     # Expanding on both axes: the host is the sole laid-out slot child, so
     # it must claim the preview area's stretch itself (previously the
@@ -311,7 +325,9 @@ def build_overlay_ui(overlay) -> None:
             overlay._next_btn.set_border_color(_nav_border)
     except Exception:
         pass
-    overlay._next_btn.clicked.connect(lambda: overlay._walk(1))
+    overlay._next_btn.clicked.connect(
+        lambda: _nav_move_cursor(overlay, 1)
+    )
     left_lay.addLayout(preview_row, 1)
     # W4 item 4: the Esc hint lives at the right end of the bottom button
     # bar (built below), not in the left column. Nothing added here.

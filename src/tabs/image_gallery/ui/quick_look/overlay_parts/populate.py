@@ -268,3 +268,11 @@ def _walk(self, delta: int) -> None:
     # ``ui/quick_look.py`` is a fixed-signature thin forwarder outside this
     # change's file set.
     _populate(self, preserve_view=True)
+    # The keyboard cursor rides with the picture it just confirmed, so a later
+    # arrow continues from what is on screen (see quick_look/nav_section.py).
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        _nav.sync_cursor_to_current(self)
+    except Exception:
+        pass

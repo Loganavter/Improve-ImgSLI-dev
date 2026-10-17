@@ -28,13 +28,14 @@ from .helpers import (
 from .paint import _refresh_strip_selection, _strip_overlay_painter
 
 
-def ensure_strip_visible(overlay) -> None:
-    """Scroll the strip so the current thumb is visible (walk follow).
+def ensure_strip_visible(overlay, idx: int | None = None) -> None:
+    """Scroll the strip so the given thumb (default: the current one) is visible.
 
     Nothing in the app ever scrolled the strip — keyboard/button walks
     left the current thumb out of view with no affordance to find it.
-    Called on every populate (both refresh and full-rebuild tails);
-    fail-open to no-scroll, never correctness. Never raises.
+    Called on every populate (both refresh and full-rebuild tails) and by
+    the keyboard cursor, which can sit ahead of the shown picture; fail-open
+    to no-scroll, never correctness. Never raises.
     """
     try:
         scroll = getattr(overlay, "_strip_scroll", None)
@@ -43,7 +44,7 @@ def ensure_strip_visible(overlay) -> None:
         if scroll is None or not items or len(buttons) != len(items):
             return
         try:
-            idx = int(getattr(overlay, "_current_idx", 0) or 0)
+            idx = int(idx) if idx is not None else int(getattr(overlay, "_current_idx", 0) or 0)
         except Exception:
             return
         if not 0 <= idx < len(buttons):
