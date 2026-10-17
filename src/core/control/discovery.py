@@ -462,11 +462,15 @@ def compose_rhi_frames(target: Any, pixmap: Any) -> int:
     (``QRhiWidget.grabFramebuffer``), so the honest capture is the window
     raster plus each visible canvas painted at its own geometry.
 
-    Returns how many canvases were painted (0 = nothing to add). Only
-    *visible* ``QRhiWidget`` descendants of *target* are asked; a canvas
-    that has not rendered yet, cannot hand its frame over, or returns a
-    null image is skipped rather than failing the capture — the grab stays
-    useful either way and never raises.
+    Returns how many canvases were painted (0 = nothing to add). Canvases
+    are looked up from *target*'s top-level window, not from *target*
+    itself: the Quick Look canvas lives in an in-window overlay parented to
+    the window, so a tab-page grab would otherwise miss the very canvas
+    the caller is looking at. Only canvases whose rect actually lands on
+    the grab are painted; a canvas that is hidden, has not rendered yet,
+    cannot hand its frame over, or returns a null image is skipped rather
+    than failing the capture — the grab stays useful either way and never
+    raises.
     """
     try:
         from PySide6.QtCore import QPoint, QRectF
@@ -477,14 +481,25 @@ def compose_rhi_frames(target: Any, pixmap: Any) -> int:
         from PySide6.QtWidgets import QRhiWidget
     except Exception:
         return 0
+    root = target
     try:
-        widgets = target.findChildren(QRhiWidget)
+        window = target.window()
+        if window is not None:
+            root = window
+    except Exception:
+        root = target
+    try:
+        widgets = root.findChildren(QRhiWidget)
     except Exception:
         return 0
     try:
         dpr = float(pixmap.devicePixelRatio() or 1.0)
     except Exception:
         dpr = 1.0
+    try:
+        on_grab = QRectF(0.0, 0.0, float(pixmap.width()), float(pixmap.height()))
+    except Exception:
+        return 0
     painter = None
     painted = 0
     try:
@@ -502,17 +517,17 @@ def compose_rhi_frames(target: Any, pixmap: Any) -> int:
                 # mapTo(target, ...) only promises ancestors; go through the
                 # screen so a canvas under a sibling/overlay still lands right.
                 anchor = target.mapFromGlobal(widget.mapToGlobal(QPoint(0, 0)))
+                rect = QRectF(
+                    float(anchor.x()) * dpr,
+                    float(anchor.y()) * dpr,
+                    float(width) * dpr,
+                    float(height) * dpr,
+                )
+                if not rect.intersects(on_grab):
+                    continue
                 if painter is None:
                     painter = QPainter(pixmap)
-                painter.drawImage(
-                    QRectF(
-                        float(anchor.x()) * dpr,
-                        float(anchor.y()) * dpr,
-                        float(width) * dpr,
-                        float(height) * dpr,
-                    ),
-                    frame,
-                )
+                painter.drawImage(rect, frame)
                 painted += 1
             except Exception:
                 continue
