@@ -84,16 +84,28 @@ def ensure_strip_scroll(overlay) -> None:
     except Exception:
         pass
     ensure_strip_visible(overlay)
-    # The keyboard cursor rides the same per-populate sync point: a confirmed
-    # step rebuilds the strip, which replaces the thumb widgets, so the marker
-    # and the focus must be re-asserted on the live ones (quick_look/nav_section).
+    # The keyboard ring rides the same per-populate sync point: a rebuild whose
+    # fingerprint changed (ranks re-stamped, a triage flip, a theme/scale change)
+    # replaces every thumb widget, so the focus is re-asserted on the live thumb
+    # carrying the snapshotted gallery_path (quick_look/nav_section.py; the
+    # snapshot is taken by the top of rebuild_strip).
     try:
         from tabs.image_gallery.ui.quick_look import nav_section as _nav
 
-        _nav.reapply_cursor(overlay)
+        _nav.restore_strip_focus(overlay)
     except Exception:
         pass
 def rebuild_strip(overlay) -> None:
+    # Snapshot the keyboard ring by gallery_path BEFORE any widget churn below:
+    # both paths (full rebuild + selection-only refresh) end in
+    # ensure_strip_scroll, which restores it (quick_look/nav_section.py).
+    # Mirrors grid_view/rebuild.py's _focus_snapshot/_restore_focus pair.
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        _nav.snapshot_focus(overlay)
+    except Exception:
+        pass
     # W6: svg pitch is 76px (thumbs x=816/892/968/1044, 66 wide) — the
     # HBox spacing is pinned here so 4 thumbs span 4*66+3*10=294px and
     # fit the 296px right column with no h-scroll. (The layout itself is
@@ -524,6 +536,16 @@ def rebuild_strip(overlay) -> None:
                     from PySide6.QtCore import Qt as _QtRank
 
                     rank_btn.setCursor(_QtRank.CursorShape.ArrowCursor)
+                    # The pill is a redundant affordance for the same item its
+                    # thumb already offers: NoFocus keeps it OUT of the strip
+                    # row's cursor targets (quick_look/nav_section.py — a
+                    # ToolbarRowsSection focuses every StrongFocus child), so
+                    # arrow steps land on the numbered thumb Button, never on
+                    # the badge. Verified 2026-10-17: with this line reverted
+                    # the row's target list carries ``quicklook_rank_N`` beside
+                    # ``quicklook_strip_N`` (the pill is bottom-center, i.e.
+                    # right where its thumb sits in the row's step order).
+                    rank_btn.setFocusPolicy(_QtRank.FocusPolicy.NoFocus)
                 except Exception:
                     pass
                 try:

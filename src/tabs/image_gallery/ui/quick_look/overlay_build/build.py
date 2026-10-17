@@ -48,11 +48,11 @@ QUICK_LOOK_NAV_GLYPH_PT = 24
 
 
 def _nav_move_cursor(overlay, delta: int) -> None:
-    """Move the strip cursor (lazy import: nav_section imports this package)."""
+    """Step the strip's focus ring (lazy import: nav_section imports this package)."""
     try:
         from tabs.image_gallery.ui.quick_look import nav_section
 
-        nav_section.move_cursor(overlay, delta)
+        nav_section.move_strip_focus(overlay, delta)
     except Exception:
         pass
 
@@ -183,8 +183,8 @@ def build_overlay_ui(overlay) -> None:
             overlay._prev_btn.set_border_color(_nav_border)
     except Exception:
         pass
-    # ‹/› move the strip CURSOR (the picture follows on Enter) — the same
-    # keyboard-first contract as ←/→ (quick_look/nav_section.py).
+    # ‹/› move the strip's focus ring (the picture follows on Enter) — the
+    # same keyboard-first contract as ←/→ (quick_look/nav_section.py).
     overlay._prev_btn.clicked.connect(
         lambda: _nav_move_cursor(overlay, -1)
     )
@@ -473,6 +473,19 @@ def build_overlay_ui(overlay) -> None:
     overlay._strip_scroll = OverlayScrollArea(
         strip_row, widget_resizable=False, corner_radius=0
     )
+    # The strip scroller itself takes no keyboard focus: it is a StrongFocus
+    # child of the strip row (QAbstractScrollArea's default), so the row's
+    # navigation section (quick_look/nav_section.py — ToolbarRowsSection over
+    # [strip_row, action_bar]) would otherwise count it as a cursor target and
+    # arrow steps would park the ring on the scroller — a frame that paints no
+    # indication. Measured 2026-10-17 on the real overlay: the strip row
+    # reported 5 cursor targets (4 thumbs + the scroller, ``col_idx=0/5`` in the
+    # nav trace). The section's own _ensure_visible scrolls the focused thumb
+    # into view instead.
+    try:
+        overlay._strip_scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    except Exception:
+        pass
     overlay._strip_scroll.setObjectName("quicklook_strip_scroll")
     try:
         overlay._strip_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -509,6 +522,9 @@ def build_overlay_ui(overlay) -> None:
     # bottom bar
     bar = QWidget(overlay._content)
     bar.setObjectName("quicklook_bottom_bar")
+    # Exposed like the strip row: it is the panel's second navigation row
+    # (quick_look/nav_section.py). Plain attribute, no layout change.
+    overlay._action_bar = bar
     bar_lay = QHBoxLayout(bar)
     bar_lay.setContentsMargins(0, scaled_px(4), 0, 0)
     bar_lay.setSpacing(scaled_px(8))

@@ -9,7 +9,6 @@ unchanged. ``super()`` becomes an explicit ``TopLevelInWindowOverlay`` call
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from sli_ui_toolkit.widgets import TopLevelInWindowOverlay
 
 
@@ -187,21 +186,13 @@ def leaveEvent(self, event) -> None:  # noqa: N802
 
 
 def keyPressEvent(self, event) -> None:  # noqa: N802
-    k = event.key()
     # Esc closes via the toolkit base (close_on_escape=True).
-    # W11 contract, revised: ←/→ move the STRIP CURSOR only — the picture
-    # follows on Enter (or a thumb click), so a series can be read without
-    # re-decoding an image per keystroke. The overlay is a navigation section
-    # while visible (quick_look/nav_section.py), so this handler is the
-    # fallback for a key that reached the overlay without section routing.
-    from tabs.image_gallery.ui.quick_look import nav_section as _nav
-
-    if k in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-        _nav.move_cursor(self, -1 if k == Qt.Key.Key_Left else 1)
-        event.accept()
-        return
-    if k in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-        _nav.commit_cursor(self)
-        event.accept()
-        return
+    #
+    # Arrows and Enter are NOT handled here. While the panel is visible it is a
+    # NavigationManager *section* (quick_look/nav_section.py) owning the strip
+    # row and the action row, so ←/→ move the focus ring, ↓/↑ cross the rows and
+    # the focused toolkit Button activates itself on Enter/Space — the panel
+    # never reaches this handler with those keys (the manager consumes them
+    # first). A private per-key branch here would be a second cursor, which is
+    # exactly what the section replaced (2026-10-17).
     TopLevelInWindowOverlay.keyPressEvent(self, event)

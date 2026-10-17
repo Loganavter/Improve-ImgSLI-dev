@@ -223,64 +223,6 @@ def _strip_selection_overlay(painter, ctx, tm) -> None:  # type: ignore[no-untyp
             painter.restore()
     except Exception:
         pass
-def _strip_cursor_outline(painter, ctx, tm) -> None:  # type: ignore[no-untyped-def]
-    """Dashed accent outline marking the keyboard cursor on a strip thumb.
-
-    The cursor moves without changing the picture (Enter confirms) and the strip
-    is rebuilt after every confirmed step, so it cannot lean on Qt focus: the
-    thumb carries a ``strip_cursor`` property and this paints it. Dashed, to stay
-    unmistakable next to the solid viewing/source ring and the selection tint.
-    Never raises.
-    """
-    try:
-        widget = getattr(ctx, "widget", None)
-        try:
-            is_cursor = bool(widget.property("strip_cursor")) if widget is not None else False
-        except Exception:
-            is_cursor = False
-        if not is_cursor:
-            return
-        rect = getattr(ctx, "rect", None)
-        if rect is None:
-            return
-        from PySide6.QtCore import Qt as _QtCur
-        from PySide6.QtGui import QColor as _QColorCur
-        from PySide6.QtGui import QPainterPath as _QPathCur
-        from PySide6.QtGui import QPen as _QPenCur
-
-        from tabs.image_gallery.ui.quick_look.bars import _is_dark_theme as _cur_dark
-        from tabs.image_gallery.ui.quick_look.helpers import _token_color
-
-        dark = bool(_cur_dark())
-        accent = _token_color("accent", "#0078D4" if not dark else "#0096FF")
-        if accent is None or not accent.isValid():
-            accent = _QColorCur("#0078D4")
-        radii = getattr(ctx, "corner_radii", None) or (0, 0, 0, 0)
-        try:
-            radius = float(radii[0])
-        except Exception:
-            radius = 0.0
-        painter.save()
-        try:
-            painter.setRenderHint(painter.RenderHint.Antialiasing, True)
-            pen = _QPenCur(accent)
-            pen.setWidth(2)
-            pen.setStyle(_QtCur.PenStyle.DashLine)
-            painter.setPen(pen)
-            painter.setBrush(_QtCur.BrushStyle.NoBrush)
-            inset = rect.adjusted(2, 2, -2, -2)
-            try:
-                path = _QPathCur()
-                path.addRoundedRect(inset, max(0.0, radius - 2), max(0.0, radius - 2))
-                painter.drawPath(path)
-            except Exception:
-                painter.drawRect(inset)
-        finally:
-            painter.restore()
-    except Exception:
-        pass
-
-
 def _strip_source_outline(painter, ctx, tm) -> None:  # type: ignore[no-untyped-def]
     """Re-paint the source/viewing outline ON TOP of the cover as a solid ring.
 
@@ -375,10 +317,6 @@ def _strip_overlay_painter(painter, ctx, tm) -> None:  # type: ignore[no-untyped
         pass
     try:
         _strip_selection_overlay(painter, ctx, tm)
-    except Exception:
-        pass
-    try:
-        _strip_cursor_outline(painter, ctx, tm)
     except Exception:
         pass
 def _refresh_strip_selection(overlay) -> None:

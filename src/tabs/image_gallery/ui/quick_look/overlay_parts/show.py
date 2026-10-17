@@ -108,16 +108,6 @@ def show_for(self, item, owner=None) -> None:
         self.setFocus(Qt.FocusReason.PopupFocusReason)
     except Exception:
         pass
-    # The overlay owns its keys through the app's navigation model while it is
-    # visible: arrows move the strip cursor, Enter confirms, ↓/↑ reach the
-    # action row (quick_look/nav_section.py). Registered after the focus grab so
-    # the section bootstrap lands the cursor on the item already on screen.
-    try:
-        from tabs.image_gallery.ui.quick_look import nav_section as _nav
-
-        _nav.register(self)
-    except Exception:
-        pass
     # Re-assert the modal input grab AFTER show: populate-time rebuilds
     # must never leave the overlay disabled/transparent (a visible but
     # hit-test-invisible veil passes every press to the gallery beneath
@@ -173,6 +163,21 @@ def show_for(self, item, owner=None) -> None:
         from tabs.image_gallery.ui.quick_look.helpers import reposition_grip
 
         reposition_grip(self)
+    except Exception:
+        pass
+    # The overlay owns its keys through the app's navigation model while it is
+    # visible: a ToolbarRowsSection over [strip row, action bar] — ←/→ move the
+    # focus ring along a row, ↓/↑ cross the rows, Enter activates the focused
+    # button (quick_look/nav_section.py). Registered LAST, after show_overlay()
+    # has taken its own focus grab: register() lands the ring on the item
+    # already on screen, and the manager's deferred owner-bootstrap only fires
+    # while the bare owner holds focus — with the registration earlier, the
+    # grab that lands after it left the ring on the FIRST thumb on reopen (found
+    # while writing quick_look's navigation tests, 2026-10-17).
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        _nav.register(self)
     except Exception:
         pass
     if _dbg_on:
