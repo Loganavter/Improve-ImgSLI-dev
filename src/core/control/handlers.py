@@ -379,9 +379,8 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
             )
         wanted = str(params.get("tab") or "").strip() or None
         if wanted is not None:
-            # Targeted: a file-only tab has no control surface for its own
-            # "add images" dialog, so it gets the folder's images as files;
-            # see core.control.drop_routing for the rules.
+            # Targeted: a file-only tab gets the folder's images as files
+            # (it has no driveable "add images" dialog) — see drop_routing.
             try:
                 return open_folder_into(
                     target,
@@ -393,9 +392,8 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
             except ValueError as exc:
                 raise MethodError(
                     str(exc),
-                    "open that tab first (open_tab) and retry — a just-created "
-                    "tab is not routable in the same call; a folder aimed at a "
-                    "file-only tab loads as that tab's images",
+                    "open that tab first (open_tab), then retry — a folder "
+                    "aimed at a file-only tab loads as that tab's images",
                 ) from None
         # Route via the tab's own drop path (what a user drag-and-drop uses).
         # No concrete tab is named (host isolation contract): the tab that
@@ -461,18 +459,19 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
         )
 
     def press_keys(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Inject a real key sequence into the live focus widget (QTest).
+        """Inject a real key sequence (QTest) into the live focus widget.
 
-        ``target`` (an id from ``ui_elements``) aims the sequence at that
-        widget instead: canvases are not in the window's focus chain, so keys
-        aimed at the window never reach them (the multi-compare zoom keys are
-        the live case).
+        ``target`` (an id from ``ui_elements``) aims it at that widget instead:
+        canvases are not in the window's focus chain (details in
+        ``elements.resolve.key_target``).
         """
         from PySide6.QtTest import QTest
 
         sequence = parse_key_sequence(params.get("keys"))
         target = element_inventory.key_target(
-            self._registry(), params.get("target"), fallback=self._key_target()
+            self._registry(),
+            params.get("target"),
+            fallback=element_inventory.focus_target(self._app, self._window),
         )
         if target is None:
             raise MethodError(
@@ -486,23 +485,6 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
             "count": len(sequence),
             "target": type(target).__name__,
         }
-
-    def _key_target(self) -> Any:
-        """Active window's focus widget, else the main window (per spec)."""
-        from PySide6.QtWidgets import QApplication, QWidget
-
-        focused = None
-        instance = self._app if self._app is not None else QApplication.instance()
-        if instance is not None:
-            try:
-                window = instance.activeWindow()
-                focused = window.focusWidget() if window is not None else None
-            except Exception:
-                focused = None
-        if focused is None and isinstance(self._window, QWidget):
-            focused = self._window
-        return focused
-
 
 #: The frozen method surface: one entry per MCP tool, built after the class body.
 ControlHandlers._DISPATCH = {name: getattr(ControlHandlers, name) for name in METHODS}

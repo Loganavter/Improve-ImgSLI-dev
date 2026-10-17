@@ -130,3 +130,26 @@ def key_target(registry: Any, needle: Any, *, fallback: Any = None) -> Any:
     if needle is None or (isinstance(needle, str) and not needle.strip()):
         return fallback
     return resolve_element(registry, needle).widget
+
+
+def focus_target(app: Any, window: Any) -> Any:
+    """The active window's focus widget, else *window*.
+
+    ``press_keys``' default when no element id is named: keys go to whatever
+    holds focus in the running window (the historical behaviour), falling
+    back to the main window so a window-level shortcut still lands. Never
+    raises.
+    """
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    instance = app if app is not None else QApplication.instance()
+    focused = None
+    if instance is not None:
+        try:
+            active = instance.activeWindow()
+            focused = active.focusWidget() if active is not None else None
+        except Exception:
+            focused = None
+    if focused is None and isinstance(window, QWidget):
+        focused = window
+    return focused

@@ -75,7 +75,7 @@ from .inventory import (
     screen_rect_of,
 )
 from .interaction import click_element, focus_element, hover_element
-from .resolve import key_target, resolve_element
+from .resolve import focus_target, key_target, resolve_element
 
 #: Retry budget for an id that is not realized yet (FilmCraft's RETRY semantics:
 #: an agent need not sleep between "open" and "click"). Read at call time by
@@ -165,6 +165,7 @@ __all__ = [
     "focus_element",
     "hover_element",
     "inventory_payload",
+    "focus_target",
     "key_target",
     "rect_list",
     "resolve_element",
