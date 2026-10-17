@@ -38,6 +38,16 @@ def show_for(self, item, owner=None) -> None:
     except Exception:
         pass
     self._current_item = item
+    # Remember the opener for the close path: focus must land back on the card
+    # the panel was opened from, and that card can be recycled while the panel
+    # is open — the stable identity is the item's path
+    # (quick_look/focus_restore.py, restored by the lifecycle's nav exit).
+    try:
+        from tabs.image_gallery.ui.quick_look import focus_restore as _focus_restore
+
+        _focus_restore.remember_opener(self, item)
+    except Exception:
+        pass
     # Modal input grab: never disabled, never mouse-transparent — while
     # visible every press lands here (veil dismiss or card swallow),
     # never in the gallery beneath.

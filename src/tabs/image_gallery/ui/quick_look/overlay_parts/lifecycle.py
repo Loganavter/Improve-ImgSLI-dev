@@ -125,11 +125,23 @@ def _plant_close_cover(self, shot) -> None:
 
 
 def _unregister_nav(overlay) -> None:
-    """Leave the navigation graph (idempotent; see quick_look/nav_section.py)."""
+    """Leave the navigation graph and hand focus back to the opener.
+
+    The focus restore rides here — not a separate hook — because this is the one
+    place every close path already passes through (``hide`` / ``hideEvent`` /
+    ``closeEvent``). It is idempotent (see ``focus_restore``), so the second call
+    on the same close does not steal focus back.
+    """
     try:
         from tabs.image_gallery.ui.quick_look import nav_section
 
         nav_section.unregister(overlay)
+    except Exception:
+        pass
+    try:
+        from tabs.image_gallery.ui.quick_look import focus_restore
+
+        focus_restore.restore_opener_focus(overlay)
     except Exception:
         pass
 
