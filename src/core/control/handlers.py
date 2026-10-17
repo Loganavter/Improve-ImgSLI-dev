@@ -23,6 +23,7 @@ from typing import Any, Callable
 from . import discovery, elements as element_inventory, jobs
 from .capture import capture_live_png
 from .discovery import MethodError, parse_key_sequence
+from .drop_routing import accepts_paths, open_folder_into, route_paths
 
 #: Minimum-level filter ladder, mirroring the MCP ``read_log`` semantics.
 _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -376,40 +377,40 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
                 f"{target} is not an existing directory",
                 "pass an absolute (or ~-prefixed) path to a folder of images",
             )
+        wanted = str(params.get("tab") or "").strip() or None
+        if wanted is not None:
+            # Targeted: a file-only tab (multi_compare has no control
+            # surface for its "add images" dialog) gets the folder's images
+            # as files; see core.control.drop_routing for the rules.
+            try:
+                return open_folder_into(
+                    target,
+                    wanted,
+                    tabs=self._tabs,
+                    kinds=self._tab_kinds(),
+                    run_action=self._run_action_id,
+                )
+            except ValueError as exc:
+                raise MethodError(
+                    str(exc),
+                    "pass a tab kind that has a workspace.new_<kind> action "
+                    "(list_actions), or omit 'tab' to auto-route the folder",
+                ) from None
         # Route via the tab's own drop path (what a user drag-and-drop uses).
         # No concrete tab is named (host isolation contract): the tab that
         # accepts a *directory* reveals itself through ``accepts_drop``.
-        routed = self._route_folder(target)
+        routed = route_paths(self._tabs(), [target])
         if routed is None:
             for session_type, tab in self._tabs():
-                if self._accepts_folder(tab, target):
+                if accepts_paths(tab, [target]):
                     self._run_action_id(f"workspace.new_{session_type}")
-            routed = self._route_folder(target)
+            routed = route_paths(self._tabs(), [target])
         if routed is None:
             raise MethodError(
                 "no live tab accepted the folder",
                 "open a gallery-like tab once, then retry open_folder",
             )
         return {"routed": True, "path": str(target), "tab": routed}
-
-    @staticmethod
-    def _accepts_folder(tab: Any, folder: Path) -> bool:
-        try:
-            return bool(tab.accepts_drop([folder]))
-        except Exception:
-            return False
-
-    def _route_folder(self, folder: Path) -> str | None:
-        """Hand *folder* to the first tab that accepts it; returns its type."""
-        for session_type, tab in self._tabs():
-            if not self._accepts_folder(tab, folder):
-                continue
-            try:
-                if tab.handle_drop([folder]):
-                    return session_type
-            except Exception:
-                continue
-        return None
 
     def set_theme(self, params: dict[str, Any]) -> dict[str, Any]:
         theme = str(params.get("theme") or "")
