@@ -142,10 +142,71 @@ def test_down_reaches_the_action_row_and_up_returns(qtbot) -> None:
     assert QApplication.focusWidget() is overlay._set_source_btn, (
         "↓ must hand the cursor to the first action-row control"
     )
+    assert nav.zone_of(overlay) == "actions"
     assert nav.focus_strip(overlay) is True
     assert QApplication.focusWidget() is overlay._strip_buttons[0], (
         "↑ must bring the cursor back to the strip"
     )
+    assert nav.zone_of(overlay) == "strip"
+
+
+def test_action_row_is_three_buttons_and_walks_between_them(qtbot) -> None:
+    """The row holds Set as source / Reject / Delete — the cursor walks all three.
+
+    Falsification for the 2026-10-17 report: a ↓ that only ever lands on the
+    first button leaves Reject and Delete unreachable by keyboard.
+    """
+    overlay, _parent = _overlay(qtbot)
+    row = nav.action_row_buttons(overlay)
+    assert row == [overlay._set_source_btn, overlay._reject_btn, overlay._delete_btn]
+    nav.focus_action_row(overlay)
+    assert QApplication.focusWidget() is overlay._set_source_btn
+
+    nav.move_action_cursor(overlay, 1)
+    assert QApplication.focusWidget() is overlay._reject_btn, "→ must reach Reject"
+    assert nav.action_index(overlay) == 1
+    nav.move_action_cursor(overlay, 1)
+    assert QApplication.focusWidget() is overlay._delete_btn, "→ must reach Delete"
+    assert nav.action_index(overlay) == 2
+
+    nav.move_action_cursor(overlay, 1)  # clamped, not a carousel
+    assert nav.action_index(overlay) == 2
+    nav.move_action_cursor(overlay, -1)
+    assert QApplication.focusWidget() is overlay._reject_btn
+    assert nav.action_index(overlay) == 1
+
+
+def test_enter_in_the_action_row_activates_that_button(qtbot, monkeypatch) -> None:
+    """Enter on a row button presses *that* button, never the strip confirm."""
+    overlay, _parent = _overlay(qtbot)
+    binds = _patch_populate(monkeypatch, overlay)
+    nav.sync_cursor_to_current(overlay)
+    pressed: list[str] = []
+    for button, name in (
+        (overlay._set_source_btn, "source"),
+        (overlay._reject_btn, "reject"),
+        (overlay._delete_btn, "delete"),
+    ):
+        button.clicked.connect(lambda _checked=False, n=name: pressed.append(n))
+
+    section = nav.QuickLookNavSection(overlay)
+    assert section.navigate(Qt.Key.Key_Down, overlay) is True
+    assert section.navigate(Qt.Key.Key_Right, overlay) is True
+    assert QApplication.focusWidget() is overlay._reject_btn
+    assert section.navigate(Qt.Key.Key_Return, overlay) is True
+    assert pressed == ["reject"], pressed
+    assert binds == [], "the strip must not be confirmed from the action row"
+
+    nav.move_action_cursor(overlay, 1)
+    section.navigate(Qt.Key.Key_Return, overlay)
+    assert pressed == ["reject", "delete"], pressed
+
+    assert section.navigate(Qt.Key.Key_Up, overlay) is True
+    assert nav.zone_of(overlay) == "strip"
+    assert section.navigate(Qt.Key.Key_Right, overlay) is True
+    assert section.navigate(Qt.Key.Key_Return, overlay) is True
+    assert binds == [True], "Enter back in the strip confirms the cursor"
+    assert pressed == ["reject", "delete"], "no stray button activation"
 
 
 def test_walk_keeps_the_cursor_with_the_shown_picture(qtbot) -> None:
@@ -181,7 +242,9 @@ def test_section_navigates_cursor_and_enter(qtbot, monkeypatch) -> None:
     assert binds == [True]
     assert section.navigate(Qt.Key.Key_Left, overlay) is True
     assert section.navigate(Qt.Key.Key_Down, overlay) is True
+    assert nav.zone_of(overlay) == "actions"
     assert section.navigate(Qt.Key.Key_Up, overlay) is True
+    assert nav.zone_of(overlay) == "strip"
     assert section.navigate(Qt.Key.Key_Escape, overlay) is False, (
         "Escape keeps the overlay's own close path"
     )
@@ -191,6 +254,10 @@ def test_extra_keys_claim_enter_but_not_escape(qtbot) -> None:
     overlay, _parent = _overlay(qtbot)
     keys = nav.QuickLookNavSection(overlay).extra_keys  # a property, not a call
     assert Qt.Key.Key_Return in keys and Qt.Key.Key_Enter in keys
+    assert Qt.Key.Key_Left in keys and Qt.Key.Key_Right in keys, (
+        "horizontal arrows must be claimed, or the manager yields them to "
+        "native delivery and the section never moves the cursor"
+    )
     assert Qt.Key.Key_Escape not in keys
 
 

@@ -171,16 +171,97 @@ def action_row_buttons(overlay) -> list:
     return out
 
 
-def focus_action_row(overlay, *, manager=None) -> bool:
-    """Hand the cursor to the first action-row button (↓)."""
+#: Overlay attribute remembering which action-row button the cursor last sat on,
+#: so ↑/↓ round-trips land where the user left.
+ACTION_ATTR = "_nav_action_idx"
+
+
+def action_index(overlay) -> int:
+    """The action-row cursor's index, clamped into the row as it is now."""
+    buttons = action_row_buttons(overlay)
+    if not buttons:
+        return 0
+    try:
+        idx = int(getattr(overlay, ACTION_ATTR, None) or 0)
+    except Exception:
+        idx = 0
+    return max(0, min(idx, len(buttons) - 1))
+
+
+def focus_action_row(overlay, *, manager=None, index: int | None = None) -> bool:
+    """Hand the cursor to the action row (↓); *index* picks the button.
+
+    The row has three controls (Set as source / Reject / Delete), so the cursor
+    is an index, not a single landing spot: ``→``/``←`` walk it, ``↑`` leaves it,
+    ``Enter`` activates the one under the cursor.
+    """
     buttons = action_row_buttons(overlay)
     if not buttons:
         return False
+    idx = action_index(overlay) if index is None else max(0, min(int(index), len(buttons) - 1))
     try:
-        buttons[0].setFocus(_reason(manager))
+        setattr(overlay, ACTION_ATTR, idx)
+    except Exception:
+        pass
+    try:
+        buttons[idx].setFocus(_reason(manager))
     except Exception:
         return False
+    _dbg("quick look action cursor=%d/%d", idx, len(buttons))
     return True
+
+
+def move_action_cursor(overlay, delta: int, *, manager=None) -> int:
+    """Walk the action row (clamped — a row of choices is not a carousel)."""
+    buttons = action_row_buttons(overlay)
+    if not buttons:
+        return 0
+    idx = max(0, min(action_index(overlay) + int(delta), len(buttons) - 1))
+    focus_action_row(overlay, manager=manager, index=idx)
+    return idx
+
+
+def activate_action(overlay) -> bool:
+    """Activate the action button under the cursor (Enter in the action row).
+
+    The section claims Enter, so the button never gets its own activation
+    keystroke — without this, Enter on **Set as source** confirmed the strip
+    cursor instead of pressing the button (measured live 2026-10-17).
+    """
+    focused = focused_widget(overlay)
+    for button in action_row_buttons(overlay):
+        if button is focused:
+            try:
+                button.click()
+                return True
+            except Exception:
+                return False
+    return False
+
+
+def focused_widget(overlay):
+    """The overlay's own focus widget, even while its window is not OS-active.
+
+    ``QApplication.focusWidget()`` reports ``None`` for a background window
+    (the control channel drives the app that way), which would read as "strip"
+    and send Enter to the wrong action.
+    """
+    try:
+        focused = overlay.focusWidget()
+        if focused is not None:
+            return focused
+    except Exception:
+        pass
+    return QApplication.focusWidget()
+
+
+def zone_of(overlay) -> str:
+    """Which zone the keyboard cursor is in: ``"actions"`` or ``"strip"``."""
+    focused = focused_widget(overlay)
+    for button in action_row_buttons(overlay):
+        if button is focused:
+            return "actions"
+    return "strip"
 
 
 def focus_strip(overlay, *, manager=None) -> bool:
@@ -218,17 +299,28 @@ class QuickLookNavSection:
     def navigate(self, key: int, widget) -> bool:  # noqa: ANN001
         overlay = self._overlay
         _dbg("quick look nav-section key=%s", Qt.Key(key).name)
+        zone = zone_of(overlay)
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            move_cursor(overlay, -1 if key == Qt.Key.Key_Left else 1, manager=_manager())
+            delta = -1 if key == Qt.Key.Key_Left else 1
+            if zone == "actions":
+                move_action_cursor(overlay, delta, manager=_manager())
+            else:
+                move_cursor(overlay, delta, manager=_manager())
             return True
         if key == Qt.Key.Key_Down:
+            if zone == "actions":
+                return True  # one row here: nothing below it
             focus_action_row(overlay, manager=_manager())
             return True
         if key == Qt.Key.Key_Up:
-            focus_strip(overlay, manager=_manager())
+            if zone == "actions":
+                focus_strip(overlay, manager=_manager())
             return True
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            commit_cursor(overlay, manager=_manager())
+            if zone == "actions":
+                activate_action(overlay)
+            else:
+                commit_cursor(overlay, manager=_manager())
             return True
         return False
 
@@ -251,17 +343,24 @@ class QuickLookNavSection:
 
     @property
     def extra_keys(self) -> frozenset:
-        """Keys claimed beyond arrows: Enter confirms the cursor.
+        """Keys this section claims: Enter (confirm) and ←/→ (move the cursor).
+
+        ←/→ must be listed here to *own* the strip walk: horizontal arrows are
+        yielded to native delivery by default, so without them the overlay's own
+        ``keyPressEvent`` is the only thing moving the cursor and the section
+        never acts (measured live 2026-10-17 — cursor moved, no section trace).
+        ``ToolbarRowsSection`` opts into Left/Right for the same reason.
 
         Must stay a **property**: every reader iterates the raw value
         (``NavigationManager.eventFilter``: ``key in getattr(spec, "extra_keys",
         frozenset())``), so a plain method raised
         ``TypeError: argument of type 'method' is not a container or iterable``
         inside the event filter on every ←/→ — reported live by the app's own
-        diagnostics dialog, 2026-10-17. The protocol declares it ``@property``
-        for the same reason.
+        diagnostics dialog.
         """
-        return frozenset({Qt.Key.Key_Return, Qt.Key.Key_Enter})
+        return frozenset(
+            {Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Return, Qt.Key.Key_Enter}
+        )
 
 
 def _manager():
@@ -301,13 +400,19 @@ def unregister(overlay) -> None:
 
 
 __all__ = [
+    "ACTION_ATTR",
     "CURSOR_ATTR",
     "QuickLookNavSection",
+    "activate_action",
+    "action_index",
     "action_row_buttons",
+    "move_action_cursor",
+    "zone_of",
     "commit_cursor",
     "cursor_index",
     "focus_action_row",
     "focus_strip",
+    "focused_widget",
     "move_cursor",
     "register",
     "series_len",
