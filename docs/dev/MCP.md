@@ -60,7 +60,7 @@ fallback window, e.g. `:97`).
 | `set_theme` | write | set `theme` (light/dark); live-now or persisted |
 | `set_language` | write | set `language` (en/ru/zh/pt_BR) |
 | `capture_surface` | write | screenshot a named surface to PNG |
-| `press_keys` | write | inject keyboard combos into the running app (live-only) |
+| `press_keys` | write | inject keyboard combos (`target=` aims them at one element) |
 | `ui_click` | write | click an element by id, in-process (live-only) |
 | `ui_hover` | write | hover an element by id, in-process (live-only) |
 | `ui_focus` | write | focus an element by id, in-process (live-only) |
@@ -331,7 +331,10 @@ devtool-booted surface still cannot grab it (see
   single letters/digits, and the punctuation a path or text field needs
   (`/`, `.`, `-`, `_`, `~`, `=`, `:`, …) — one combo per key, e.g.
   `/,t,m,p,/,a,.,p,n,g` types `/tmp/a.png` (`','` and `'+'` are the
-  separator characters and stay unavailable).
+  separator characters and stay unavailable). `target=<id from ui_elements>`
+  aims the sequence at that element: a live canvas is not in the window's
+  focus chain, so canvas shortcuts (`=`, `-`, `0` in multi-compare) only
+  arrive when the canvas id is named.
 - **Element targeting is live-only.** `ui_elements` reads the running window's
   widget inventory; `ui_click`/`ui_hover`/`ui_focus` act on an id from it. With
   no instance they answer an honest error — no throwaway app is booted to fake a

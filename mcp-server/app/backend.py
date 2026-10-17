@@ -698,17 +698,19 @@ class AppBackend:
             language=language,
         )
 
-    def press_keys(self, *, keys: str) -> dict:
+    def press_keys(self, *, keys: str, target: str | None = None) -> dict:
         """Inject keyboard input into the live app — live-only, never faked.
 
-        There is no headless analogue: without a running instance this answers
-        an honest error instead of simulating the keys.
+        ``target`` (an element id) aims the keys at that widget: the only way
+        a canvas -- not in the window's focus chain -- receives its own
+        zoom/pan shortcuts. There is no headless analogue: without a running
+        instance this answers an honest error instead of simulating the keys.
         """
         client = self.live.client_if_alive()
         if client is None:
             raise self._keys_need_live()
         try:
-            return self.live.press_keys(client=client, keys=keys)
+            return self.live.press_keys(client=client, keys=keys, target=target)
         except LiveUnavailable as exc:
             if exc.timeout:
                 raise _edit_may_have_completed(exc)

@@ -461,11 +461,19 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
         )
 
     def press_keys(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Inject a real key sequence into the live focus widget (QTest)."""
+        """Inject a real key sequence into the live focus widget (QTest).
+
+        ``target`` (an id from ``ui_elements``) aims the sequence at that
+        widget instead: canvases are not in the window's focus chain, so keys
+        aimed at the window never reach them (the multi-compare zoom keys are
+        the live case).
+        """
         from PySide6.QtTest import QTest
 
         sequence = parse_key_sequence(params.get("keys"))
-        target = self._key_target()
+        target = element_inventory.key_target(
+            self._registry(), params.get("target"), fallback=self._key_target()
+        )
         if target is None:
             raise MethodError(
                 "no live window to receive keys",

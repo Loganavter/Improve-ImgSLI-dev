@@ -114,3 +114,19 @@ def resolve_element(
     if close:
         hint = "did you mean: " + ", ".join(close) + "? (" + hint + ")"
     raise MethodError(f"no element with id {needle!r}", hint)
+
+
+def key_target(registry: Any, needle: Any, *, fallback: Any = None) -> Any:
+    """The widget ``press_keys`` should type into.
+
+    A named element id (from ``ui_elements``) types into **that** widget
+    directly. Without this, keys always went to the window's focus widget,
+    which is not where a canvas listens: a live QRhi canvas is not in the
+    window's focus chain, so canvas shortcuts (multi-compare zoom ``=``/``-``,
+    reset ``0``) were delivered to ``MainWindow`` and silently did nothing
+    (live 2026-10-17 -- the whole point of naming the canvas is that keys must
+    be able to reach it). No id keeps the old behaviour (``fallback``).
+    """
+    if needle is None or (isinstance(needle, str) and not needle.strip()):
+        return fallback
+    return resolve_element(registry, needle).widget

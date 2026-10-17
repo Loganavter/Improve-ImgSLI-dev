@@ -175,6 +175,9 @@ passes, so it measures from the first `jobs_list` that observed the job running;
 - **Keyboard input is live-only.** `press_keys` injects combos into the running
   app through the control socket (key names allowlisted app-side); with no
   instance it answers an honest error instead of pretending.
+  `target=<element id from ui_elements>` aims the keys at one widget — a live
+  canvas is not in the window's focus chain, so its zoom/pan keys
+  (`=`, `-`, `0` in multi-compare) only arrive when the canvas id is named.
 - **Element targeting is live-only.** `ui_elements` inventories the running
   window's interactive widgets and `ui_click`/`ui_hover`/`ui_focus` act on them
   by session-scoped id; with no instance they answer an honest error — they

@@ -736,9 +736,20 @@ class LiveBackend:
             "source": "live",
         }
 
-    def press_keys(self, *, client: LiveClient | None = None, keys: str) -> dict:
-        """Inject keyboard input (live-only; there is no headless analogue)."""
-        result = self._request("press_keys", {"keys": keys}, client)
+    def press_keys(
+        self, *, client: LiveClient | None = None, keys: str, target: str | None = None
+    ) -> dict:
+        """Inject keyboard input (live-only; there is no headless analogue).
+
+        ``target`` names an element id (``ui_elements``) so the keys reach a
+        widget the window focus chain never gives them -- a canvas, whose
+        zoom/pan keys are its own. Without it, the running app's focus widget
+        receives them (the historical behaviour).
+        """
+        params: dict[str, Any] = {"keys": keys}
+        if target:
+            params["target"] = target
+        result = self._request("press_keys", params, client)
         pressed = [str(item) for item in result.get("pressed") or []]
         return {
             "pressed": pressed,

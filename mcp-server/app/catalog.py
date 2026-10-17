@@ -650,10 +650,10 @@ TOOLS: list[dict] = [
         "description": (
             "Inject keyboard input into a running instance: one combo such as "
             "ctrl+shift+p, or comma-separated combos applied in order such as "
-            "Down,Down,Enter. Use it for menus, dialogs, and focus moves the "
-            "Find Action catalog does not cover. Live-only — with no attached "
-            "instance it errors honestly instead of simulating keys. Key names "
-            "are allowlisted; modifiers are ctrl/shift/alt/meta."
+            "Down,Down,Enter. Pass target=<element id from ui_elements> to aim "
+            "them at a widget the window focus never reaches (e.g. a canvas). "
+            "Live-only; key names are allowlisted (letters, digits, punctuation, "
+            "named keys); modifiers are ctrl/shift/alt/meta."
         ),
         "inputSchema": _params(
             {
@@ -661,6 +661,11 @@ TOOLS: list[dict] = [
                     **_STR,
                     "description": "One combo (ctrl+shift+p) or comma-separated combos applied in order (Down,Down,Enter).",
                 }
+                ,
+                "target": {
+                    **_STR,
+                    "description": "Element id from ui_elements to type into (e.g. a canvas). Default: the focused widget.",
+                },
             },
             ["keys"],
         ),
