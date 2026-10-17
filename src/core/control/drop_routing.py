@@ -8,13 +8,15 @@ file-size budget and so the rules are unit-testable with plain fakes.
 
 Two shapes matter:
 
-* a **folder** -- what a gallery-native tab wants (it scans the directory
+* a **folder** -- what a folder-native tab wants (it scans the directory
   itself);
-* **files** -- what a file-only tab wants (``multi_compare`` /
-  ``image_compare`` never accept a directory). The control surface cannot
-  drive those tabs' "add images" dialog from a headless client, so a folder
-  aimed at such a tab is expanded with the shared extension set and the files
-  are handed over -- that is the only way the live surface can feed them.
+* **files** -- what a file-only tab wants (one whose drop hook never accepts
+  a directory). The control surface cannot drive those tabs' "add images"
+  dialog from a headless client, so a folder aimed at such a tab is expanded
+  with the shared extension set and the files are handed over -- that is the
+  only way the live surface can feed them. Which kind is which is *discovered
+  from the tab itself* (``accepts_drop``), never assumed here: the platform
+  stays tab-agnostic.
 """
 
 from __future__ import annotations

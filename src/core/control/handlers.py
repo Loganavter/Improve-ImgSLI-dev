@@ -379,9 +379,9 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
             )
         wanted = str(params.get("tab") or "").strip() or None
         if wanted is not None:
-            # Targeted: a file-only tab (multi_compare has no control
-            # surface for its "add images" dialog) gets the folder's images
-            # as files; see core.control.drop_routing for the rules.
+            # Targeted: a file-only tab has no control surface for its own
+            # "add images" dialog, so it gets the folder's images as files;
+            # see core.control.drop_routing for the rules.
             try:
                 return open_folder_into(
                     target,
@@ -393,8 +393,9 @@ class ControlHandlers(element_inventory.ElementMethodsMixin, jobs.JobMethodsMixi
             except ValueError as exc:
                 raise MethodError(
                     str(exc),
-                    "pass a tab kind that has a workspace.new_<kind> action "
-                    "(list_actions), or omit 'tab' to auto-route the folder",
+                    "open that tab first (open_tab) and retry — a just-created "
+                    "tab is not routable in the same call; a folder aimed at a "
+                    "file-only tab loads as that tab's images",
                 ) from None
         # Route via the tab's own drop path (what a user drag-and-drop uses).
         # No concrete tab is named (host isolation contract): the tab that

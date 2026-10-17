@@ -495,19 +495,23 @@ TOOLS: list[dict] = [
         "name": "open_folder",
         "title": "Open an image folder",
         "description": (
-            "Validate an existing directory and hand it to the gallery. With a "
-            "live instance attached the running app routes it and reports "
-            "'routed': true ('live': true); without one it starts a fresh "
-            "process that cannot inject the folder, so it reports routed=false "
-            "until you drop the folder on the gallery. The path must be a real "
-            "directory."
+            "Validate an existing directory and hand it to a tab. With a live "
+            "instance attached the running app routes it ('routed': true); pass "
+            "tab=<kind> (e.g. multi_compare) to target that tab — it is opened "
+            "if absent, and a file-only tab receives the folder's images as "
+            "files. Without a live instance the folder cannot be injected, so "
+            "routed stays false. The path must be a real directory."
         ),
         "inputSchema": _params(
             {
                 "path": {
                     **_STR,
                     "description": "Absolute (or ~-prefixed) path to an existing directory of images.",
-                }
+                },
+                "tab": {
+                    **_STR,
+                    "description": "Tab kind to hand the folder to (e.g. multi_compare, image_compare); opened if absent. Omit to auto-route to the first tab that accepts a directory.",
+                },
             },
             ["path"],
         ),
@@ -517,6 +521,14 @@ TOOLS: list[dict] = [
                 "pid": {"type": ["integer", "null"]},
                 "path": _STR,
                 "routed": _BOOL,
+                "tab": {
+                    "type": ["string", "null"],
+                    "description": "Session kind that accepted the folder.",
+                },
+                "images": {
+                    "type": ["integer", "null"],
+                    "description": "Files handed over when the tab takes files, not a directory.",
+                },
                 "ran": {"type": "boolean", "description": "True when the live instance routed the folder."},
                 "live": _live_flag(),
                 "source": _source(),
