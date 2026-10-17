@@ -189,9 +189,32 @@ def test_section_navigates_cursor_and_enter(qtbot, monkeypatch) -> None:
 
 def test_extra_keys_claim_enter_but_not_escape(qtbot) -> None:
     overlay, _parent = _overlay(qtbot)
-    keys = nav.QuickLookNavSection(overlay).extra_keys()
+    keys = nav.QuickLookNavSection(overlay).extra_keys  # a property, not a call
     assert Qt.Key.Key_Return in keys and Qt.Key.Key_Enter in keys
     assert Qt.Key.Key_Escape not in keys
+
+
+def test_extra_keys_survive_the_managers_raw_read(qtbot) -> None:
+    """The falsification for the live crash of 2026-10-17.
+
+    ``NavigationManager.eventFilter`` (and ``nav_graph``) iterate the *raw*
+    attribute — ``key in getattr(spec, "extra_keys", frozenset())`` — so a
+    method-shaped declaration raised
+    ``TypeError: argument of type 'method' is not a container or iterable`` on
+    every ←/→ while the overlay owned focus, killing section routing (and the
+    app's diagnostics dialog reported it). Pinned against the manager's own
+    expression, not against my reading of it.
+    """
+    overlay, _parent = _overlay(qtbot)
+    spec = nav.QuickLookNavSection(overlay)
+    assert isinstance(type(spec).extra_keys, property), (
+        "extra_keys must be a property: readers iterate it raw"
+    )
+    raw = getattr(spec, "extra_keys", frozenset())  # the manager's exact read
+    assert isinstance(raw, frozenset), f"raw read must be iterable, got {type(raw)}"
+    assert {Qt.Key.Key_Return, Qt.Key.Key_Enter} <= raw
+    for key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Return):
+        assert (key in raw) in (True, False), key
 
 
 def test_focus_first_lands_on_the_shown_item_not_the_first(qtbot) -> None:

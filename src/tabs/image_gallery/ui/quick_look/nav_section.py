@@ -217,6 +217,7 @@ class QuickLookNavSection:
 
     def navigate(self, key: int, widget) -> bool:  # noqa: ANN001
         overlay = self._overlay
+        _dbg("quick look nav-section key=%s", Qt.Key(key).name)
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             move_cursor(overlay, -1 if key == Qt.Key.Key_Left else 1, manager=_manager())
             return True
@@ -248,7 +249,18 @@ class QuickLookNavSection:
         set_cursor(self._overlay, n - 1, reason=reason)
         return True
 
+    @property
     def extra_keys(self) -> frozenset:
+        """Keys claimed beyond arrows: Enter confirms the cursor.
+
+        Must stay a **property**: every reader iterates the raw value
+        (``NavigationManager.eventFilter``: ``key in getattr(spec, "extra_keys",
+        frozenset())``), so a plain method raised
+        ``TypeError: argument of type 'method' is not a container or iterable``
+        inside the event filter on every ←/→ — reported live by the app's own
+        diagnostics dialog, 2026-10-17. The protocol declares it ``@property``
+        for the same reason.
+        """
         return frozenset({Qt.Key.Key_Return, Qt.Key.Key_Enter})
 
 
