@@ -1,4 +1,4 @@
-"""Keyboard-navigation state and key delivery for the control channel.
+"""The live keyboard-navigation model for the control channel (read side).
 
 The app's keyboard cursor is **not** ``QApplication.focusWidget()``. Arrow keys
 belong to ``sli_ui_toolkit``'s ``NavigationManager``, which keeps an ordered list
@@ -6,43 +6,42 @@ of *sections* (title bar → tab strip → session picker → a tab's toolbar/gr
 rows) and hands a key to the section whose ``owns()`` accepts the focused
 widget, delegating across section boundaries on a boundary key. Whole surfaces
 (the Quick Look overlay, flyouts) instead handle keys in their own
-``keyPressEvent`` and are not sections at all.
+``keyPressEvent`` and belong to no section at all — invisible to every Qt-level
+read of focus.
 
-``press_keys`` cannot judge that model: it aims one event at one widget — the
-right tool for a canvas, whose shortcuts are not in the focus chain — and the
-events it injects carry no focus attribution, so the sections never engage and a
-client cannot tell "the key reached the control" from "the key went nowhere".
+``press_keys`` therefore cannot judge that model, and neither can
+``ui_elements``: this module is the read half that can. It reports what the
+model *is* over the live app:
 
-This module answers the two questions the model raises, over the live app:
+* the ordered ``sections`` (section class + owner class + ``extra_keys``);
+* the focus widget — the window's own, not only the app-wide one, because the
+  control channel drives an app that may be in the background;
+* the last keyboard-granted widget and the input modality;
+* every open in-window overlay with the children Qt *could* focus, each
+  carrying ``owned_by_section`` (``null`` = no section drives it: the honest
+  "a keyboard cannot reach this" signal) and ``keyboard_ring`` (the toolkit's
+  own cursor-visibility flag).
 
-* :func:`nav_state_payload` — what the navigation model *is*: the ordered
-  sections, the Qt focus widget, the last keyboard-granted widget, and every
-  open in-window overlay with the children that Qt *could* focus but that no
-  section owns (the honest "a keyboard cannot reach this" signal).
-* :func:`deliver_nav_keys` — what a key *does*: send it to the widget the user's
-  key would reach (optionally focusing a named element first with the app's own
-  focus-reason policy), then report which layer took it and how focus moved.
+Key *delivery* lives in :mod:`core.control.nav_keys` — reads and writes are
+separate tools, here and on the wire.
 
-Both are live-only and GUI-thread only (the control server dispatches there).
+Live-only, GUI-thread only (the control server dispatches there).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QEvent, QEventLoop, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
-from .discovery import MethodError, parse_key_sequence
 from .elements.inventory import Element, collect_elements, rect_list, screen_rect_of
-from .elements.resolve import resolve_element
 
 #: Overlay children reported in one call (a Quick Look overlay owns dozens).
 MAX_OVERLAY_CHILDREN = 80
 
 
-def _nav_manager():
+def nav_manager():
     """The toolkit ``NavigationManager`` singleton, or ``None`` (import-guarded)."""
     try:
         from sli_ui_toolkit.managers import NavigationManager
@@ -73,7 +72,7 @@ def _sections_of(manager) -> list[tuple[Any, Any]]:
         return []
 
 
-def _owner_of(manager, widget: QWidget | None) -> str | None:
+def owner_of(manager, widget: QWidget | None) -> str | None:
     """Class name of the section that owns *widget*, or ``None``."""
     if widget is None or manager is None:
         return None
@@ -97,7 +96,21 @@ def _focus_policy_name(widget: QWidget) -> str:
         return str(policy)
 
 
-def _element_map(registry: Any) -> dict[int, Element]:
+def _keyboard_ring(widget: QWidget) -> bool | None:
+    """The toolkit's own keyboard-ring flag (``None``: not a toolkit widget).
+
+    The app draws the keyboard cursor from ``_keyboard_focus`` (see
+    ``NavigationManager``), not from Qt's ``hasFocus()`` — so this is the
+    honest "the user can see the cursor here" bit.
+    """
+    try:
+        flag = getattr(widget, "_keyboard_focus", None)
+    except Exception:
+        return None
+    return bool(flag) if isinstance(flag, bool) else None
+
+
+def element_map(registry: Any) -> dict[int, Element]:
     """``id(widget)`` → its inventory element (so rows can carry element ids)."""
     try:
         collected = collect_elements(registry=registry, include_disabled=True)
@@ -109,7 +122,7 @@ def _element_map(registry: Any) -> dict[int, Element]:
     return out
 
 
-def _row(
+def widget_row(
     widget: QWidget | None,
     elements: dict[int, Element],
     manager,
@@ -119,8 +132,7 @@ def _row(
         return None
     element = elements.get(id(widget))
     try:
-        geometry = widget.rect()
-        screen_rect: list[int] | None = rect_list(screen_rect_of(widget, geometry))
+        screen_rect: list[int] | None = rect_list(screen_rect_of(widget, widget.rect()))
     except Exception:
         screen_rect = None
     return {
@@ -130,11 +142,30 @@ def _row(
         "role": element.role if element is not None else None,
         "element_id": element.id if element is not None else None,
         "focus_policy": _focus_policy_name(widget),
-        "owned_by_section": _owner_of(manager, widget),
+        "keyboard_ring": _keyboard_ring(widget),
+        "owned_by_section": owner_of(manager, widget),
         "enabled": bool(element.enabled) if element is not None else None,
         "visible": bool(element.visible) if element is not None else None,
         "screen_rect": screen_rect,
     }
+
+
+def focus_widget(window: Any) -> QWidget | None:
+    """The focus widget the app itself would act on.
+
+    The window's own ``focusWidget()`` comes first, even while that window is
+    not the compositor's active one — the control channel drives an app that may
+    be in the background, where ``QApplication.focusWidget()`` reports ``None``
+    while the app's navigation still works off the in-window focus.
+    """
+    if isinstance(window, QWidget):
+        try:
+            child = window.focusWidget()
+            if child is not None:
+                return child
+        except Exception:
+            pass
+    return QApplication.focusWidget()
 
 
 def _focusables(root: QWidget) -> list[QWidget]:
@@ -158,7 +189,12 @@ def _focusables(root: QWidget) -> list[QWidget]:
     return out
 
 
-def _overlays(window: QWidget | None, elements: dict[int, Element], manager) -> list[dict[str, Any]]:
+def _overlays(
+    window: QWidget | None,
+    elements: dict[int, Element],
+    manager,
+    focused: QWidget | None,
+) -> list[dict[str, Any]]:
     """Visible in-window overlays (Quick Look, clean review, flyouts) with their
     focusable children and whether any navigation section owns them."""
     if window is None:
@@ -177,18 +213,18 @@ def _overlays(window: QWidget | None, elements: dict[int, Element], manager) -> 
         except Exception:
             continue
         focusables = _focusables(child)
-        row = _row(child, elements, manager) or {}
+        row = widget_row(child, elements, manager) or {}
         row.update(
             {
                 "children_total": len(focusables),
                 "children_shown": min(len(focusables), MAX_OVERLAY_CHILDREN),
                 "children_truncated": len(focusables) > MAX_OVERLAY_CHILDREN,
-                "focused_child": _row(QApplication.focusWidget(), elements, manager)
-                if QApplication.focusWidget() is not None
-                and child.isAncestorOf(QApplication.focusWidget())
+                "focused_child": widget_row(focused, elements, manager)
+                if focused is not None and child.isAncestorOf(focused)
                 else None,
                 "children": [
-                    _row(item, elements, manager) for item in focusables[:MAX_OVERLAY_CHILDREN]
+                    widget_row(item, elements, manager)
+                    for item in focusables[:MAX_OVERLAY_CHILDREN]
                 ],
             }
         )
@@ -211,39 +247,6 @@ def _modality(manager) -> dict[str, Any]:
     return payload
 
 
-def nav_state_payload(*, registry: Any, app: Any, window: Any) -> dict[str, Any]:
-    """The live navigation model: sections, focus, modality, open overlays."""
-    manager = _nav_manager()
-    elements = _element_map(registry)
-    qt_focus = QApplication.focusWidget()
-    last_keyboard = None
-    try:
-        last_keyboard = manager.last_keyboard_focus() if manager is not None else None
-    except Exception:
-        last_keyboard = None
-    sections = [
-        {
-            "index": index,
-            "section": type(spec).__name__,
-            "owner": type(owner).__name__,
-            "extra_keys": sorted(
-                _key_names(getattr(spec, "extra_keys", frozenset()))
-            ),
-        }
-        for index, (owner, spec) in enumerate(_sections_of(manager))
-    ]
-    return {
-        "source": "live",
-        "modality": _modality(manager),
-        "focus": _row(qt_focus, elements, manager),
-        "last_keyboard_focus": _row(last_keyboard, elements, manager),
-        "owner_section": _owner_of(manager, qt_focus),
-        "sections": sections,
-        "sections_count": len(sections),
-        "overlays": _overlays(window, elements, manager),
-    }
-
-
 def _key_names(keys) -> list[str]:
     out: list[str] = []
     for key in keys or ():
@@ -254,171 +257,43 @@ def _key_names(keys) -> list[str]:
     return out
 
 
-def _focus_anchor(
-    *, registry: Any, app: Any, window: Any, element_id: str | None, manager
-) -> tuple[QWidget | None, bool]:
-    """Where a user's key would land; ``element_id`` focuses it first.
-
-    Returns ``(widget, focused_by_us)``. Focusing routes through the app's own
-    reason policy (``NavigationManager.current_focus_reason``) so the keyboard
-    ring behaves as it would for a real key press.
-    """
-    if element_id:
-        element = resolve_element(registry, element_id)
-        reason = Qt.FocusReason.OtherFocusReason
-        try:
-            if manager is not None:
-                reason = manager.current_focus_reason()
-        except Exception:
-            pass
-        try:
-            element.widget.setFocus(reason)
-        except Exception as exc:
-            raise MethodError(
-                f"could not focus {element_id!r}: {exc}",
-                "the element may not accept keyboard focus (check its focus policy)",
-            )
-        if app is not None:
-            try:
-                app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
-            except Exception:
-                pass
-        return element.widget, True
-    focused = QApplication.focusWidget()
-    if focused is not None:
-        return focused, False
+def nav_state_payload(*, registry: Any, app: Any, window: Any) -> dict[str, Any]:
+    """The live navigation model: sections, focus, modality, open overlays."""
+    manager = nav_manager()
+    elements = element_map(registry)
+    focused = focus_widget(window)
+    last_keyboard = None
     try:
-        if manager is not None:
-            last = manager.last_keyboard_focus()
-            if last is not None:
-                return last, False
+        last_keyboard = manager.last_keyboard_focus() if manager is not None else None
     except Exception:
-        pass
-    return (window if isinstance(window, QWidget) else None), False
-
-
-def _snapshot(manager, elements: dict[int, Element]) -> dict[str, Any]:
-    focus = QApplication.focusWidget()
-    last = None
-    try:
-        last = manager.last_keyboard_focus() if manager is not None else None
-    except Exception:
-        last = None
-    return {
-        "focus": focus,
-        "focus_row": _row(focus, elements, manager),
-        "last_keyboard_focus": last,
-        "owner": _owner_of(manager, focus),
-    }
-
-
-def _verdict(before: dict[str, Any], after: dict[str, Any]) -> str:
-    """Which layer took the key — derived, never guessed.
-
-    ``section:<name>`` — the section that owns the focus changed, or the
-    keyboard-granted widget changed (the navigation system acted);
-    ``focus`` — Qt focus moved inside the same section (a widget took it);
-    ``unhandled`` — nothing observable changed, i.e. a real key would be lost.
-    """
-    if after["owner"] != before["owner"]:
-        return f"section:{after['owner'] or before['owner'] or 'none'}"
-    if after["last_keyboard_focus"] is not before["last_keyboard_focus"]:
-        return f"section:{after['owner'] or 'none'}"
-    if after["focus"] is not before["focus"]:
-        return "focus"
-    return "unhandled"
-
-
-def deliver_nav_keys(
-    *,
-    registry: Any,
-    app: Any,
-    window: Any,
-    keys: str | None,
-    element_id: str | None = None,
-) -> dict[str, Any]:
-    """Send *keys* the way the running app receives a real key press.
-
-    The event goes to the widget that actually holds what a user's key would
-    reach — the Qt focus widget (or the element named by ``element_id``, which
-    is focused first) — and travels through the app's own event filters, so
-    ``NavigationManager``'s sections and each surface's ``keyPressEvent`` take
-    part in the decision exactly as they do for a human. Nothing is aimed at a
-    single widget behind the routing (that is ``press_keys target=``).
-    """
-    sequence = parse_key_sequence(keys)
-    manager = _nav_manager()
-    elements = _element_map(registry)
-    anchor, focused_by_us = _focus_anchor(
-        registry=registry,
-        app=app,
-        window=window,
-        element_id=element_id,
-        manager=manager,
-    )
-    if anchor is None:
-        raise MethodError(
-            "no live widget to receive keys",
-            "focus a window first (e.g. open a tab), then retry",
-        )
-    steps: list[dict[str, Any]] = []
-    for key, modifiers, label in sequence:
-        before = _snapshot(manager, elements)
-        for event_type in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
-            event = QKeyEvent(event_type, key, modifiers)
-            try:
-                QApplication.sendEvent(anchor, event)
-            except Exception as exc:
-                raise MethodError(
-                    f"could not deliver {label!r}: {exc}",
-                    "the live window may be shutting down",
-                )
-        if app is not None:
-            try:
-                app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
-            except Exception:
-                pass
-        after = _snapshot(manager, elements)
-        steps.append(
-            {
-                "key": label,
-                "delivered_to": _row(anchor, elements, manager),
-                "handled": _verdict(before, after),
-                "focus_before": before["focus_row"],
-                "focus_after": after["focus_row"],
-                "owner_before": before["owner"],
-                "owner_after": after["owner"],
-            }
-        )
+        last_keyboard = None
+    sections = [
+        {
+            "index": index,
+            "section": type(spec).__name__,
+            "owner": type(owner).__name__,
+            "extra_keys": sorted(_key_names(getattr(spec, "extra_keys", frozenset()))),
+        }
+        for index, (owner, spec) in enumerate(_sections_of(manager))
+    ]
     return {
         "source": "live",
-        "keys": [label for _key, _mods, label in sequence],
-        "count": len(sequence),
-        "anchor": _row(anchor, elements, manager),
-        "focus_is_ours": focused_by_us,
-        "focus_after": _row(QApplication.focusWidget(), elements, manager),
-        "steps": steps,
+        "modality": _modality(manager),
+        "focus": widget_row(focused, elements, manager),
+        "last_keyboard_focus": widget_row(last_keyboard, elements, manager),
+        "owner_section": owner_of(manager, focused),
+        "sections": sections,
+        "sections_count": len(sections),
+        "overlays": _overlays(window, elements, manager, focused),
     }
 
 
-class NavMethodsMixin:
-    """``ui_nav_state`` / ``nav_key``, mixed into ``ControlHandlers``."""
-
-    def ui_nav_state(self, params: dict[str, Any]) -> dict[str, Any]:
-        return nav_state_payload(
-            registry=self._registry(),  # type: ignore[attr-defined]
-            app=getattr(self, "_app", None),
-            window=getattr(self, "_window", None),
-        )
-
-    def nav_key(self, params: dict[str, Any]) -> dict[str, Any]:
-        return deliver_nav_keys(
-            registry=self._registry(),  # type: ignore[attr-defined]
-            app=getattr(self, "_app", None),
-            window=getattr(self, "_window", None),
-            keys=params.get("keys"),
-            element_id=params.get("anchor") or params.get("from") or params.get("element_id"),
-        )
-
-
-__all__ = ["NavMethodsMixin", "deliver_nav_keys", "nav_state_payload"]
+__all__ = [
+    "MAX_OVERLAY_CHILDREN",
+    "element_map",
+    "focus_widget",
+    "nav_manager",
+    "nav_state_payload",
+    "owner_of",
+    "widget_row",
+]

@@ -138,14 +138,18 @@ Two tools close that gap; both are **live-only**:
 
 | Call | What it answers |
 |---|---|
-| `ui_nav_state {}` | the model itself: ordered `sections` (section + owner + `extra_keys`), `focus`, `last_keyboard_focus`, `modality`, and every open in-window `overlays` entry with its focusable `children` — each child carrying `owned_by_section` (`null` = Qt could focus it, no section drives it: the honest "a key cannot reach this" signal) |
-| `nav_key {keys, anchor?}` | what a key *does*: the event goes to the widget a user's key would reach (optionally focusing `anchor=<element id>` first, with the app's own focus-reason policy) and travels through the app's real filters; each `steps[]` entry reports `handled` (`section:<name>` / `focus` / `unhandled`) plus `focus_before`/`focus_after` and the owner before/after |
+| `ui_nav_state {}` | the model itself: ordered `sections` (section + owner + `extra_keys`), `focus`, `last_keyboard_focus`, `modality`, and every open in-window `overlays` entry with its focusable `children` — each child carrying `owned_by_section` (`null` = Qt could focus it, no section drives it: the honest "a key cannot reach this" signal) and `keyboard_ring` (the toolkit's own cursor-visibility flag) |
+| `nav_key {keys, anchor?}` | what a key *does*: the event goes to the widget a user's key would reach (optionally focusing `anchor=<element id>` first, with the app's own focus-reason policy) and travels through the app's real filters; each `steps[]` entry reports `handled` — `section:<name>` (a navigation section acted), `focus` (Qt moved focus, no section), `surface` (the widget/surface's own `keyPressEvent` took it without moving focus), `unhandled` (the key was lost) — plus `accepted`, `focus_before`/`focus_after` and the owner before/after. `activated: false` means the app window could not be made OS-active, so the measurement describes an app a real keyboard could not reach either |
 
 Reachability is therefore *measured*, not assumed: `ui_nav_state` shows which
 controls no section owns, and `nav_key` shows whether a key aimed at one of
 them changes anything (an `unhandled` step is the evidence, not a guess). Do not
 substitute `ui_click` for this judgement — it delivers in-process, so it fires
-a handler even for a widget a real mouse or keyboard cannot reach.
+a handler even for a widget a real mouse or keyboard cannot reach. Conversely,
+`ui_click`'s in-process path cannot *reveal* a keyboard gap: after the 2026-10-17
+gallery session, `nav_key` is the only honest instrument for it (20/20 Quick
+Look children unowned, `Down` unhandled at the action row, `Tab` moving focus
+without a section).
 
 ### Jobs: watching and stopping the long passes (P3)
 

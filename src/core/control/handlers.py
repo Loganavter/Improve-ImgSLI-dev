@@ -24,7 +24,7 @@ from . import discovery, elements as element_inventory, jobs
 from .capture import capture_live_png
 from .discovery import MethodError, parse_key_sequence
 from .drop_routing import accepts_paths, open_folder_into, route_paths
-from .nav_state import NavMethodsMixin
+from .nav_keys import NavMethodsMixin
 
 #: Minimum-level filter ladder, mirroring the MCP ``read_log`` semantics.
 _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")

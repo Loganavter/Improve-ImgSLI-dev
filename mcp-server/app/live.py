@@ -822,6 +822,9 @@ class LiveBackend:
         if anchor:
             params["anchor"] = anchor
         result = self._request("nav_key", params, client)
+        # ``activated`` is reported because the app's navigation is inert while
+        # the window is not OS-active: false means the keys were measured
+        # against an app a real keyboard could not have reached either.
         return {**result, "source": "live"}
 
     def ui_click(

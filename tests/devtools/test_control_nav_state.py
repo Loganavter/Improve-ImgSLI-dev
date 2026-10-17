@@ -1,4 +1,4 @@
-"""Keyboard-navigation state + key delivery (``core.control.nav_state``).
+"""Keyboard-navigation state + key delivery (``core.control.nav_state`` + ``nav_keys``).
 
 The control channel must be able to answer "can a **keyboard** reach this
 control?", and Qt focus cannot answer it: arrow keys belong to the toolkit's
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from sli_ui_toolkit.widgets import Button
 
 from core.control import nav_state
+from core.control.nav_keys import NavMethodsMixin  # noqa: F401 (import check)
 from core.control.handlers import ControlHandlers
 from ui.actions.registry import ActionRegistry
 
@@ -114,7 +115,7 @@ class _Harness:
         self.overlay.show()
         self.window.show()
         self.section = _RowSection(self.row)
-        self.manager = nav_state._nav_manager()
+        self.manager = nav_state.nav_manager()
         self.manager.register(self.window, self.section)
         self.row[0].setFocus(Qt.FocusReason.OtherFocusReason)
         _pump(app)
@@ -195,8 +196,54 @@ def test_nav_key_delivers_through_the_owning_section() -> None:
         harness.close()
 
 
+class _KeySink(QWidget):
+    """A control whose own keyPressEvent accepts a key (the overlay pattern).
+
+    Faster than a real overlay and pins the one case focus alone cannot show: a
+    surface reacts *without* moving focus, so a verdict built only from focus
+    and section ownership reports ``unhandled`` for a key that demonstrably did
+    something.
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.hits = 0
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        if event.key() == Qt.Key.Key_Right:
+            self.hits += 1
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+def test_nav_key_reports_a_surface_keypress_as_surface_not_unhandled() -> None:
+    """A key a widget/surface itself handles must not read as 'lost'.
+
+    Falsification: a verdict built from focus + section ownership alone returns
+    ``unhandled`` here — the live Quick Look case (arrows walking the series
+    while a lower control holds focus) was reported exactly that way before
+    ``accepted`` was added.
+    """
+    app = _qapp()
+    harness = _Harness(app)
+    try:
+        sink = _KeySink(harness.window)
+        sink.show()
+        sink.setFocus(Qt.FocusReason.OtherFocusReason)
+        _pump(app)
+        handlers = _handlers(harness.window)
+        result = handlers.nav_key({"keys": "Right"})
+        step = result["steps"][0]
+        assert sink.hits == 1, "the surface's own handler must have run"
+        assert step["accepted"] is True
+        assert step["handled"] == "surface", step["handled"]
+    finally:
+        harness.close()
+
+
 def test_nav_key_on_an_unowned_widget_is_reported_unhandled() -> None:
-    """A key at a widget no section owns must not be reported as handled."""
     app = _qapp()
     harness = _Harness(app)
     try:
