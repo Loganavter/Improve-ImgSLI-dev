@@ -43,9 +43,22 @@ class _StubOverlay(QWidget):
         self._series_items = [f"item{i}" for i in range(n)]
         self._current_idx = 0
         self._current_item = self._series_items[0]
-        self._strip_buttons = [Button(text=f"t{i}", parent=self) for i in range(n)]
-        for button in self._strip_buttons:
-            layout.addWidget(button)
+        # Mirrors the real strip: ``_strip_buttons`` holds CONTAINERS, each with
+        # the thumb Button named ``quicklook_strip_N`` inside it — focusing a
+        # container paints no ring, which is exactly how the cursor went
+        # invisible live (2026-10-17).
+        self._strip_buttons = []
+        self._thumb_buttons = []
+        for i in range(n):
+            container = QWidget(self)
+            container.setObjectName(f"quicklook_strip_container_{i}")
+            inner = QVBoxLayout(container)
+            button = Button(text=f"t{i}", parent=container)
+            button.setObjectName(f"quicklook_strip_{i}")
+            inner.addWidget(button)
+            layout.addWidget(container)
+            self._strip_buttons.append(container)
+            self._thumb_buttons.append(button)
         self._set_source_btn = Button(text="Set as source", parent=self)
         self._reject_btn = Button(text="Reject", parent=self)
         self._delete_btn = Button(text="Delete", parent=self)
@@ -94,7 +107,7 @@ def test_arrows_move_the_cursor_without_rebinding(qtbot, monkeypatch) -> None:
     assert nav.cursor_index(overlay) == 1
     assert overlay._current_idx == 0, "the picture must not follow the arrow"
     assert binds == [], "an arrow must not re-populate"
-    assert QApplication.focusWidget() is overlay._strip_buttons[1], (
+    assert QApplication.focusWidget() is overlay._thumb_buttons[1], (
         "the cursor must be visible: the thumb takes keyboard focus"
     )
 
@@ -144,7 +157,7 @@ def test_down_reaches_the_action_row_and_up_returns(qtbot) -> None:
     )
     assert nav.zone_of(overlay) == "actions"
     assert nav.focus_strip(overlay) is True
-    assert QApplication.focusWidget() is overlay._strip_buttons[0], (
+    assert QApplication.focusWidget() is overlay._thumb_buttons[0], (
         "↑ must bring the cursor back to the strip"
     )
     assert nav.zone_of(overlay) == "strip"
@@ -223,6 +236,7 @@ def test_section_claims_overlay_subtree_only(qtbot) -> None:
     section = nav.QuickLookNavSection(overlay)
 
     assert section.owns(overlay) is True
+    assert section.owns(overlay._thumb_buttons[0]) is True
     assert section.owns(overlay._strip_buttons[0]) is True
     assert section.owns(parent) is False, "arrows behind the panel are not ours"
     assert section.owns(None) is False
@@ -291,6 +305,107 @@ def test_focus_first_lands_on_the_shown_item_not_the_first(qtbot) -> None:
     section = nav.QuickLookNavSection(overlay)
     assert section.focus_first(reason=Qt.FocusReason.OtherFocusReason) is True
     assert nav.cursor_index(overlay) == 3
-    assert QApplication.focusWidget() is overlay._strip_buttons[3]
+    assert QApplication.focusWidget() is overlay._thumb_buttons[3]
     assert section.focus_last(reason=Qt.FocusReason.OtherFocusReason) is True
     assert nav.cursor_index(overlay) == 3
+
+def test_cursor_focuses_the_thumb_button_not_its_container(qtbot) -> None:
+    """Falsification for the live report "no indication while navigating".
+
+    ``_strip_buttons`` holds containers; focusing one paints no ring (the toolkit
+    ring lives on the ``Button``), so the cursor was invisible.
+    """
+    overlay, _parent = _overlay(qtbot)
+    nav.sync_cursor_to_current(overlay)
+    nav.move_cursor(overlay, 2)
+    focused = QApplication.focusWidget()
+    assert focused is overlay._thumb_buttons[2], f"focused {type(focused).__name__}"
+    assert focused is not overlay._strip_buttons[2]
+    assert nav.thumb_widget(overlay, 2) is overlay._thumb_buttons[2]
+
+
+def test_cursor_marker_is_painted_on_exactly_one_thumb(qtbot) -> None:
+    """The cursor has its own marker — it must not depend on Qt focus."""
+    overlay, _parent = _overlay(qtbot)
+    nav.sync_cursor_to_current(overlay)
+    nav.move_cursor(overlay, 1)
+    flags = [bool(b.property("strip_cursor")) for b in overlay._thumb_buttons]
+    assert flags == [False, True, False, False], flags
+
+
+def test_cursor_survives_a_strip_rebuild(qtbot) -> None:
+    """After a confirmed step the strip is rebuilt: the cursor must re-apply.
+
+    Live report #1 ("navigation dies after Enter"): the focused thumb widget is
+    replaced by the rebuild, so focus — and with it the section routing — was
+    lost. ``reapply_cursor`` re-asserts both on the live widgets.
+    """
+    overlay, _parent = _overlay(qtbot)
+    nav.sync_cursor_to_current(overlay)
+    nav.move_cursor(overlay, 2)
+
+    # A rebuild: fresh containers, fresh buttons (same order).
+    fresh_containers, fresh_thumbs = [], []
+    for i in range(len(overlay._series_items)):
+        container = QWidget(overlay)
+        container.setObjectName(f"quicklook_strip_container_{i}")
+        lay = QVBoxLayout(container)
+        button = Button(text=f"t{i}", parent=container)
+        button.setObjectName(f"quicklook_strip_{i}")
+        lay.addWidget(button)
+        fresh_containers.append(container)
+        fresh_thumbs.append(button)
+    overlay._strip_buttons = fresh_containers
+    overlay._thumb_buttons = fresh_thumbs
+
+    nav.reapply_cursor(overlay)
+    QApplication.processEvents()
+    assert nav.cursor_index(overlay) == 2, "the index survives the rebuild"
+    assert bool(fresh_thumbs[2].property("strip_cursor")) is True
+    assert QApplication.focusWidget() is fresh_thumbs[2], (
+        "focus must land on the live thumb, or section routing dies"
+    )
+
+
+def test_reapply_does_not_steal_focus_from_the_action_row(qtbot) -> None:
+    """A background repopulate must not yank the user off a button."""
+    overlay, _parent = _overlay(qtbot)
+    nav.sync_cursor_to_current(overlay)
+    section = nav.QuickLookNavSection(overlay)
+    section.navigate(Qt.Key.Key_Down, overlay)  # into the action row
+    section.navigate(Qt.Key.Key_Right, overlay)
+    assert QApplication.focusWidget() is overlay._reject_btn
+
+    nav.reapply_cursor(overlay)
+    QApplication.processEvents()
+    assert QApplication.focusWidget() is overlay._reject_btn, (
+        "the cursor re-apply must leave the action row alone"
+    )
+
+def test_zone_survives_focus_moving_out_of_the_panel(qtbot) -> None:
+    """Zone falsification: the live chain re-anchors focus outside the panel.
+
+    The control channel focuses the canvas before every injected key, and a
+    background repopulate can move focus too. With the zone read from focus
+    alone, → after ↓ walked the filmstrip instead of the three buttons
+    (measured live 2026-10-17); the remembered zone is what makes the row work.
+    """
+    overlay, _parent = _overlay(qtbot)
+    nav.sync_cursor_to_current(overlay)
+    section = nav.QuickLookNavSection(overlay)
+    assert section.navigate(Qt.Key.Key_Down, overlay) is True
+    assert nav.zone_of(overlay) == "actions"
+
+    # Something outside the panel takes focus (canvas / window / driver).
+    overlay.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    assert nav.zone_of(overlay) == "actions", "the remembered zone must answer"
+
+    assert section.navigate(Qt.Key.Key_Right, overlay) is True
+    assert QApplication.focusWidget() is overlay._reject_btn, (
+        "→ must walk the action row, not the filmstrip"
+    )
+    assert nav.cursor_index(overlay) == 0, "the strip cursor must not move"
+    assert section.navigate(Qt.Key.Key_Up, overlay) is True
+    assert nav.zone_of(overlay) == "strip"
+    assert QApplication.focusWidget() is overlay._thumb_buttons[0]

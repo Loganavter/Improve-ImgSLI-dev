@@ -27,6 +27,8 @@ C++ handle leaves the overlay usable (and the legacy arrow behaviour is *not*
 silently restored — the picture changes only on confirm).
 """
 
+
+Audit-Meta: pattern=state-machine size=exempt reason="one Quick Look keyboard-cursor contract: the strip cursor, the action-row cursor and the zone they live in share three remembered indices plus one re-assert path, so splitting them per widget family would scatter the invariant that keeps the picture, the marker and the focus in sync"
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -75,6 +77,84 @@ def cursor_index(overlay) -> int:
     return max(0, min(idx, n - 1))
 
 
+def thumb_widget(overlay, idx: int):
+    """The live widget carrying thumb *idx*.
+
+    ``_strip_buttons`` holds **containers** (``quicklook_strip_container_N``),
+    not thumbs — focusing a container paints no ring, which is why the cursor
+    was invisible and (after a rebuild) unfocusable. The thumb is the ``Button``
+    named ``quicklook_strip_N`` inside its container; the container stays as a
+    fallback for a partially built strip.
+    """
+    containers = strip_buttons(overlay)
+    if not (0 <= int(idx) < len(containers)):
+        return None
+    container = containers[int(idx)]
+    try:
+        from sli_ui_toolkit.widgets import Button as _Button
+
+        for child in container.findChildren(_Button):
+            if child.objectName().startswith("quicklook_strip_"):
+                return child
+    except Exception:
+        pass
+    return container
+
+
+def paint_cursor(overlay, idx: int | None = None) -> int:
+    """Mark thumb *idx* with ``strip_cursor`` on the live widgets.
+
+    Painted by the strip's own overlay painter (a dashed accent outline), so the
+    cursor is visible without Qt focus — it survives the strip rebuild that
+    follows every confirmed step, and it stays visible while the cursor is in the
+    action row (the caret remembers what Enter would show).
+    """
+    idx = cursor_index(overlay) if idx is None else int(idx)
+    for i in range(series_len(overlay)):
+        widget = thumb_widget(overlay, i)
+        if widget is None:
+            continue
+        try:
+            widget.setProperty("strip_cursor", i == idx)
+            widget.update()
+        except Exception:
+            continue
+    return idx
+
+
+def reapply_cursor(overlay) -> None:
+    """Re-assert the cursor after a strip rebuild: marker + focus.
+
+    Called from the strip's own per-populate sync point. Never steals focus from
+    the action row (a background metrics pass may repopulate the panel while the
+    user is on a button), and re-runs once more on the next tick because a
+    rebuild can replace the thumb widgets after this call.
+    """
+    try:
+        paint_cursor(overlay)
+    except Exception:
+        pass
+    if zone_of(overlay) == "actions":
+        return
+
+    def _apply() -> None:
+        widget = thumb_widget(overlay, cursor_index(overlay))
+        if widget is None:
+            return
+        try:
+            widget.setFocus(_reason(_manager()))
+        except Exception:
+            pass
+
+    _apply()
+    try:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, _apply)
+    except Exception:
+        pass
+
+
 def set_cursor(overlay, idx: int, *, reason: Qt.FocusReason | None = None, reveal: bool = True) -> int:
     """Put the cursor on *idx*, show it (focus + scroll) and return it."""
     n = series_len(overlay)
@@ -85,10 +165,12 @@ def set_cursor(overlay, idx: int, *, reason: Qt.FocusReason | None = None, revea
         setattr(overlay, CURSOR_ATTR, idx)
     except Exception:
         pass
-    buttons = strip_buttons(overlay)
-    if 0 <= idx < len(buttons):
+    _remember_zone(overlay, "strip")
+    paint_cursor(overlay, idx)
+    thumb = thumb_widget(overlay, idx)
+    if thumb is not None:
         try:
-            buttons[idx].setFocus(reason if reason is not None else _reason(None))
+            thumb.setFocus(reason if reason is not None else _reason(None))
         except Exception:
             pass
     if reveal:
@@ -203,6 +285,7 @@ def focus_action_row(overlay, *, manager=None, index: int | None = None) -> bool
         setattr(overlay, ACTION_ATTR, idx)
     except Exception:
         pass
+    _remember_zone(overlay, "actions")
     try:
         buttons[idx].setFocus(_reason(manager))
     except Exception:
@@ -255,13 +338,52 @@ def focused_widget(overlay):
     return QApplication.focusWidget()
 
 
+#: Overlay attribute remembering which zone owns the cursor. Focus alone cannot
+#: answer it: anything that moves focus out of the panel (the control channel
+#: re-anchors on the canvas before every injected key, a flyout opening, the
+#: window re-activating) would otherwise read as "strip" and send Enter to the
+#: wrong action — measured live 2026-10-17 (↓ into the row, then → walked the
+#: filmstrip instead of the buttons).
+ZONE_ATTR = "_nav_zone"
+
+
+def _remember_zone(overlay, zone: str) -> None:
+    try:
+        setattr(overlay, ZONE_ATTR, zone)
+    except Exception:
+        pass
+
+
+def remembered_zone(overlay) -> str:
+    """The last zone the cursor was placed in (``"strip"`` until told otherwise)."""
+    try:
+        return "actions" if str(getattr(overlay, ZONE_ATTR, "") or "") == "actions" else "strip"
+    except Exception:
+        return "strip"
+
+
+def _inside(container, widget) -> bool:
+    try:
+        return bool(widget is not None and (container is widget or container.isAncestorOf(widget)))
+    except Exception:
+        return False
+
+
 def zone_of(overlay) -> str:
-    """Which zone the keyboard cursor is in: ``"actions"`` or ``"strip"``."""
+    """Which zone the keyboard cursor is in: ``"actions"`` or ``"strip"``.
+
+    Live focus wins when it sits in one of the zones; otherwise the remembered
+    zone answers (see :data:`ZONE_ATTR`).
+    """
     focused = focused_widget(overlay)
-    for button in action_row_buttons(overlay):
-        if button is focused:
-            return "actions"
-    return "strip"
+    if focused is not None:
+        for button in action_row_buttons(overlay):
+            if button is focused:
+                return "actions"
+        for container in strip_buttons(overlay):
+            if _inside(container, focused):
+                return "strip"
+    return remembered_zone(overlay)
 
 
 def focus_strip(overlay, *, manager=None) -> bool:
@@ -401,12 +523,14 @@ def unregister(overlay) -> None:
 
 __all__ = [
     "ACTION_ATTR",
+    "ZONE_ATTR",
     "CURSOR_ATTR",
     "QuickLookNavSection",
     "activate_action",
     "action_index",
     "action_row_buttons",
     "move_action_cursor",
+    "remembered_zone",
     "zone_of",
     "commit_cursor",
     "cursor_index",
@@ -417,7 +541,10 @@ __all__ = [
     "register",
     "series_len",
     "set_cursor",
+    "paint_cursor",
+    "reapply_cursor",
     "strip_buttons",
     "sync_cursor_to_current",
+    "thumb_widget",
     "unregister",
 ]

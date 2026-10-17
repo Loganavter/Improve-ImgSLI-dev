@@ -878,6 +878,17 @@
       }
     },
     {
+      "path": "src/tabs/image_gallery/ui/quick_look/nav_section.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=state-machine size=exempt reason=\"one Quick Look keyboard-cursor contract: the strip cursor, the action-row cursor and the zone they live in share three remembered indices plus one re-assert path, so splitting them per widget family would scatter the invariant that keeps the picture, the marker and the focus in sync\"",
+      "parsed": {
+        "pattern": "state-machine",
+        "size": "exempt",
+        "reason": "one Quick Look keyboard-cursor contract: the strip cursor, the action-row cursor and the zone they live in share three remembered indices plus one re-assert path, so splitting them per widget family would scatter the invariant that keeps the picture, the marker and the focus in sync"
+      }
+    },
+    {
       "path": "src/tabs/image_gallery/ui/quick_look/overlay_build/build.py",
       "limit": 500,
       "marker": "Audit-Meta:",
@@ -930,6 +941,17 @@
         "pattern": "thin-owner-target",
         "size": "exempt",
         "reason": "one card-resize concern: border/ring share one clamp + repin idiom"
+      }
+    },
+    {
+      "path": "src/tabs/image_gallery/ui/quick_look/strip/paint.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=thin-owner-target size=exempt reason=\"one strip-paint pass over the thumb context: hover wash + source/viewing outline + lasso selection tint + the keyboard-cursor marker share one painter chain (ctx/widget properties), and splitting the marker out would scatter that contract from the painters that read it\"",
+      "parsed": {
+        "pattern": "thin-owner-target",
+        "size": "exempt",
+        "reason": "one strip-paint pass over the thumb context: hover wash + source/viewing outline + lasso selection tint + the keyboard-cursor marker share one painter chain (ctx/widget properties), and splitting the marker out would scatter that contract from the painters that read it"
       }
     },
     {

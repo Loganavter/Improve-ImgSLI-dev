@@ -84,6 +84,15 @@ def ensure_strip_scroll(overlay) -> None:
     except Exception:
         pass
     ensure_strip_visible(overlay)
+    # The keyboard cursor rides the same per-populate sync point: a confirmed
+    # step rebuilds the strip, which replaces the thumb widgets, so the marker
+    # and the focus must be re-asserted on the live ones (quick_look/nav_section).
+    try:
+        from tabs.image_gallery.ui.quick_look import nav_section as _nav
+
+        _nav.reapply_cursor(overlay)
+    except Exception:
+        pass
 def rebuild_strip(overlay) -> None:
     # W6: svg pitch is 76px (thumbs x=816/892/968/1044, 66 wide) — the
     # HBox spacing is pinned here so 4 thumbs span 4*66+3*10=294px and
