@@ -70,7 +70,13 @@ def _cursor_bar(button: QWidget | None) -> VideoEditorTabBar | None:
 
 
 def _keyboard_focus(reason: Qt.FocusReason) -> bool:
-    """Modality-aware keyboard-focus flag (same rule as the toolkit bars)."""
+    """Modality-aware keyboard-focus flag (same rule as the toolkit bars).
+
+    Delegates to the toolkit's ``resolve_keyboard_focus`` — the single
+    interpretation site for focus-ring modality; the degraded no-manager
+    rule lives there, never inlined here (same idiom as the color-recents
+    swatch button, ``ui/widgets/color/recents.py``).
+    """
     try:
         from sli_ui_toolkit.ui.managers.navigation_manager import (
             resolve_keyboard_focus,
@@ -78,11 +84,10 @@ def _keyboard_focus(reason: Qt.FocusReason) -> bool:
 
         return bool(resolve_keyboard_focus(reason))
     except Exception:
-        return reason not in (
-            Qt.FocusReason.MouseFocusReason,
-            Qt.FocusReason.MenuBarFocusReason,
-            Qt.FocusReason.PopupFocusReason,
-        )
+        # Degraded (no manager / broken import — never in the app, where the
+        # toolkit is a hard dependency): assume keyboard modality, the same
+        # fallback as recents.py.
+        return True
 
 
 class VideoEditorTabBar(TopTabBar):
@@ -281,5 +286,8 @@ class VideoEditorTopTabHost(TopTabHost):
         bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
         bar.currentChanged.connect(self._on_bar_changed)
         self.tab_bar = bar
+        # Hide before unparent: detaching a still-visible widget maps a
+        # stillborn toplevel (Wayland busy cursor — the contract ratchet).
+        toolkit_bar.hide()
         toolkit_bar.setParent(None)
         toolkit_bar.deleteLater()
