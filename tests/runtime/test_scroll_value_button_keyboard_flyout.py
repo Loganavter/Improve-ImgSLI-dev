@@ -1,8 +1,9 @@
 """ScrollValueButton: change the value without Enter (sv-button-ux).
 
 Owner's decisions:
-- the value pill is a **preview on hover AND on keyboard focus** — neither
-  trigger steals focus (``grab_focus=False, register_nav_section=True``);
+- the value pill is a **preview on focus** (keyboard or mouse) — it never
+  steals focus (``grab_focus=False, register_nav_section=True``); hover alone
+  shows the digit inside the button and raises no flyout;
 - **Up** moves the keyboard *into* the pill, ``Left``/``Right`` step the value
   there (the pill's own ``keyPressEvent`` → ``anchor._step_value``);
 - **Down**/*Esc* leave the pill.
@@ -80,16 +81,29 @@ def _value_rows(button: ScrollValueButton):
     ]
 
 
-def test_preview_pill_shows_on_hover_without_stealing_focus(host_button, qapp):
+def test_preview_pill_shows_on_mouse_focus_without_stealing_focus(
+    host_button, qapp
+):
+    """A click (mouse focus) still previews the value pill, no focus steal.
+
+    Hover alone raises no flyout (owner decision 2026-10-19); the preview is
+    a focus affordance. ``waitExposed`` grants activation focus, so clear it
+    and drop that preview first to isolate the mouse-focus trigger.
+    """
     _, button = host_button
 
-    _enter_hover(button)
+    button.clearFocus()
+    button._hide_flyout()
+    qapp.processEvents()
+    assert button._flyout is None or not button._flyout.isVisible()
+
+    button.setFocus(Qt.FocusReason.MouseFocusReason)
     qapp.processEvents()
 
     pill = button._flyout
-    assert pill is not None and pill.isVisible(), "hover must preview the value"
+    assert pill is not None and pill.isVisible(), "focus must preview the value"
     assert pill._label.text() == "4"
-    assert not pill.hasFocus(), "the hover preview must not steal focus"
+    assert not pill.hasFocus(), "the preview must not steal focus"
     assert button.hasFocus()
 
 

@@ -1,8 +1,9 @@
 """Generic scroll-driven numeric control button.
 
-A single icon region when idle, an icon+numeric-value split while hovered,
-a transient flyout mirroring the value on hover / keyboard focus / scroll
-(the preview never steals focus; Up moves the keyboard into it and
+A single icon region when idle, an icon+numeric-value split while hovered
+(the digit shows INSIDE the button — hover does not raise the flyout), a
+transient flyout mirroring the value on keyboard focus / scroll / Enter edit
+mode (the preview never steals focus; Up moves the keyboard into it and
 Left/Right step the value there), and an always-visible bottom underline
 (via the toolkit's built-in ``show_underline``/``setUnderlineColor`` API)
 showing an associated color (e.g. divider/guide color).
@@ -599,9 +600,12 @@ class ScrollValueButton(Button):
         self._mouse_hovered = True
         self._set_hover_split(True)
         super().enterEvent(event)
-        # Hover is one of the two preview triggers (the other is keyboard
-        # focus) — the pill shows the value without stealing focus.
-        self._show_flyout()
+        # Hover must NOT raise the value flyout: the owner wants only the
+        # digit inside the button on hover. ``_set_hover_split(True)`` above
+        # paints it — ``_is_scrolling`` stays False here, so the "value"
+        # region's row is not suppressed. The flyout stays an affordance of
+        # the other triggers (keyboard focus, wheel, Enter edit mode).
+        # See _show_flyout for the suppressed-row contract.
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
