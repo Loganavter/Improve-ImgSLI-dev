@@ -68,24 +68,34 @@ def _restore_nav_modality():
     manager._last_input_keyboard = previous
 
 
-@pytest.fixture
-def dialog(qtbot):
-    dlg = VideoEditorDialog([], _FakeExportController(), None)
-    qtbot.addWidget(dlg)
-    dlg.show()
-    qtbot.waitExposed(dlg)
-    yield dlg
-    # pytest-qt's runtest-teardown wrapper closes + deleteLater()s every
-    # addWidget-registered widget BEFORE fixture teardown runs, and this
-    # dialog is WA_DeleteOnClose — its closeEvent already dropped the nav
-    # section there. The close below is only a fallback (e.g. if the widget
-    # wrapper is somehow still alive at teardown).
+def _destroy_dialog(dlg) -> None:
+    """Close *dlg* and let its ``WA_DeleteOnClose`` deletion land.
+
+    The teardown workhorse for every dialog in this file — deliberately NOT
+    ``qtbot.addWidget``-registered: pytest-qt's teardown auto-closes every
+    registered widget, and a second ``close()`` on a dialog a test already
+    closed raises ``RuntimeError: Internal C++ object already deleted``
+    (WA_DeleteOnClose deletes during the test's own ``processEvents()``).
+    Owning the lifetime here keeps exactly one close per dialog, so no
+    widget is ever touched after its C++ object is gone.
+    """
     try:
         if dlg.isVisible():
             dlg.close()
-        QApplication.processEvents()
+        QApplication.processEvents()  # deliver the DeferredDelete
     except RuntimeError:
-        pass  # C++ object already deleted by qtbot's teardown wrapper
+        # Already deleted by the test's own close() — nothing left to do.
+        pass
+    QApplication.processEvents()
+
+
+@pytest.fixture
+def dialog(qtbot):
+    dlg = VideoEditorDialog([], _FakeExportController(), None)
+    dlg.show()
+    qtbot.waitExposed(dlg)
+    yield dlg
+    _destroy_dialog(dlg)
 
 
 def _press(key: Qt.Key) -> QWidget | None:
@@ -118,8 +128,9 @@ def _focus_reason() -> Qt.FocusReason:
 
 
 def _shown_dialog(qtbot) -> VideoEditorDialog:
+    # Not qtbot.addWidget — see _destroy_dialog: the tests below close the
+    # dialog themselves, and pytest-qt's auto-close would double-close it.
     dlg = VideoEditorDialog([], _FakeExportController(), None)
-    qtbot.addWidget(dlg)
     dlg.show()
     qtbot.waitExposed(dlg)
     return dlg
@@ -135,7 +146,7 @@ class _BehindSection:
 
     def __init__(self, window: QWidget, anchor: QWidget) -> None:
         self._window = window
-        self._anchor = anchor
+        self.anchor = anchor
         self.grants: list[str] = []
 
     def owns(self, widget) -> bool:
@@ -146,12 +157,12 @@ class _BehindSection:
 
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         self.grants.append("first")
-        self._anchor.setFocus(reason)
+        self.anchor.setFocus(reason)
         return True
 
     def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         self.grants.append("last")
-        self._anchor.setFocus(reason)
+        self.anchor.setFocus(reason)
         return True
 
     @property
@@ -174,6 +185,10 @@ def _show_behind(qtbot):
     behind.resize(800, 600)
     behind.show()
     anchor = QWidget(behind)
+    # StrongFocus: a plain QWidget defaults to NoFocus, and setFocus() on a
+    # NoFocus widget is a no-op — the hand-off grant would be recorded but
+    # app focus would never actually move (the escape would be unobservable).
+    anchor.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     anchor.resize(100, 50)
     anchor.show()
     section = _BehindSection(behind, anchor)
@@ -345,8 +360,13 @@ def test_nonmodal_twin_would_escape(qtbot):
             QApplication.processEvents()
             assert QApplication.focusWidget() is dialog.edit_width
             _press(Qt.Key.Key_Up)
+            # The manager DELEGATES the edge key to the behind section — the
+            # modal twin above never gets that grant. The grant lands inside
+            # the behind window: Qt keeps app-level focus in the active window
+            # (the dialog), so setFocus there moves the behind window's own
+            # focus widget, not QApplication.focusWidget().
             assert behind_section.grants == ["last"]
-            assert QApplication.focusWidget() is not dialog.edit_width
+            assert behind.focusWidget() is behind_section.anchor
         finally:
             manager.unregister(dialog)
             if dialog.isVisible():
