@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from tabs.image_compare.plugins.video_editor.dialog.nav import claim_tab_bar_keys
 from tabs.image_compare.plugins.video_editor.dialog.surface_widgets import (
     ThemedExportProgressBar,
     VideoEditorToolbar,
@@ -349,13 +350,15 @@ def create_export_tabs(dialog):
     tabs.addTab(dialog.tab_log, dialog._tr("video.export_log"))
     EXPORT_TABS.tag_tab_page(tabs, dialog.tab_log, "video.export_log")
 
-    # Keyboard entry to the page stack. The toolkit ``TopTabBar``'s tab
-    # buttons are all NoFocus and the bar has no ``keyPressEvent`` of its own,
-    # so without this the bar is unreachable and the export pages cannot be
-    # switched from the keyboard. The app gives the bar StrongFocus and the
-    # dialog's nav section (dialog/nav.py) handles ←/→ and Enter/Space while
-    # the bar is the focused widget.
+    # Keyboard entry to the page stack. The toolkit tab bar's tab buttons are
+    # all NoFocus and the bar has no ``keyPressEvent`` of its own, so without
+    # this the bar is unreachable and the export pages cannot be switched from
+    # the keyboard. The app gives the bar StrongFocus and the dialog's nav
+    # section (dialog/nav.py) handles ←/→ and Enter/Space while the bar is the
+    # focused widget; the bar also claims its activation keys against the
+    # dialog-level Space shortcut (see ``claim_tab_bar_keys``).
     tabs.tab_bar.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    claim_tab_bar_keys(tabs.tab_bar)
     # Per-tab nav rows, in tab order: the dialog nav section exposes ONLY the
     # active tab's rows (each tab's content is a vertical form — see the
     # per-tab ``create_*_tab`` builders).
@@ -800,7 +803,10 @@ def create_toolbar(dialog):
     toolbar_layout.addWidget(dialog.btn_trim)
 
     toolbar_layout.addStretch()
-    return toolbar_frame
+    # One nav row: wrap the toolbar (``VideoEditorToolbar`` keeps its style
+    # objectName inside) in the same zero-margin row container the other
+    # outer rows use, so the row carries the nav name ``toolbar_frame``.
+    return _wrap_row_container(toolbar_frame, "toolbar_frame")
 
 def create_timeline_scroll_area(dialog):
     scroll_area = SurfaceScrollArea()
