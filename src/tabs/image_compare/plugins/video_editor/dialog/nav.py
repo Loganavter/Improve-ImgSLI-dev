@@ -23,6 +23,12 @@ from sli_ui_toolkit.managers import NavigationManager, ToolbarRowsSection
 from sli_ui_toolkit.ui.managers.nav_graph import focus_reason
 
 _ARROWS = (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right)
+# Activation keys for the export tab bar (Enter/Space): Enter also gets the
+# numeric-pad flavour. The app's tab-strip idiom is cursor + Enter/Space, but
+# the export bar activates immediately on ←/→ (a page change is the visible
+# feedback — a cursor-only mode would have no ring to draw on the bar); these
+# keys therefore only confirm the current tab.
+_TAB_ACTIVATE_KEYS = (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space)
 
 
 class VideoEditorNavSection(ToolbarRowsSection):
