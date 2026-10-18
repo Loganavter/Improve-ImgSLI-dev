@@ -12,10 +12,6 @@ shape half).
 
 from __future__ import annotations
 
-import gc
-
-gc.disable()  # TEMP DEBUG: does the coalesced flush survive without GC?
-
 import pytest
 from PySide6.QtWidgets import QDialog, QHBoxLayout
 

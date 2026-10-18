@@ -61,60 +61,34 @@ def _flush_metrics_channel(qapp: QApplication) -> None:
 
     ``connect_ui_metrics`` emits through a zero-timer after the source
     notification; a plain ``processEvents`` drain is not guaranteed to run
-    it (under a full-suite event backlog the flush lands several turns late),
-    so spin until the channel reports it has flushed — bounded, then give up
-    (the probe assert will fail with a clear message rather than hang).
+    it (under a full-suite event backlog the flush lands several turns late).
+    A spy slot is connected to the channel and the loop spins until that
+    emission arrives — bounded, then gives up (the probe assert then fails
+    with a clear message rather than hanging). Listening to the public
+    ``changed`` signal keeps this independent of the channel's private
+    pending-axes bookkeeping (an earlier revision read ``metrics._pending``,
+    which the toolkit renamed — the whole gate then failed on the attribute
+    error, not on the surfaces).
     """
-    import os
     import time
 
     from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
 
     metrics = UiMetrics.get_instance()
+    fired: list[Any] = []
+    connection = metrics.changed.connect(lambda axes: fired.append(axes))
     deadline = time.monotonic() + 1.0
-    iterations = 0
-    while True:
-        loop = QEventLoop()
-        QTimer.singleShot(2, loop.quit)
-        loop.exec()
-        qapp.processEvents()
-        iterations += 1
-        if os.environ.get("PARITY_DEBUG") and iterations % 10 == 0:
-            from PySide6.QtCore import QThread
-
-            print(
-                f"[PARITY-DEBUG] flush-wait iter={iterations} "
-                f"pending={metrics._pending} id={id(metrics)} "
-                f"subs={len(metrics._subscriptions)} "
-                f"metrics_thread={metrics.thread() is QThread.currentThread()}"
-            )
-        if not metrics._pending or time.monotonic() > deadline:
-            break
-    if os.environ.get("PARITY_DEBUG") and metrics._pending:
-        # The scheduled flush never ran. Reproduce the toolkit's exact call
-        # shape with a strong ref: does a re-scheduled flush fire?
-        flush = metrics._flush
-        QTimer.singleShot(0, flush)
-        loop = QEventLoop()
-        QTimer.singleShot(5, loop.quit)
-        loop.exec()
-        qapp.processEvents()
-        print(
-            f"[PARITY-DEBUG] strong-ref reschedule fired="
-            f"{not metrics._pending} pending={metrics._pending}"
-        )
-    if os.environ.get("PARITY_DEBUG") and not metrics._pending:
-        # Re-schedule the flush our own self and see if it fires.
-        fired = []
-        QTimer.singleShot(0, lambda: (metrics._flush(), fired.append(1)))
-        loop = QEventLoop()
-        QTimer.singleShot(5, loop.quit)
-        loop.exec()
-        qapp.processEvents()
-        print(
-            f"[PARITY-DEBUG] self-rescheduled flush fired={bool(fired)} "
-            f"pending={metrics._pending}"
-        )
+    try:
+        while not fired and time.monotonic() <= deadline:
+            loop = QEventLoop()
+            QTimer.singleShot(2, loop.quit)
+            loop.exec()
+            qapp.processEvents()
+    finally:
+        try:
+            metrics.changed.disconnect(connection)
+        except (RuntimeError, TypeError):
+            pass
 
 
 def _scale_lever() -> tuple[Callable[[], None], Callable[[], None]]:
@@ -186,19 +160,6 @@ def assert_reflows_on_metrics_change(
 
     widget, probe = surface.build(qapp, monkeypatch)
     assert widget is not None
-    import os as _os
-
-    if _os.environ.get("PARITY_DEBUG"):
-        from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
-
-        _m = UiMetrics.get_instance()
-        print(
-            f"[PARITY-DEBUG] build surface={surface.name} "
-            f"metrics_id={id(_m)} widget_on_metrics="
-            f"{_m._subscriptions.get(widget) is not None} "
-            f"subs={len(_m._subscriptions)} "
-            f"pending={_m._pending}"
-        )
     try:
         for axis in ("font", "scale"):
             if axis not in surface.axes:
@@ -210,17 +171,6 @@ def assert_reflows_on_metrics_change(
                 before = drain_until_stable(
                     qapp, probe, timeout_ms=1000, stable_frames=2
                 )
-                import os as _os
-
-                if _os.environ.get("PARITY_DEBUG"):
-                    from sli_ui_toolkit.ui.managers.ui_metrics import (
-                        UiMetrics as _UM,
-                    )
-
-                    print(
-                        f"[PARITY-DEBUG] pre-apply surface={surface.name} "
-                        f"axis={axis} pending={_UM.get_instance()._pending}"
-                    )
                 apply()
                 _flush_metrics_channel(qapp)
                 after = drain_until_stable(
