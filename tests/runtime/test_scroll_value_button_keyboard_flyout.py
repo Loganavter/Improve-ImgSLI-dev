@@ -22,7 +22,7 @@ Real ``QTest.keyClick`` presses are used throughout so the app-wide
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
