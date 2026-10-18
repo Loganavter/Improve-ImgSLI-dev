@@ -231,6 +231,26 @@ class _ScrollValueFlyout(BaseFlyout):
         if timer is not None:
             timer.stop()
 
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        super().focusOutEvent(event)
+        # Focus is leaving the pill. Down/Esc hand the keyboard back to the
+        # anchor (whose focusInEvent re-arms the preview); every other
+        # departure — Tab, a click on another widget, window deactivation —
+        # ends the interaction. Our own focusInEvent stopped the hide
+        # timer, so without this the pill would linger over an anchor that
+        # keeps its hover/value split while unfocused: the stuck
+        # value-display state (sv-hover-fix). Settle through the anchor's
+        # own ``_hide_flyout`` so ``_is_scrolling`` resets and the digit
+        # returns; the anchor's split settles only when the anchor is
+        # neither hovered nor (about to be) focused — the Down/Esc paths
+        # re-assert it in their focusInEvent right after this runs.
+        anchor = getattr(self, "_anchor_widget", None)
+        if anchor is None:
+            return
+        anchor._hide_flyout()
+        if not anchor.underMouse() and not anchor.hasFocus():
+            anchor._set_hover_split(False)
+
     def _exit_to_anchor(self) -> None:
         """Down in preview mode: hand the keyboard back to the anchor.
 
@@ -370,6 +390,10 @@ class ScrollValueButton(Button):
         self._zero_icon = zero_icon
         self._saved_value: int | None = None
         self._hovered_split = False
+        # True only while the mouse is actually over the button
+        # (enterEvent/leaveEvent) — ``_hovered_split`` also covers keyboard
+        # focus, so the hover-persistency checks must read this flag.
+        self._mouse_hovered = False
         self._is_scrolling = False
         self._underline_visible = False
         self._underline_qcolor = None
@@ -554,6 +578,7 @@ class ScrollValueButton(Button):
         # Public Button hover seeding (enterEvent → group= mirror) only sees
         # the regions that already exist. Expand to the icon+value capsule
         # first so both siblings share group= when HOVERED is applied.
+        self._mouse_hovered = True
         self._set_hover_split(True)
         super().enterEvent(event)
         # Hover is one of the two preview triggers (the other is keyboard
@@ -562,6 +587,7 @@ class ScrollValueButton(Button):
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
+        self._mouse_hovered = False
         self._set_hover_split(False)
         self._hide_flyout()
 
@@ -668,13 +694,18 @@ class ScrollValueButton(Button):
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         super().focusInEvent(event)
-        # Нижняя капсула (value) уже была для ховера мышкой — показываем её и для фокуса стрелками
-        if getattr(self, "_keyboard_focus", False):
-            self._set_hover_split(True)
-            # Preview on keyboard focus too (owner asked for both triggers).
-            # Skipped while an exit path is returning focus here.
-            if not self._suppress_focus_preview:
-                self._show_flyout()
+        # Нижняя капсула (value) уже была для ховера мышкой — показываем её и для фокуса.
+        # The preview shows on ANY focus, keyboard or mouse: gating it on the
+        # toolkit's ``_keyboard_focus`` (keyboard modality only) left a button
+        # focused the mouse way — a click, the owner's real session — with no
+        # pill at all, so Up had nothing to enter (sv-hover-fix). The preview
+        # never steals focus, so mouse-modality lighting it is safe; the ring
+        # still follows modality.
+        self._set_hover_split(True)
+        # Preview on focus too (owner asked for both triggers). Skipped while
+        # an exit path is returning focus here.
+        if not self._suppress_focus_preview:
+            self._show_flyout()
 
     def focusOutEvent(self, event) -> None:  # noqa: N802
         self._keyboard_edit_active = False
@@ -883,7 +914,17 @@ class ScrollValueButton(Button):
             except Exception:
                 pass
         else:
-            self._flyout_hide_timer.start(_FLYOUT_HIDE_MS)
+            # While the mouse is on the button the preview is persistent:
+            # leaveEvent owns the hide. Arming the timer here as well kills
+            # the pill mid-hover — before a hand can travel from mouse to
+            # keyboard and press Up, which is exactly the owner's
+            # hover → pill → Up → Left/Right value-change path (sv-hover-fix).
+            # Stop a timer an earlier focus/activation show may have armed
+            # before the hover took over — skipping the start is not enough.
+            if self._mouse_hovered:
+                self._flyout_hide_timer.stop()
+            else:
+                self._flyout_hide_timer.start(_FLYOUT_HIDE_MS)
         if not self._is_scrolling:
             self._is_scrolling = True
             self._sync_regions()
