@@ -264,8 +264,9 @@ class _RecentColorChip(QWidget):
         # Keyboard focus ring — the toolkit's own FocusLayer (same layer every
         # Button uses), so the chip reads as focused exactly like the rest of
         # the app instead of a hand-rolled lookalike.
-        if _FOCUS_LAYER.applies(self._focus_ctx(painter)):
-            _FOCUS_LAYER.draw(self._focus_ctx(painter), self.theme_manager)
+        focus_ctx = self._focus_ctx(painter)
+        if _FOCUS_LAYER.applies(focus_ctx):
+            _FOCUS_LAYER.draw(focus_ctx, self.theme_manager)
 
     def _focus_ctx(self, painter: QPainter) -> DrawContext:
         return DrawContext(
