@@ -606,10 +606,6 @@ class ScrollValueButton(Button):
         # region's row is not suppressed. The flyout stays an affordance of
         # the other triggers (keyboard focus, wheel, Enter edit mode).
         # See _show_flyout for the suppressed-row contract.
-        # Hover still keeps an already-visible preview from auto-hiding
-        # while the mouse is on the button (the same persistence _show_flyout
-        # grants when ``_mouse_hovered``); leaveEvent owns the hide.
-        self._flyout_hide_timer.stop()
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
@@ -736,6 +732,13 @@ class ScrollValueButton(Button):
         if not self._suppress_focus_preview:
             self._set_hover_split(True)
             self._show_flyout()
+            # Keyboard focus: the preview must persist while the focus ring
+            # is on the button (owner decision 2026-10-19) — no 700 ms
+            # auto-hide, so Up can enter the pill at any time regardless of
+            # how long the owner pauses. The wheel preview stays transient,
+            # and the mouse/click preview keeps its own timer.
+            if self._keyboard_focus:
+                self._flyout_hide_timer.stop()
 
     def focusOutEvent(self, event) -> None:  # noqa: N802
         self._keyboard_edit_active = False
@@ -754,6 +757,15 @@ class ScrollValueButton(Button):
         ):
             return
         self._set_hover_split(False)
+        if target is None:
+            # clearFocus() with nowhere to hand focus: leave the preview
+            # alone (an immediate hide() here re-asserts window focus and
+            # fights the clear — see BaseFlyout._finish_hide).
+            return
+        # The keyboard preview persists while the button holds focus (no
+        # auto-hide); once the focus ring moves to another widget, the pill
+        # must go with it.
+        self._hide_flyout()
 
     def _step_value(self, step: int) -> None:
         old = self._value
@@ -948,12 +960,12 @@ class ScrollValueButton(Button):
                 pass
         else:
             # While the mouse is on the button the preview is persistent:
-            # leaveEvent owns the hide. Arming the timer here as well kills
-            # the pill mid-hover — before a hand can travel from mouse to
-            # keyboard and press Up, which is exactly the owner's
-            # hover → pill → Up → Left/Right value-change path (sv-hover-fix).
-            # Stop a timer an earlier focus/activation show may have armed
-            # before the hover took over — skipping the start is not enough.
+            # leaveEvent owns the hide. This matters for a button focused by a
+            # click (the mouse is on it) — the pill must not be killed by the
+            # hide timer before a hand can travel from mouse to keyboard and
+            # press Up (the owner's value-change path). Stop a timer an
+            # earlier focus/activation show may have armed before the hover
+            # took over — skipping the start is not enough.
             if self._mouse_hovered:
                 self._flyout_hide_timer.stop()
             else:

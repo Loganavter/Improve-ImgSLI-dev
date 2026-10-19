@@ -4,7 +4,7 @@ Owner's decisions:
 - the value pill is a **preview on focus** (keyboard or mouse) — it never
   steals focus (``grab_focus=False, register_nav_section=True``); hover alone
   shows the digit inside the button and raises no flyout
-  (``test_hover_alone_raises_no_flyout_and_shows_digit``);
+  (``test_hover_alone_shows_digit_not_flyout``);
 - **Up** moves the keyboard *into* the pill, ``Left``/``Right`` step the value
   there (the pill's own ``keyPressEvent`` → ``anchor._step_value``);
 - **Down**/*Esc* leave the pill.
@@ -82,26 +82,32 @@ def _value_rows(button: ScrollValueButton):
     ]
 
 
-def test_hover_alone_raises_no_flyout_and_shows_digit(host_button, qapp):
-    """Hover must not raise the value flyout — only the in-button digit.
+def test_hover_alone_shows_digit_not_flyout(qtbot):
+    """Hover shows the digit inside the button and raises no flyout.
 
-    Owner decision (2026-10-19). ``waitExposed`` grants activation focus
-    (which legitimately raises the preview), so spy on ``_show_flyout`` to
-    isolate the pure hover trigger.
+    Owner decision (2026-10-19). A sibling focusable widget owns the
+    window's activation focus so the button stays unfocused — otherwise the
+    focus preview would raise the pill and suppress the in-button digit.
     """
-    _, button = host_button
+    host = QWidget()
+    host.resize(240, 140)
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(24, 24, 24, 24)
+    sibling = QWidget()
+    sibling.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    layout.addWidget(sibling)
+    button = ScrollValueButton(icon=None, min_value=0, max_value=10, start=4)
+    layout.addWidget(button)
+    qtbot.addWidget(host)
+    host.show()
+    qtbot.waitExposed(host)
+    assert not button.hasFocus(), "the sibling must own the activation focus"
 
-    calls = []
-    original = button._show_flyout
-    button._show_flyout = lambda: calls.append(1) or original()
-    try:
-        _enter_hover(button)
-        qapp.processEvents()
-    finally:
-        button._show_flyout = original
+    _enter_hover(button)
+    qtbot.wait(50)
 
-    assert calls == [], "hover must not raise the value flyout"
     assert button._hovered_split is True
+    assert button._flyout is None, "hover must not create the value flyout"
     assert _value_rows(button) == ["4"], (
         "hover shows the digit inside the button"
     )
