@@ -49,6 +49,9 @@ class MagnifierSettingsHoverController(QObject):
         self._journal.note(what, detail)
 
     def _wire(self) -> None:
+        import os as _os
+        if _os.environ.get("IMGSLI_AB_NO_MAG_SETTINGS"):
+            return
         widget = self.widget
         toolbar = getattr(widget, "checkbox_widget", None)
         group = getattr(widget, "magnifier_group_container", None)

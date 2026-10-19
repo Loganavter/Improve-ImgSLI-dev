@@ -611,18 +611,6 @@ class ScrollValueButton(Button):
     def keyPressEvent(self, event) -> None:  # noqa: N802
         key = event.key()
         scroll_value_debug("keyPressEvent key=%s value=%s widget=%s", key, self._value, id(self))
-        if key == Qt.Key.Key_Up and self._flyout is not None:
-            try:
-                from sli_ui_toolkit.managers import NavigationManager as _NM
-
-                _m = _NM.get_instance()
-                scroll_value_debug(
-                    "Up probe widget=%s objname=%r flyout_vis=%s ext=%s side=%s",
-                    id(self), self.objectName(), self._flyout.isVisible(),
-                    _m.extension_below(self) is not None, _m.flyout_side(self._flyout),
-                )
-            except Exception as _exc:  # pragma: no cover - diagnostic only
-                scroll_value_debug("Up probe failed %s", _exc)
         # Enter mirrors a right-click (owner rule): this value control has no
         # edit mode — the value pill is entered with Up, and Left/Right step the
         # value there. Arrows otherwise navigate (Left/Right → next button,
@@ -672,10 +660,6 @@ class ScrollValueButton(Button):
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         super().focusInEvent(event)
-        scroll_value_debug(
-            "focusIn widget=%s objname=%r suppress=%s keyboard=%s",
-            id(self), self.objectName(), self._suppress_focus_preview, self._keyboard_focus,
-        )
         # Нижняя капсула (value) уже была для ховера мышкой — показываем её и для фокуса.
         # The preview shows on ANY focus, keyboard or mouse: gating it on the
         # toolkit's ``_keyboard_focus`` (keyboard modality only) left a button
@@ -692,10 +676,6 @@ class ScrollValueButton(Button):
         if not self._suppress_focus_preview:
             self._set_hover_split(True)
             self._show_flyout()
-            scroll_value_debug(
-                "focusIn preview widget=%s flyout=%s objname=%r",
-                id(self), None if self._flyout is None else id(self._flyout), self.objectName(),
-            )
             # Keyboard focus: the preview must persist while the focus ring
             # is on the button (owner decision 2026-10-19) — no 700 ms
             # auto-hide, so Up can enter the pill at any time regardless of
