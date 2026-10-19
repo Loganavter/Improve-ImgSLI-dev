@@ -187,6 +187,52 @@ def test_escape_leaves_pill_and_restores_button_digit(host_button, qapp):
     assert _value_rows(button) == ["4"], "Esc restores the button's own digit"
 
 
+def test_up_inside_pill_leaves_without_stepping(host_button, qapp):
+    """A second Up leaves the pill upward — it must never change the value.
+
+    Owner rule (2026-10-19): only Left/Right change the value; Up out of the
+    anchor enters the pill, the next Up leaves it (the value must be intact).
+    """
+    _, button = host_button
+    _kbd_focus(button)
+    QTest.keyClick(button, Qt.Key.Key_Up)
+    qapp.processEvents()
+    pill = button._flyout
+    assert pill is not None and pill.hasFocus()
+    before = button.get_value()
+
+    QTest.keyClick(pill, Qt.Key.Key_Up)
+    qapp.processEvents()
+
+    assert button.get_value() == before, "Up inside the pill must not step the value"
+
+
+def test_underline_stays_visible_in_the_zero_state(qtbot):
+    """The underline is not tied to the value any more.
+
+    Owner rule (2026-10-19): the zero/`zero_icon` state changes what the
+    button *shows* (a hidden icon instead of a digit), never whether the
+    host-enabled underline is painted.
+    """
+    button = ScrollValueButton(
+        icon=None,
+        min_value=0,
+        max_value=10,
+        start=0,
+        zero_icon="divider_hidden",
+        show_underline=True,
+    )
+    qtbot.addWidget(button)
+    button.show()
+    assert button._is_at_zero() is True
+    assert button._underline_visible is True
+    assert button._show_underline is True
+
+    button._sync_regions()
+
+    assert button._show_underline is True, "the underline must survive a rebuild"
+
+
 def test_enter_mirrors_right_click(host_button, qapp):
     """Enter emits ``rightClicked`` (the RMB signal) and does nothing else.
 

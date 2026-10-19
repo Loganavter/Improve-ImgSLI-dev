@@ -11,6 +11,26 @@ from sli_ui_toolkit.managers import DecisionJournal, DelayedActionTimer
 _HOVER_ZONE_PADDING_PX = 10
 
 
+def _value_pill_inside(controller, new_focus) -> bool:
+    """True when *new_focus* is a value pill of one of the group's buttons.
+
+    Up out of a magnifier-group button enters that button's own value preview
+    (``ScrollValueButton`` → ``_ScrollValueFlyout``); the panel is part of the
+    same unit, so the button's FocusOut must not hide it. The pill is resolved
+    through ``NavigationManager.extension_owner`` (the member the keyboard
+    entered from) — no coupling to the pill's class.
+    """
+    if new_focus is None:
+        return False
+    try:
+        from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
+        owner = NavigationManager.get_instance().extension_owner(new_focus)
+        return owner is not None and owner in controller._group_buttons
+    except Exception:
+        return False
+
+
 class MagnifierSettingsHoverController(QObject):
     """Hover over the magnifier group -> show the magnifier sliders flyout.
 
@@ -261,6 +281,7 @@ class MagnifierSettingsHoverController(QObject):
                 new_focus in self._group_buttons
                 or (flyout is not None and flyout.isAncestorOf(new_focus))
                 or top_inside
+                or _value_pill_inside(self, new_focus)
             )
             if not still_inside:
                 # Immediate hide when focus leaves group+flyout or ring disappears

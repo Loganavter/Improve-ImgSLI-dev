@@ -8,9 +8,11 @@ value there), and an always-visible bottom underline (via the toolkit's
 built-in ``show_underline``/``setUnderlineColor`` API) showing an associated
 color (e.g. divider/guide color).
 
-Enter mirrors a right-click (``rightClicked``); this control has no edit mode
-— the value pill is entered with Up. This widget carries no color editor of
-its own (the color-valued control is ``ui.widgets.color.ColorSwatch``).
+Enter mirrors a right-click (``rightClicked``); this control has no edit mode.
+The value pill is entered with Up; inside it only Left/Right change the value,
+a second Up leaves it upward to the control above, and Down returns to the
+button. This widget carries no color editor of its own (the color-valued
+control is ``ui.widgets.color.ColorSwatch``).
 
 Used for divider width, magnifier-divider width, and magnifier-guides width
 controls across multi_compare and image_compare toolbars.
@@ -184,31 +186,6 @@ class _ScrollValueFlyout(BaseFlyout):
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        import os as _os
-        if _os.environ.get("IMGSLI_AB_FOCUS_TRACE") and not getattr(_ScrollValueFlyout, "_ft", False):
-            _ScrollValueFlyout._ft = True
-            import sys as _sys
-            import traceback as _tb
-            from PySide6.QtWidgets import QApplication as _QA
-
-            def _lbl(w):
-                if w is None:
-                    return None
-                return f"{type(w).__name__}({w.objectName() or '?'})"
-
-            def _on_fc(old, new):
-                try:
-                    st = "".join(_tb.format_stack()[-7:-1])
-                    print(
-                        f"[focus-trace] {_lbl(old)} -> {_lbl(new)}\n{st}",
-                        file=_sys.stderr,
-                    )
-                except Exception:
-                    pass
-
-            app = _QA.instance()
-            if app is not None:
-                app.focusChanged.connect(_on_fc)
         self._label = QLabel(self)
         # apply_ui_font (not a bare setFont) so the digit follows font and
         # UiScale changes live — see SliderHintFlyout for the same pattern.
@@ -310,29 +287,25 @@ class _ScrollValueFlyout(BaseFlyout):
                 self.hide()
             event.accept()
             return
-        # Avoid grouping forbidden pairs (Down+Right, Up+Left) in one tuple — see
-        # tests/contracts/test_no_arrow_key_redirection.py. Up/Right increment,
-        # Down/Left decrement — split into two tuples.
-        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Down):
-            # Down is the declarative way out (_nav_exit="down") — hand the
-            # keyboard to the anchor instead of stepping; Left steps the value.
-            if event.key() == Qt.Key.Key_Down:
-                self._exit_to_anchor()
-                event.accept()
-                return
+        # Only Left/Right change the value inside the pill (owner rule): Up must
+        # not step it, Down is the declarative way out (_nav_exit="down").
+        if event.key() == Qt.Key.Key_Down:
+            self._exit_to_anchor()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Up:
+            # Leave the pill upward: the value changes on Left/Right only, and
+            # Up must NOT be swallowed — an unaccepted key makes the flyout's
+            # navigation section decline it, so NavigationManager hands focus
+            # to the section above instead of the pill eating the press.
+            super().keyPressEvent(event)
+            return
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             anchor = getattr(self, "_anchor_widget", None)
             if anchor is not None and hasattr(anchor, "_step_value"):
+                step = 1 if event.key() == Qt.Key.Key_Right else -1
                 try:
-                    anchor._step_value(-1)  # type: ignore[attr-defined]
-                    event.accept()
-                    return
-                except Exception:
-                    pass
-        elif event.key() in (Qt.Key.Key_Right, Qt.Key.Key_Up):
-            anchor = getattr(self, "_anchor_widget", None)
-            if anchor is not None and hasattr(anchor, "_step_value"):
-                try:
-                    anchor._step_value(1)  # type: ignore[attr-defined]
+                    anchor._step_value(step)  # type: ignore[attr-defined]
                     event.accept()
                     return
                 except Exception:
@@ -448,7 +421,7 @@ class ScrollValueButton(Button):
         # otherwise be silently lost the first time _sync_regions() reasserts
         # our (still-False) shadow copy on the first hover/scroll.
         self._underline_visible = bool(getattr(self, "_show_underline", False))
-        super().setShowUnderline(self._underline_visible and not self._is_at_zero())
+        super().setShowUnderline(self._underline_visible)
         self.setUnderlineThickness(self._underline_thickness_for_value(self._value))
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # Hover/focus now start the preview on every enter, so the hide timer
@@ -750,11 +723,11 @@ class ScrollValueButton(Button):
         # set_regions() rebuilds the button's internal region/paint state from
         # scratch, which drops any previously applied underline visibility/color.
         # Re-assert our last known desired state so hover/scroll/value changes
-        # can't silently erase the divider-color indicator. At the "hidden"
-        # value (zero_icon shown instead of a width digit), force it off
-        # regardless of the caller's requested state — there's no line to
-        # show a color for once it's hidden.
-        super().setShowUnderline(self._underline_visible and not self._is_at_zero())
+        # can't silently erase the divider-color indicator. The underline is
+        # NOT tied to the value any more (owner rule 2026-10-19): the zero
+        # state shows the zero_icon instead of a digit, but the line itself
+        # stays visible whenever the host enabled it.
+        super().setShowUnderline(self._underline_visible)
         if self._underline_qcolor is not None:
             super().setUnderlineColor(self._underline_qcolor)
         if self._underline_thickness_value is not None:
