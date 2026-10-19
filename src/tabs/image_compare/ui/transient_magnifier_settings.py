@@ -66,20 +66,19 @@ class MagnifierSettingsHoverController(QObject):
         # to the focused widget itself, not to ancestor containers via
         # installEventFilter, so each button needs its own filter (mirrors
         # MagnifierVisibilityController._wire_button in transient_magnifier.py).
-        from sli_ui_toolkit.managers import NavigationManager
-
-        nav = NavigationManager.get_instance()
         for child in group.findChildren(QWidget):
             if child.focusPolicy() != Qt.FocusPolicy.NoFocus:
                 child.installEventFilter(self)
                 self._group_buttons.add(child)
-                # Один вызов фасада вместо link_below+side комбо. Top-кнопки
-                # (btn_magnifier -> PanelVisibility, ColorSettingsButton ->
-                # ColorOptions) тоже линкуем вниз: реестр per-side, above-линки
-                # при этом не затираются — Up идёт в верхнюю панель, Down в нижнюю.
-                from sli_ui_toolkit.managers import bind_flyout as _bind
+        # Панель настроек — флайоут ВСЕЙ группы, а не каждой кнопки: один
+        # bind на группу (менеджер резолвит её для любого фокусируемого
+        # члена по цепочке родителей). Раньше здесь был цикл _bind(child,…)
+        # на каждого ребёнка — реестр был односторонний и above-линк value-
+        # пилюли затирал/перетирался. Теперь реестр per-side: у кнопки
+        # штатно живут ДВА флайоута — пилюля сверху, панель снизу.
+        from sli_ui_toolkit.managers import bind_group_flyout as _bind_group
 
-                _bind(child, flyout, side="below")
+        _bind_group(group, flyout, side="below")
         # The color-options flyouts (btn_magnifier_color_settings[_beginner])
         # already exist at this point (built earlier in the same assemble()
         # pass, before this controller) -- other toolbar flyouts

@@ -184,6 +184,31 @@ class _ScrollValueFlyout(BaseFlyout):
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
+        import os as _os
+        if _os.environ.get("IMGSLI_AB_FOCUS_TRACE") and not getattr(_ScrollValueFlyout, "_ft", False):
+            _ScrollValueFlyout._ft = True
+            import sys as _sys
+            import traceback as _tb
+            from PySide6.QtWidgets import QApplication as _QA
+
+            def _lbl(w):
+                if w is None:
+                    return None
+                return f"{type(w).__name__}({w.objectName() or '?'})"
+
+            def _on_fc(old, new):
+                try:
+                    st = "".join(_tb.format_stack()[-7:-1])
+                    print(
+                        f"[focus-trace] {_lbl(old)} -> {_lbl(new)}\n{st}",
+                        file=_sys.stderr,
+                    )
+                except Exception:
+                    pass
+
+            app = _QA.instance()
+            if app is not None:
+                app.focusChanged.connect(_on_fc)
         self._label = QLabel(self)
         # apply_ui_font (not a bare setFont) so the digit follows font and
         # UiScale changes live — see SliderHintFlyout for the same pattern.
