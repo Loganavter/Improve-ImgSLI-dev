@@ -606,6 +606,10 @@ class ScrollValueButton(Button):
         # region's row is not suppressed. The flyout stays an affordance of
         # the other triggers (keyboard focus, wheel, Enter edit mode).
         # See _show_flyout for the suppressed-row contract.
+        # Hover still keeps an already-visible preview from auto-hiding
+        # while the mouse is on the button (the same persistence _show_flyout
+        # grants when ``_mouse_hovered``); leaveEvent owns the hide.
+        self._flyout_hide_timer.stop()
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
