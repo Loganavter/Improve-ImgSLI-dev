@@ -28,11 +28,11 @@ focusing it with a click) raises it (the preview never steals focus). `Up`
 moves the keyboard into the pill; `Left`/`Right` step the value there (the
 underline follows); `Down` hands the keyboard back to the button with the
 pill still visible (`Up` re-enters); `Esc` dismisses the pill and restores
-the button's own digit. `Enter` still toggles the legacy edit mode, in which
-all four arrows step the value.
+the button's own digit. `Enter` mirrors a right-click — it emits
+`rightClicked` and nothing else; the control has no edit mode.
 
-No `ScrollValueButton` carries a colour of its own, so `Enter` never opens
-the colour picker here — the colour-carrying control is
+No `ScrollValueButton` carries a colour of its own, so the right-click/`Enter`
+signal never opens a colour picker here — the colour-carrying control is
 `ui.widgets.color.ColorSwatch`.
 
 ## Inspection

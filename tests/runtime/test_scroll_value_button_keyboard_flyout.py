@@ -7,7 +7,9 @@ Owner's decisions:
   (``test_hover_alone_shows_digit_not_flyout``);
 - **Up** moves the keyboard *into* the pill, ``Left``/``Right`` step the value
   there (the pill's own ``keyPressEvent`` → ``anchor._step_value``);
-- **Down**/*Esc* leave the pill.
+- **Down**/*Esc* leave the pill;
+- **Enter** mirrors a right-click — it emits ``rightClicked`` and nothing else
+  (the control has no edit mode; the pill is entered with Up).
 
 Falsification (recorded in DONE.md): with the pre-change binding — the preview
 path force-unregistering the pill's nav section, and ``_ScrollValueFlyout``
@@ -185,26 +187,21 @@ def test_escape_leaves_pill_and_restores_button_digit(host_button, qapp):
     assert _value_rows(button) == ["4"], "Esc restores the button's own digit"
 
 
-def test_enter_edit_mode_keeps_all_four_arrows_stepping(host_button, qapp):
-    """The Enter edit-mode shortcut survives for value-only controls.
+def test_enter_mirrors_right_click(host_button, qapp):
+    """Enter emits ``rightClicked`` (the RMB signal) and does nothing else.
 
-    No ScrollValueButton consumer carries a colour (see DONE.md grep), so Enter
-    keeps its existing semantics: all four arrows step, the pill holds focus.
+    Owner rule (2026-10-19): the value control has no edit mode — Enter must
+    behave like a right-click, not open/step the pill. The pill is entered
+    with Up (``test_up_enters_pill_and_left_right_step_value``).
     """
     _, button = host_button
-    button._set_hover_split(True)
+    seen: list[bool] = []
+    button.rightClicked.connect(lambda: seen.append(True))
 
+    button._set_hover_split(True)
+    before = button.get_value()
     QTest.keyClick(button, Qt.Key.Key_Return)
     qapp.processEvents()
-    pill = button._flyout
-    assert pill is not None and pill.isVisible()
-    # The flyout is shown in edit mode; note the button's own
-    # ``_keyboard_edit_active`` is cleared by its focusOutEvent when the pill
-    # takes the keyboard (pre-existing), so the mode is asserted where the key
-    # handling reads it — the pill.
-    assert pill._edit_mode is True
 
-    start = button.get_value()
-    QTest.keyClick(pill, Qt.Key.Key_Down)
-    assert button.get_value() == start - 1, "edit mode keeps Down = step (not exit)"
-    assert pill.hasFocus(), "edit mode keeps the pill's focus"
+    assert seen == [True], "Enter must emit rightClicked (the RMB signal)"
+    assert button.get_value() == before, "Enter must not step the value"
