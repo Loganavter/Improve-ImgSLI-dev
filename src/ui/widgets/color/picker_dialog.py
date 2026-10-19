@@ -89,6 +89,10 @@ from ui.widgets.color.recents import (
     RecentColorsStore,
     checkerboard_brush,
 )
+from ui.widgets.color.recents_nav import (
+    register_recents_grid,
+    unregister_recents_grid,
+)
 from ui.widgets.color.sv_movement import KeyHoldStepper
 from ui.widgets.color.value_format import (
     ValueFormat,
@@ -664,6 +668,13 @@ class ColorPickerDialog(ThemedDialog):
             ],
             tag="color-picker",
         )
+        # The recents shelf wraps its chips onto several visual rows, so the
+        # whole shelf cannot stay one linear row: swap the declared-rows
+        # section for a recents-aware one (Left/Right stay row-local, Up/Down
+        # walk the visual rows, block edges decline to the row above/below).
+        # See ``recents_nav`` for why this is a section swap and not a second
+        # registration; it is unregistered in ``done()`` below.
+        register_recents_grid(self, self._recents_row)
         # The other half of the picker's keyboard navigation: registering the
         # row section only makes the dialog walkable once focus is INSIDE it.
         # A non-modal dialog owns the keyboard through the manager's extension
@@ -711,8 +722,10 @@ class ColorPickerDialog(ThemedDialog):
 
     def done(self, result: int) -> None:  # noqa: N802
         # Every close path (Esc → reject, OK → accept, Cancel, window close)
-        # funnels through QDialog.done — hand the keyboard back to the widget
+        # funnels through QDialog.done — drop the recents-grid section swap
+        # (the dialog may be reused) and hand the keyboard back to the widget
         # that opened the picker instead of leaving focus nowhere.
+        unregister_recents_grid(self)
         super().done(result)
         self._restore_opener_focus()
 
