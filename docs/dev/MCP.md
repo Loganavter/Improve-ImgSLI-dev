@@ -151,6 +151,20 @@ gallery session, `nav_key` is the only honest instrument for it (20/20 Quick
 Look children unowned, `Down` unhandled at the action row, `Tab` moving focus
 without a section).
 
+`nav_key` measures the anchor's **window**, not always the main one. When an
+`anchor` (also accepted as `from` / `element_id`) is given, the keys are
+delivered in that widget's own top-level window — a dialog such as Settings or
+Help registers its own sections and keeps its own focus chain, so a
+dialog-anchored `Down` reports the *dialog's* section, where delivering to the
+main window reported `section:SessionPickerSection` and moved focus inside the
+main window instead. `window_source` in the result says which window was driven:
+`"anchor"` (the anchor's own top-level), `"main"` (no anchor — the historical
+target, unchanged for existing callers), or `"main-fallback"` (the anchor's
+window disappeared mid-call). The `window` field describes that window in the
+same row shape as `anchor`/`focus`, so a `handled` verdict is always attributable
+to one window; an id that resolves to no widget in this instance still fails the
+way it always has rather than falling back to the main window.
+
 ### Jobs: watching and stopping the long passes (P3)
 
 `jobs_list` and `jobs_cancel` expose the passes that take minutes. Both are
