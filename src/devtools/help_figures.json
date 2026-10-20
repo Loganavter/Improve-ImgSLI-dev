@@ -1,0 +1,186 @@
+{
+  "figures": [
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/tabs/image_gallery/resources/help/assets/overview_empty.png",
+      "id": "help-gallery-empty",
+      "locales": [
+        "en"
+      ],
+      "note": "Drop-zone state before any image is added; no shipped page references this filename yet.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "ui_scale"
+      ],
+      "surface": "gallery",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/tabs/image_gallery/resources/help/assets/overview_grid.png",
+      "id": "help-gallery-populated",
+      "locales": [
+        "en"
+      ],
+      "note": "Six gradient demo cards from CaptureSession.make_samples; replaces the shipped overview_grid.png in a later slice.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "ui_scale"
+      ],
+      "surface": "gallery-populated",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/tabs/multi_compare/resources/help/assets/grid_empty.png",
+      "id": "help-multi-empty",
+      "locales": [
+        "en"
+      ],
+      "note": "Chrome only: the QRhi/GL canvas is not part of grab() (isolated surface). New filename, not referenced by a page yet.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "ui_scale"
+      ],
+      "surface": "multi",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/tabs/multi_compare/resources/help/assets/grid_populated.png",
+      "id": "help-multi-populated",
+      "locales": [
+        "en"
+      ],
+      "note": "Four demo images loaded, chrome only (isolated surface, canvas blank). New filename, not referenced by a page yet.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "ui_scale"
+      ],
+      "surface": "multi-populated",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/plugins/onboarding/resources/help/assets/onboarding_ui_mode.png",
+      "id": "help-onboarding",
+      "locales": [
+        "en"
+      ],
+      "note": "OnboardingOverlay store hardcodes current_language=en; the shipped asset is 1000x684 (the surface grabs 1000x720), so a crop must be chosen when this replaces it.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "locale:constructor-pins-en",
+        "ui_scale"
+      ],
+      "surface": "onboarding",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/tabs/session_picker/resources/help/assets/platform/session_picker.png",
+      "id": "help-session-picker",
+      "locales": [
+        "en"
+      ],
+      "note": "Three demo session blueprints; the shipped asset is session_picker.jpg, so the later install step converts rather than overwrites.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "ui_scale"
+      ],
+      "surface": "session-picker",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/plugins/settings/resources/help/assets/settings_general.png",
+      "id": "help-settings-general",
+      "locales": [
+        "en"
+      ],
+      "note": "General section. SETTINGS_KWARGS pins current_language=en and current_theme=dark, so non-default --locale/--theme filters are only partially effective.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "locale:constructor-pins-en",
+        "theme:constructor-pins-dark",
+        "ui_scale"
+      ],
+      "surface": "settings",
+      "themes": [
+        "dark"
+      ]
+    },
+    {
+      "captures": [],
+      "crop": null,
+      "destination": "src/resources/help/assets/platform/settings_keyboard.png",
+      "id": "help-settings-keyboard",
+      "locales": [
+        "en"
+      ],
+      "note": "Keyboard shortcuts section via select_section. SETTINGS_KWARGS pins current_language=en and current_theme=dark, so non-default --locale/--theme filters are only partially effective.",
+      "pins_applied": [
+        "locale",
+        "theme"
+      ],
+      "pins_unavailable": [
+        "font",
+        "locale:constructor-pins-en",
+        "theme:constructor-pins-dark",
+        "ui_scale"
+      ],
+      "surface": "settings-keyboard",
+      "themes": [
+        "dark"
+      ]
+    }
+  ],
+  "schema_version": 1
+}
