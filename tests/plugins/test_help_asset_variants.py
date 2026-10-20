@@ -177,3 +177,28 @@ def test_manifest_declares_the_variant_matrix(tmp_path, monkeypatch):
     finally:
         help_tree.clear_help_variant_cache()
 
+
+def test_help_dialog_passes_locale_and_theme_to_the_resolver(qtbot, monkeypatch):
+    """The ONE call site reads the dialog's language and the toolkit theme."""
+    from plugins.help import dialog as help_dialog
+    from plugins.help.plugin import HelpPlugin
+
+    seen: dict = {}
+
+    def _fake_resolver(rel_path, body_file=None, **kwargs):
+        seen.update({"rel_path": rel_path, "body_file": body_file, **kwargs})
+        return None
+
+    monkeypatch.setattr(help_dialog, "resolve_help_asset", _fake_resolver)
+    monkeypatch.setattr(help_dialog, "_current_theme_name", lambda: "dark")
+
+    plugin = HelpPlugin()
+    plugin.show_dialog(parent=None, language="ru", page="platform.hotkeys")
+    dialog = plugin._dialog
+    qtbot.addWidget(dialog)
+
+    assert dialog._resolve_asset("../../assets/platform/settings_keyboard.png") is None
+    assert seen["locale"] == "ru"
+    assert seen["theme"] == "dark"
+    assert seen["body_file"] == dialog._current_body_file
+
