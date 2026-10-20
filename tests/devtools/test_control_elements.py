@@ -50,6 +50,7 @@ _ELEMENT_KEYS = {
     "action_id",
     "enabled",
     "visible",
+    "properties",
 }
 
 
