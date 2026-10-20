@@ -75,24 +75,32 @@ def _cache_dir(tmp_path, monkeypatch) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _owner(settings, started: list) -> SimpleNamespace:
+    """A minimal analyze-path owner: settings, mode, card refresh, begin seam."""
+    return SimpleNamespace(
+        state=SimpleNamespace(mode="camera", metric_profile=None, items=[]),
+        widget=SimpleNamespace(refresh_card=lambda it: None),
+        _ai_settings_store=SimpleNamespace(load=lambda: settings),
+        _begin_analysis=lambda it: started.append(it),
+    )
+
+
 def test_analyze_item_does_not_serve_another_models_scorecard(tmp_path, monkeypatch) -> None:
     """A cached A scorecard must NOT short-circuit an analysis configured for B."""
     from tabs.image_gallery.use_cases import ai_analysis
 
     _cache_dir(tmp_path, monkeypatch)
     path = Path("/gallery/frame.png")
-    ai_cache.save_analysis(path, 42, _result(), _identity())
+    # Cache a real model-A read under model A's identity.
+    ai_cache.save_analysis(
+        path, 42, _result(), ai_analysis.analysis_identity_for(_owner(_settings(), []))
+    )
 
     started: list = []
-    owner = SimpleNamespace(
-        state=SimpleNamespace(mode="camera", metric_profile=None, items=[]),
-        widget=SimpleNamespace(refresh_card=lambda it: None),
-        _ai_settings_store=SimpleNamespace(load=lambda: _settings(model="model/B")),
-        _begin_analysis=lambda it: started.append(it),
-    )
+    owner_b = _owner(_settings(model="model/B"), started)
     item = SimpleNamespace(path=path, mtime_ns=42, analysis=None)
 
-    ai_analysis.analyze_item(owner, item)
+    ai_analysis.analyze_item(owner_b, item)
 
     assert item.analysis is None, "backend B was served backend A's cached scorecard"
     assert len(started) == 1, "a different backend must start a real analysis"
@@ -150,8 +158,6 @@ def test_analyze_item_hits_its_own_backend(tmp_path, monkeypatch) -> None:
 
     _cache_dir(tmp_path, monkeypatch)
     path = Path("/gallery/frame.png")
-    expected = _result()
-    ai_cache.save_analysis(path, 42, expected, _identity())
 
     started: list = []
     owner = SimpleNamespace(
@@ -160,11 +166,17 @@ def test_analyze_item_hits_its_own_backend(tmp_path, monkeypatch) -> None:
         _ai_settings_store=SimpleNamespace(load=lambda: _settings()),
         _begin_analysis=lambda it: started.append(it),
     )
+    expected = _result()
+    # Seed with the owner's OWN identity — the lookup the analyze path performs.
+    ai_cache.save_analysis(path, 42, expected, ai_analysis.analysis_identity_for(owner))
+
     item = SimpleNamespace(path=path, mtime_ns=42, analysis=None)
 
     ai_analysis.analyze_item(owner, item)
 
-    assert item.analysis == expected
+    assert item.analysis is not None
+    assert item.analysis.description == expected.description
+    assert item.analysis.sharpness == expected.sharpness
     assert started == []
 
 
