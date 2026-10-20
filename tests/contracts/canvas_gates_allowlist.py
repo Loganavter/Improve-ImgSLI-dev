@@ -70,6 +70,17 @@ ALLOWLIST: dict[str, dict[str, str]] = {
             "crash, so it must fail in a test, not on a user."
         ),
     },
+    "test_no_duck_typed_arg_shuffle.py": {
+        "src/tabs/image_compare/canvas/rhi_renderer/use_cases/draw.py::submit_array_draw": (
+            "the function still accepts the plan-doc positional call style by "
+            "duck-typing (`hasattr(ctx, 'scene_frame')` re-binds the arguments) "
+            "and keeps a **kwargs catch-all. C2 removes the accepted positional "
+            "style, which changes a public signature; precondition: migrate all "
+            "four call sites (renderer.py's `_submit_array_draw_impl` plus the "
+            "three in src/tabs/image_compare/tests/render/test_ic_perf_spans.py) "
+            "to the keyword form and re-run the render suite."
+        ),
+    },
 }
 
 
