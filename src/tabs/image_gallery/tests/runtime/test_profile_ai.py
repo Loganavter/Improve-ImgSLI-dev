@@ -286,7 +286,12 @@ def test_choose_profile_sync_pin_hit_skips_the_call(tmp_path):
     cache = ProfileCache(tmp_path)
     items = [_item("a.png"), _item("b.png")]
     pinned = MetricProfile(axis_ids=("ssim",), mode="camera", source="vlm")
-    cache.put(profile_cache.profile_cache_key(items, mode="camera", model="m"), pinned)
+    cache.put(
+        profile_cache.profile_cache_key(
+            items, mode="camera", model="m", base_url="http://x", reasoning_effort="auto"
+        ),
+        pinned,
+    )
 
     calls: list = []
 
@@ -336,7 +341,9 @@ def test_choose_profile_sync_malformed_reply_is_heuristic_and_not_pinned(tmp_pat
     )
     assert profile.source == "heuristic"
     assert profile == profile_select.derive_profile(items, mode="camera")
-    key = profile_cache.profile_cache_key(items, mode="camera", model="m")
+    key = profile_cache.profile_cache_key(
+        items, mode="camera", model="m", base_url="http://x", reasoning_effort="auto"
+    )
     assert cache.get(key) is None
 
     choose_profile_sync(items, mode="camera", settings=_settings(), cache=cache, client_call=_client)
@@ -354,7 +361,18 @@ def test_choose_profile_sync_drops_ids_outside_the_pool(tmp_path):
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client
     )
     assert profile.source == "heuristic"
-    assert cache.get(profile_cache.profile_cache_key(items, mode="camera", model="m")) is None
+    assert (
+        cache.get(
+            profile_cache.profile_cache_key(
+                items,
+                mode="camera",
+                model="m",
+                base_url="http://x",
+                reasoning_effort="auto",
+            )
+        )
+        is None
+    )
 
 
 def test_choose_profile_sync_transport_raise_is_heuristic(tmp_path):
