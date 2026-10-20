@@ -35,6 +35,7 @@ import pytest
 GALLERY = Path(__file__).resolve().parents[2]
 SRC = GALLERY
 HANDLER_MODULES = (
+    "use_cases/ai_analyze.py",
     "use_cases/ai_analysis.py",
     "use_cases/gallery_actions.py",
     "use_cases/registration.py",
@@ -76,7 +77,7 @@ def _called_names(tree: ast.AST) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_every_registered_gallery_action_takes_an_action_context() -> None:
+def test_every_registered_gallery_action_takes_an_action_context(monkeypatch) -> None:
     from tabs.image_gallery.tab import ImageGalleryTab
     from tabs.image_gallery.use_cases import registration
     from tabs.image_gallery.use_cases.action_context import ActionContext
@@ -88,6 +89,12 @@ def test_every_registered_gallery_action_takes_an_action_context() -> None:
 
     rows = [a for a in registry.all_actions() if a.owner_tab == tab.session_type]
     assert rows, "the gallery registered no actions at all"
+    assert len(rows) == len(registration.GALLERY_ACTION_HANDLERS)
+
+    dispatched: list[str] = []
+    monkeypatch.setattr(
+        registration, "run_action", lambda _tab, action_id: dispatched.append(action_id)
+    )
 
     for descriptor in rows:
         handler = registration.handler_for(descriptor.action_id)
@@ -109,9 +116,10 @@ def test_every_registered_gallery_action_takes_an_action_context() -> None:
             f"ActionContext, got {annotation!r}"
         )
         assert descriptor.run is not None
-        # No controller attached on a fresh tab: the action must be a no-op,
-        # never a scope guess.
-        assert descriptor.run() is None
+        # The descriptor must route through the ONE context entry point — a
+        # stub/direct-controller closure would not append here.
+        descriptor.run()
+        assert dispatched and dispatched[-1] == descriptor.action_id
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +191,10 @@ def test_handlers_do_not_choose_a_backend() -> None:
             elif isinstance(node, ast.Name):
                 name = node.id
             if name == "_judgment_domain":
+                # A STORE is the authority writer (ai_analysis._set_judgment_domain);
+                # a LOAD is a handler choosing its own backend.
+                if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+                    continue
                 offenders.append(f"{rel}:{node.lineno}: reads _judgment_domain")
             elif name == "_ai_settings_store":
                 line = lines[node.lineno - 1] if node.lineno <= len(lines) else ""
