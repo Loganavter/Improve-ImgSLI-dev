@@ -81,6 +81,22 @@ ALLOWLIST: dict[str, dict[str, str]] = {
             "to the keyword form and re-run the render suite."
         ),
     },
+    "test_no_except_nameerror.py": {
+        "src/tabs/image_compare/canvas/rhi_renderer/use_cases/coverage.py::evaluate_coverage": (
+            "the coverage read still wraps an optional context field in a "
+            "NameError handler, turning a missing field into a default coverage "
+            "verdict. C2 names the field on the seam (and extends the context "
+            "contract) instead; precondition: every caller passes a context with "
+            "the field or the evaluated coverage test builds the real context."
+        ),
+        "src/tabs/image_compare/canvas/rhi_renderer/use_cases/coverage.py::apply_first_paint_hold": (
+            "the first-paint hold still falls back through an `except "
+            "NameError` for a name its callers may not provide, so a broken "
+            "hold decision silently becomes 'hold nothing'. C2 names the seam "
+            "and removes the handler; precondition: the hold path has a "
+            "falsifying test that fails when the field is absent."
+        ),
+    },
 }
 
 
