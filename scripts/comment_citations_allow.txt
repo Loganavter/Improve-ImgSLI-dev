@@ -166,3 +166,14 @@ Space
 # `setObjectName("quicklook_close")` (quick_look/overlay_build/build.py) — a
 # runtime string id, not a Python name.
 quicklook_close
+
+# --- result-payload key names (documented in prose, not Python symbols) ------
+# ui_elements/docs: the pre-limit match count key returned in the payload.
+matched_total
+
+# --- contract-test prose (tests/.../test_gallery_action_context.py) -----------
+# Deleted helper named in a docstring that asserts its absence — the test scans
+# AST for this name on purpose.
+_first_item_path
+# Refusal reason string literal used by the analyse path (a value, not a symbol).
+not_configured
