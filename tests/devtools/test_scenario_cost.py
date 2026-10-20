@@ -1,12 +1,18 @@
 """``devtools.scenario_cost`` — the canonical-loop call probe.
 
 Falsification: the module does not exist on the base commit (import fails). A
-probe that counts logical steps instead of wire calls fails the sequence/count
-assertions; one that crashes on a missing prerequisite fails the blocked-path
-test; one that starts a display or needs an app fails the no-socket test.
+probe that counts logical steps instead of wire calls (or conflates the two)
+fails the accounting/ratio assertions; one that budgets the transport by
+default fails the logical-budget tests; one with a fixed poll interval fails
+the backoff test; one that waits for ``role="canvas"`` to detect the Quick Look
+overlay fails the nav-state predicate tests; one that crashes on a missing
+prerequisite fails the blocked-path test; one that starts a display or needs an
+app fails the no-socket test.
 
 The fake client is a recorder that plays scripted replies and records every
 wire request, so the exact call sequence and count are asserted, not inferred.
+The fake clock advances on ``sleep`` rather than waiting, so backoff schedules
+are asserted exactly without spending the timeout wall-clock.
 """
 
 from __future__ import annotations
@@ -21,8 +27,6 @@ from devtools import scenario_cost
 
 CARD = {"id": "gallery#0/grid.t0@workspace.image_gallery", "role": "card",
         "visible": True, "enabled": True}
-CANVAS = {"id": "gallery#0/quicklook.canvas", "role": "canvas",
-          "visible": True, "enabled": True}
 #: The Quick Look overlay's *navigation* signal — the section it registers while
 #: visible (``nav_key`` reports it as ``section:QuickLookNavSection``). The
 #: overlay frame itself carries no role, and its preview canvas is not always a
@@ -67,22 +71,11 @@ class _Recorder:
 
 
 def _canonical_script() -> dict[str, list[object]]:
-    return {
-        "open_tab": [{"tab": "image_gallery", "via": "action"}],
-        "open_folder": [{"tab": "image_gallery", "routed": True}],
-        # First poll still lists a running pass (the step is not settled yet),
-        # the second poll is clear: the fake advances on each call.
-        "jobs_list": [
-            {"jobs": [{"id": "gallery_pool", "kind": "gallery_pool", "status": "running"}]},
-            {"jobs": []},
-        ],
-        "ui_elements": [{"elements": [CARD]}, {"elements": [CARD, CANVAS]}],
-        "ui_click": [{"clicked": True, "id": CARD["id"]}],
-        "nav_key": [{"activated": True,
-                     "steps": [{"handled": "section:gallery"}, {"handled": "surface"}]}],
-        "capture_live": [{"path": "/artifacts/live.png", "method": "screen_grab",
-                          "rhi_layers": 1, "size": [800, 600]}],
-    }
+    script = _overlay_script()
+    # The overlay is already open on the first poll; the job wait still takes
+    # two (running, then clear).
+    script["ui_nav_state"] = [OVERLAY_NAV_STATE]
+    return script
 
 
 def _run(script: dict[str, list[object]], tmp_path: Path, **kwargs):
@@ -136,17 +129,19 @@ def test_canonical_sequence_and_wire_call_count(tmp_path):
     client, report = _run(_canonical_script(), tmp_path)
     assert client.methods == [
         "open_tab", "open_folder", "jobs_list", "jobs_list", "ui_elements",
-        "ui_click", "ui_elements", "nav_key", "capture_live",
+        "ui_click", "ui_nav_state", "nav_key", "capture_live",
     ]
-    assert report.calls == 9, "the two waits cost one poll each on top of six steps"
+    assert report.calls == 9, "the job wait costs one poll on top of seven steps"
     assert [step.status for step in report.steps] == ["ok"] * 8
+    assert report.logical_steps == 8
     assert report.capture_provenance == "method+rhi_layers"
-    assert report.over_budget is True  # 9 > default target 5: the measured gap
+    assert report.over_budget is True  # 8 logical steps > default target 5
     # Step params are the tool's own shape, not a made-up one.
     assert client.calls[0][1] == {"tab": "image_gallery"}
     assert client.calls[1][1] == {"path": str(tmp_path), "tab": "image_gallery"}
     assert client.calls[4][1] == {"scope": "image_gallery"}
     assert client.calls[5][1] == {"id": CARD["id"]}
+    assert client.calls[6][1] == {}
     assert client.calls[7][1] == {"keys": "Down,Down"}
     assert client.calls[8][1] == {}
 
@@ -188,7 +183,7 @@ def test_missing_cards_block_the_rest_and_count_only_attempts(tmp_path):
     assert report.calls == 4
     blocked = [step for step in report.steps if step.status == "blocked"]
     assert [step.name for step in blocked] == [
-        "ui_elements", "ui_click", "wait_for:element", "nav_key", "capture_surface",
+        "ui_elements", "ui_click", "wait_for:overlay", "nav_key", "capture_surface",
     ]
     by_name = {step.name: step for step in blocked}
     assert by_name["ui_click"].detail == "blocked:no-card-in-ui_elements"
@@ -204,8 +199,9 @@ def test_budget_over_is_exit_1_and_prints_the_ratio(tmp_path, capsys):
     code = scenario_cost.main(["--folder", str(tmp_path), "--budget", "3"], client=client)
     out = capsys.readouterr().out
     assert code == 1
-    assert "calls=4" in out
-    assert "budget: 4/<=3" in out
+    assert "wire_calls=4" in out
+    assert "logical_steps=8" in out
+    assert "logical budget: 8/<=3 EXCEEDED" in out
     assert client.closed is True
 
 
@@ -214,11 +210,11 @@ def test_budget_within_exits_0(tmp_path, capsys):
     script["jobs_list"] = [{"jobs": []}]
     script["ui_elements"] = [{"elements": []}]
     client = _Recorder(script)
-    code = scenario_cost.main(["--folder", str(tmp_path), "--budget", "5"], client=client)
+    code = scenario_cost.main(["--folder", str(tmp_path), "--budget", "8"], client=client)
     out = capsys.readouterr().out
     assert code == 0
-    assert "calls=4" in out
-    assert "budget: 4/<=5" in out
+    assert "wire_calls=4" in out
+    assert "logical budget: 8/<=8" in out
 
 
 def test_dry_run_issues_nothing_and_prints_the_plan(tmp_path, capsys):
@@ -272,7 +268,9 @@ def test_help_documents_the_budget_rationale():
     text = scenario_cost._build_parser().format_help()
     assert scenario_cost.PLAN_ID in text
     assert "Budget rationale" in text
-    assert "wait_for step polls" in text
+    assert "logical_steps" in text and "wire_calls" in text
+    assert "--wire-budget" in text
+    assert "wait_for poll" in text
 
 
 # -- logical steps vs wire calls (measured 8 vs 280 on a live instance) ------
