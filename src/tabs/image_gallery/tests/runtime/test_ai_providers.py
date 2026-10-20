@@ -103,7 +103,6 @@ def test_first_visit_uses_the_curated_default(isolated_store):
 
 def test_switching_away_and_back_restores_the_remembered_model(isolated_store):
     openrouter = providers.provider_by_id("openrouter")
-    openai = providers.provider_by_id("openai")
 
     isolated_store.save_provider("openrouter", OPENROUTER_URL, "vendor/model-a")
     # Switch to OpenAI: nothing remembered there yet -> its curated default.

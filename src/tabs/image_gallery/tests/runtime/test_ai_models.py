@@ -19,7 +19,6 @@ import pytest
 from PySide6.QtCore import QSettings
 
 from tabs.image_gallery.services import ai_models
-from tabs.image_gallery.services import ai_settings_store as store_module
 from tabs.image_gallery.services.ai_providers import provider_by_id
 
 

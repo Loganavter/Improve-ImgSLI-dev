@@ -31,7 +31,6 @@ import urllib.request
 from PySide6.QtCore import QSettings
 
 from tabs.image_gallery.services.ai_providers import (
-    PROVIDER_CUSTOM,
     AiProvider,
     provider_by_id,
 )
