@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint, QRect
-from PySide6.QtWidgets import QDialog, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
 
 from shared_toolkit.ui.overlay_layer import OverlayLayer, get_overlay_layer
 from shared_toolkit.ui.themed_dialog import ThemedDialog
@@ -61,7 +61,15 @@ class _ProbeDialog(ThemedDialog):
 
 
 def _dialog_with_small_child(host):
-    """A small Button near the bottom edge of ``host`` (children clip)."""
+    """A small Button near the bottom edge of ``host`` (children clip).
+
+    Deliberately no ``show()``/``waitExposed``: in-window parenting and the
+    geometry containment below are decided without a window activation, and
+    activating a window here trips a pre-existing suite-level stale-receiver
+    segfault (``QApplicationPrivate::setActiveWindow`` -> PySide
+    ``getWrapperForQObject`` on a QObject an earlier test already freed; see
+    tests/conftest.py ``_destroy_lingering_toplevels``).
+    """
     host.resize(640, 420)
     layout = QVBoxLayout(host)
     layout.addStretch(1)
@@ -99,8 +107,6 @@ def test_themed_dialog_hosts_in_window_menu(
     dialog = _ProbeDialog()
     qtbot.addWidget(dialog)
     button = _dialog_with_small_child(dialog)
-    dialog.show()
-    qtbot.waitExposed(dialog)
 
     # The dialog base is its own window and must own its overlay host.
     assert get_overlay_layer(button) is dialog.overlay_layer
@@ -133,8 +139,6 @@ def test_bare_dialog_still_clips_negative_control(
     dialog = QDialog()
     qtbot.addWidget(dialog)
     button = _dialog_with_small_child(dialog)
-    dialog.show()
-    qtbot.waitExposed(dialog)
 
     assert get_overlay_layer(button) is None
 
@@ -212,3 +216,65 @@ def test_every_app_dialog_inherits_themed_dialog():
     assert len(dialogs) == 10
     for cls in dialogs:
         assert issubclass(cls, ThemedDialog), f"{cls.__name__} bypasses the base"
+
+
+def test_overlay_layer_owns_no_widget_and_eats_no_clicks(qtbot, _overlay_resolver):
+    """The layer is a controller, not a surface: it must not intercept input.
+
+    ``OverlayLayer`` is a ``QObject`` that re-parents flyouts onto the dialog; it
+    owns no pixels, so a click on a control under it must reach the control.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    dialog = _ProbeDialog()
+    qtbot.addWidget(dialog)
+    button = _dialog_with_small_child(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+
+    layer = dialog.overlay_layer
+    assert not isinstance(layer, QWidget), type(layer).__name__
+    assert layer.host is dialog
+
+    # hit-testing (what the platform routes a real click through)
+    from PySide6.QtWidgets import QApplication
+
+    centre = button.mapToGlobal(button.rect().center())
+    assert QApplication.widgetAt(centre) is button, "something covers the control"
+
+    clicked: list[int] = []
+    button.clicked.connect(lambda *_: clicked.append(1))
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton, pos=button.rect().center())
+    assert clicked, "the click never reached the control under the layer"
+
+
+def test_dialog_parented_to_layered_window_uses_its_own_layer(
+    qtbot, _overlay_resolver, _closed_menu
+):
+    """No main-window fallback: a parented dialog resolves ITS OWN host.
+
+    App dialogs are usually constructed with the main window as parent; before
+    the fix the resolver walked past the dialog to the main window's layer (and
+    the toolkit's same-window guard then rejected it, leaving the menu clipped).
+    """
+    parent_window = ThemedDialog()
+    qtbot.addWidget(parent_window)
+    parent_window.resize(900, 600)
+    parent_window.show()
+    qtbot.waitExposed(parent_window)
+
+    dialog = _ProbeDialog(parent_window)
+    qtbot.addWidget(dialog)
+    button = _dialog_with_small_child(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+
+    assert dialog.overlay_layer is not parent_window.overlay_layer
+    assert get_overlay_layer(button) is dialog.overlay_layer
+
+    menu = _open_menu_on(button, "parented")
+    assert menu is not None
+    assert menu.parentWidget() is dialog, (
+        "a parented dialog must host its own menu, not the main window's"
+    )
