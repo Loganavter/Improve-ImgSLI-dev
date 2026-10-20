@@ -10,10 +10,18 @@ layer; every other dialog did not.
 
 The negative control runs the *same* probe on a bare ``QDialog`` and pins the
 clipped parent: the layer (not the dialog class name) is the mechanism.
+
+The probes deliberately never show/activate a window: parenting and the
+geometry containment are decided without one, and activating a top-level here
+delivered a pre-existing suite-level stale-receiver event (PySide
+``getWrapperForQObject`` on a QObject an earlier test had already freed) that
+segfaulted the whole run — see ``_destroy_lingering_toplevels`` in
+tests/conftest.py.
 """
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -33,6 +41,8 @@ from ui.context_menu.manager import (
     open_context_menu_entries,
     rmb_context_menu_surface,
 )
+
+_SRC = Path(__file__).resolve().parents[2] / "src"
 
 _ENTRIES = (
     ContextMenuAction("open", "Open", shortcut="Ctrl+O", enabled=True),
@@ -56,20 +66,18 @@ def _overlay_resolver():
         reset_toolkit_config()
 
 
+@pytest.fixture
+def _closed_menu():
+    yield
+    get_context_menu_manager().hide_active_menu()
+
+
 class _ProbeDialog(ThemedDialog):
     """Minimal app-dialog stand-in (the base is what the fix touches)."""
 
 
 def _dialog_with_small_child(host):
-    """A small Button near the bottom edge of ``host`` (children clip).
-
-    Deliberately no ``show()``/``waitExposed``: in-window parenting and the
-    geometry containment below are decided without a window activation, and
-    activating a window here trips a pre-existing suite-level stale-receiver
-    segfault (``QApplicationPrivate::setActiveWindow`` -> PySide
-    ``getWrapperForQObject`` on a QObject an earlier test already freed; see
-    tests/conftest.py ``_destroy_lingering_toplevels``).
-    """
+    """A small Button near the bottom edge of ``host`` (children clip)."""
     host.resize(640, 420)
     layout = QVBoxLayout(host)
     layout.addStretch(1)
@@ -92,12 +100,6 @@ def _open_menu_on(button, key):
         key=("themed-dialog-layer", key),
         on_triggered=lambda *_args: None,
     )
-
-
-@pytest.fixture
-def _closed_menu():
-    yield
-    get_context_menu_manager().hide_active_menu()
 
 
 def test_themed_dialog_hosts_in_window_menu(
@@ -175,57 +177,58 @@ def test_help_dialog_source_creates_no_overlay_layer():
     The base owns the layer; a second ``OverlayLayer(...)`` in the HelpDialog
     body would give the dialog two hosts and split flyout re-parenting.
     """
-    source = (
-        Path(__file__).resolve().parents[2] / "src" / "plugins" / "help" / "dialog.py"
-    ).read_text(encoding="utf-8")
+    source = (_SRC / "plugins" / "help" / "dialog.py").read_text(encoding="utf-8")
     assert "OverlayLayer(" not in source
 
 
 def test_every_app_dialog_inherits_themed_dialog():
-    """Blast-radius guard: the fix lands through the shared base, not per dialog.
+    """Blast-radius guard, by SOURCE SCAN (root tests must not import tab internals).
 
     Only ``HelpDialog`` is constructed in this module (the other nine need app
-    context), but all of them inherit the same base class — the layer is not a
-    per-dialog override.
+    context); the guard proves they all derive from the shared base, so the
+    layer is inherited and not a per-dialog override.
     """
-    from plugins.diagnostics.dialog import DiagnosticsDialog
-    from plugins.export.dialog import ExportDialog
-    from plugins.help.dialog import HelpDialog
-    from plugins.image_properties.dialog import ImagePropertiesDialog
-    from plugins.settings.dialog import SettingsDialog
-    from shared_toolkit.ui.message_dialog import AppMessageDialog
-    from shared_toolkit.ui.text_input_dialog import AppTextInputDialog
-    from tabs.image_compare.plugins.video_editor.dialog.shell import (
-        VideoEditorDialog,
-    )
-    from ui.actions.palette.dialog import FindActionDialog
-    from ui.widgets.color.picker_dialog import ColorPickerDialog
+    subclasses: dict[str, str] = {}
+    for path in _SRC.rglob("*.py"):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for base in node.bases:
+                name = getattr(base, "id", None) or getattr(base, "attr", None)
+                if name == "ThemedDialog":
+                    subclasses[node.name] = str(path.relative_to(_SRC))
 
-    dialogs = (
-        ExportDialog,
-        SettingsDialog,
-        ImagePropertiesDialog,
-        VideoEditorDialog,
-        DiagnosticsDialog,
-        AppTextInputDialog,
-        AppMessageDialog,
-        ColorPickerDialog,
-        FindActionDialog,
-        HelpDialog,
-    )
-    assert len(dialogs) == 10
-    for cls in dialogs:
-        assert issubclass(cls, ThemedDialog), f"{cls.__name__} bypasses the base"
+    expected = {
+        "ExportDialog",
+        "SettingsDialog",
+        "ImagePropertiesDialog",
+        "VideoEditorDialog",
+        "DiagnosticsDialog",
+        "AppTextInputDialog",
+        "AppMessageDialog",
+        "ColorPickerDialog",
+        "FindActionDialog",
+        "HelpDialog",
+    }
+    missing = expected - set(subclasses)
+    assert not missing, f"dialogs that stopped inheriting ThemedDialog: {sorted(missing)}"
+    # No new subclass may bypass the per-dialog layer story.
+    assert len(subclasses) >= len(expected), sorted(subclasses)
 
 
 def test_overlay_layer_owns_no_widget_and_eats_no_clicks(qtbot, _overlay_resolver):
     """The layer is a controller, not a surface: it must not intercept input.
 
-    ``OverlayLayer`` is a ``QObject`` that re-parents flyouts onto the dialog; it
-    owns no pixels, so a click on a control under it must reach the control.
+    ``OverlayLayer`` is a ``QObject`` that re-parents flyouts onto the dialog, so
+    it owns no pixels and a click on a control under it must reach the control.
     """
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
 
     dialog = _ProbeDialog()
     qtbot.addWidget(dialog)
@@ -236,9 +239,6 @@ def test_overlay_layer_owns_no_widget_and_eats_no_clicks(qtbot, _overlay_resolve
     layer = dialog.overlay_layer
     assert not isinstance(layer, QWidget), type(layer).__name__
     assert layer.host is dialog
-
-    # hit-testing (what the platform routes a real click through)
-    from PySide6.QtWidgets import QApplication
 
     centre = button.mapToGlobal(button.rect().center())
     assert QApplication.widgetAt(centre) is button, "something covers the control"
@@ -255,8 +255,8 @@ def test_dialog_parented_to_layered_window_uses_its_own_layer(
     """No main-window fallback: a parented dialog resolves ITS OWN host.
 
     App dialogs are usually constructed with the main window as parent; before
-    the fix the resolver walked past the dialog to the main window's layer (and
-    the toolkit's same-window guard then rejected it, leaving the menu clipped).
+    the fix the resolver walked past the dialog to the main window's layer and
+    the toolkit's same-window guard then rejected it, leaving the menu clipped.
     """
     parent_window = ThemedDialog()
     qtbot.addWidget(parent_window)
