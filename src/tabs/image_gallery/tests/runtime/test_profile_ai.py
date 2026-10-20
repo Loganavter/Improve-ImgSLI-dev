@@ -30,11 +30,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tabs.image_gallery.services import profile_cache
-from tabs.image_gallery.services.metric_profile import (
-    MEASURED_POOL,
-    MetricProfile,
-    profile_for_mode,
-)
+from tabs.image_gallery.services.metric_profile import MEASURED_POOL, MetricProfile
 from tabs.image_gallery.services.profile_cache import ProfileCache
 from tabs.image_gallery.use_cases import profile_ai, profile_select
 from tabs.image_gallery.use_cases.profile_ai import (
@@ -242,14 +238,7 @@ def test_build_profile_request_skips_unreadable_images(monkeypatch):
 def test_parse_profile_reply_accepts_the_axes_object():
     profile = parse_profile_reply('{"axes": ["noise", "sharpness"]}', mode="camera")
     assert profile is not None
-    # P5: the reply is unioned with the mode base (a supplement, never a
-    # downgrade) — both chosen ids survive and every configured axis too.
-    base = profile_for_mode("camera")
-    assert set(base.axis_ids) <= set(profile.axis_ids)
-    assert {"sharpness", "noise"} <= set(profile.axis_ids)
-    assert profile.axis_ids == tuple(
-        a for a in MEASURED_POOL if a in set(base.axis_ids) | {"sharpness", "noise"}
-    )
+    assert profile.axis_ids == tuple(a for a in MEASURED_POOL if a in {"sharpness", "noise"})
     assert profile.source == "vlm" and profile.mode == "camera"
 
 
@@ -260,12 +249,7 @@ def test_parse_profile_reply_accepts_a_bare_array_and_fences():
 
 def test_parse_profile_reply_drops_unknown_and_duplicated_ids():
     profile = parse_profile_reply('{"axes": ["invented", "sharpness", "sharpness"]}')
-    assert profile is not None
-    # Unknown ids are never fabricated; the duplicate is folded. The mode base
-    # rides along (P5 union) — it is not a free-form axis.
-    assert "invented" not in profile.axis_ids
-    assert profile.axis_ids.count("sharpness") == 1
-    assert set(profile_for_mode(None).axis_ids) <= set(profile.axis_ids)
+    assert profile is not None and profile.axis_ids == ("sharpness",)
 
 
 def test_parse_profile_reply_returns_none_on_junk():
@@ -319,12 +303,7 @@ def test_choose_profile_sync_pin_hit_skips_the_call(tmp_path):
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client
     )
     assert calls == []
-    # P5: the pin is served unchanged *in identity* but normalized on the way
-    # out — an old narrow pin must not downgrade the mode base.
-    assert profile.source == "vlm"
-    assert set(profile_for_mode("camera").axis_ids) <= set(profile.axis_ids)
-    assert "ssim" in profile.axis_ids
-    assert profile == profile_select.with_mode_base(pinned, mode="camera")
+    assert profile == pinned and profile.source == "vlm"
 
 
 def test_choose_profile_sync_calls_once_then_pins(tmp_path):

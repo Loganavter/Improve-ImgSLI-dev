@@ -12,8 +12,13 @@ The VLM profile selector had no judgment-domain gate, so an Algorithms
 folder's profile was replaced by a model-chosen subset the Algorithms
 pipeline must never use; the late replacement also invalidated the identity
 of AI requests that were already in flight (the analysis cache stores a
-scorecard under ``(mode, profile, model, …)``), and the mode base
-(``profile_for_mode``) was dropped instead of unioned.
+scorecard under ``(mode, profile, model, …)``).
+
+A profile IS a subset of the fixed pool chosen per context
+(``docs/investigations/plan-adaptive-metric-profiles-2026-10-17.md``
+§General model) — a narrow vlm selection is intended, not a downgrade. What it
+may never do is leave the pool, name an axis this context cannot measure, or
+fabricate one.
 
 Falsification story (what each test would catch):
 
@@ -24,9 +29,10 @@ Falsification story (what each test would catch):
   so the scorecards land under an identity the next open never reads (the
   visible symptom is a guaranteed API re-charge on every visit), and a late
   reply applied after the calls began must be dropped, not applied;
-- a VLM reply that REPLACES the mode base instead of unioning with it (a
-  ``camera`` profile configured for photo axes silently losing them — the
-  user's configured axes must survive, the reply may only add);
+- a VLM reply that widens or invents the vocabulary (a free-form id, or an
+  axis whose detector needs a source hub in a folder without one), or a reply
+  of only-unusable ids silently becoming a profile instead of the honest
+  heuristic fallback;
 - the chip calling a VLM pick "auto": the user cannot tell a model pick from
   the mode-derived default, and the toggle always means what it means.
 
@@ -339,40 +345,68 @@ def test_late_vlm_reply_is_dropped_once_analysis_started(
 
 
 # --------------------------------------------------------------------------
-# (3) a VLM reply is a supplement, never a downgrade of the mode base
+# (3) a VLM reply is constrained to the pool axes this context can measure
 # --------------------------------------------------------------------------
 
 
-def test_vlm_profile_keeps_the_mode_base_axes() -> None:
-    """``parse_profile_reply`` unions the reply with ``profile_for_mode(mode)``.
+def test_vlm_profile_is_constrained_to_the_available_pool(caplog) -> None:
+    """The reply is a SELECTION of the pool — never widened, never invented.
 
-    Red today: only the reply ids survive, so a ``camera`` profile configured
-    for the photo axes loses them — the model may ADD axes, never remove the
-    ones the mode (and the user's configured pipeline) already implies.
+    ``profile_for_mode(mode)`` is the availability map: a ``reference`` axis
+    needs a source hub, so it cannot be measured in a camera folder. The pick
+    may be narrower than the mode base (that is the feature); it may not name
+    an axis the context cannot measure and it may not fabricate one.
     """
     base = profile_for_mode("camera")
-    assert "brisque" in base.axis_ids and "aesthetic" in base.axis_ids
+    assert "sharpness" in base.axis_ids and "halo_delta" not in base.axis_ids
 
-    profile = profile_ai.parse_profile_reply('{"axes": ["sharpness"]}', mode="camera")
-
-    assert profile is not None
-    assert profile.source == "vlm"
-    assert set(base.axis_ids) <= set(profile.axis_ids), "the mode base must survive"
-    assert "sharpness" in profile.axis_ids
-    # Ordered by the registry, like every other profile (position-stable dots).
-    assert profile.axis_ids == tuple(
-        axis for axis in profile.axis_ids if axis in base.axis_ids or axis == "sharpness"
+    profile = profile_ai.parse_profile_reply(
+        '{"axes": ["sharpness", "halo_delta", "invented"]}', mode="camera"
     )
 
-    fidelity = profile_ai.parse_profile_reply('{"axes": ["sharpness"]}', mode="fidelity")
-    assert fidelity is not None
-    assert set(profile_for_mode("fidelity").axis_ids) <= set(fidelity.axis_ids)
+    assert profile is not None and profile.source == "vlm"
+    assert profile.axis_ids == ("sharpness",), "only the measurable pool id survives"
+    assert set(profile.axis_ids) <= set(base.axis_ids)
+    assert "invented" not in profile.axis_ids
 
 
-def test_vlm_reply_of_only_unknown_ids_is_still_no_profile() -> None:
-    """A junk reply degrades to the heuristic — it must not re-label the base."""
+def test_vlm_reply_of_only_unusable_ids_falls_back_to_the_heuristic(
+    monkeypatch, caplog, tmp_path
+) -> None:
+    """No usable axis → ``None`` (the caller's heuristic), with a debug line.
+
+    Falsification: a hollow "vlm" profile would claim a model pick over an
+    empty axis set; the honest answer is the deterministic fallback.
+    """
     assert profile_ai.parse_profile_reply('{"axes": ["made_up"]}', mode="camera") is None
     assert profile_ai.parse_profile_reply('{"axes": []}', mode="camera") is None
+    # Pool id, but its detector needs a source hub this folder does not have.
+    assert profile_ai.parse_profile_reply('{"axes": ["halo_delta"]}', mode="camera") is None
+
+    from tabs.image_gallery.services.profile_cache import ProfileCache
+    from tabs.image_gallery.use_cases import profile_probe
+
+    # Probe members exist (the transport IS reached); only the reply is junk.
+    monkeypatch.setattr(
+        profile_probe, "probe_members", lambda items, reference_path=None: [object()]
+    )
+    settings = SimpleNamespace(
+        enabled=True, api_key="k", model="m", base_url="http://h", reasoning_effort="auto"
+    )
+    with caplog.at_level(logging.DEBUG, logger="ImproveImgSLI"):
+        profile = profile_ai.choose_profile_sync(
+            [_item("a.png", ssim=0.9), _item("b.png", ssim=0.4)],
+            mode="camera",
+            settings=settings,
+            cache=ProfileCache(tmp_path),
+            client_call=lambda *a, **k: {
+                "choices": [{"message": {"content": '{"axes": ["made_up"]}'}}]
+            },
+        )
+    assert profile.source == "heuristic"
+    assert any(
+        "no usable axis" in rec.getMessage().lower() for rec in caplog.records
+    ), "the heuristic fallback must say so in the debug log"
 
 
 # --------------------------------------------------------------------------

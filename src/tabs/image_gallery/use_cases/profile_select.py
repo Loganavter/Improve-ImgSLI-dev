@@ -119,37 +119,6 @@ def derive_for_state(state, *, spread_floor: float = DEFAULT_SPREAD_FLOOR) -> Me
             return profile_for_mode(None)
 
 
-def with_mode_base(profile, *, mode=None) -> MetricProfile | None:
-    """*profile* ∪ the mode base — the P1 rule applied to a whole profile.
-
-    ``derive_profile`` keeps the base and *adds* salience; this is the same rule
-    for a profile produced elsewhere (the VLM selector's reply, a cached pin
-    from before the rule existed). The mode base is never dropped: a profile
-    may only add pool axes, so a narrow decision is a supplement, never a
-    downgrade of the axes the mode already configures. ``salient_axes`` records
-    what the input added on top of the base; source/domain are preserved.
-    Never raises — returns the input unchanged on any failure (``None`` stays
-    ``None``: a hollow profile is not a profile).
-    """
-    if profile is None:
-        return None
-    try:
-        wanted = tuple(getattr(profile, "axis_ids", ()) or ())
-        base = profile_for_mode(mode if mode is not None else getattr(profile, "mode", None))
-        base_ids = set(base.axis_ids)
-        added = tuple(axis for axis in wanted if axis not in base_ids)
-        return MetricProfile(
-            axis_ids=tuple(base.axis_ids) + added,
-            mode=getattr(profile, "mode", None) or base.mode,
-            source=str(getattr(profile, "source", "heuristic") or "heuristic"),
-            salient_axes=added,
-            domain=str(getattr(profile, "domain", "") or ""),
-        )
-    except Exception:
-        logger.debug("metric profile mode-base union failed", exc_info=True)
-        return profile
-
-
 def active_profile(state=None, *, mode=None) -> MetricProfile:
     """The profile the UI/analysis must use — the stored one, else the mode base.
 
@@ -186,5 +155,4 @@ __all__ = [
     "derive_profile",
     "describe",
     "salience_axes",
-    "with_mode_base",
 ]

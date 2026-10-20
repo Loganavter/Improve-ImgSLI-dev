@@ -38,7 +38,6 @@ from tabs.image_gallery.use_cases.profile_select import (
     derive_profile,
     describe,
     salience_axes,
-    with_mode_base,
 )
 
 
@@ -229,46 +228,4 @@ def test_module_exports_are_the_frozen_interface():
         "derive_profile",
         "describe",
         "salience_axes",
-        # P5: the P1 "base is always kept" rule as a reusable function — the
-        # VLM selector (reply + pinned cache hit) applies it to a whole
-        # profile, so the rule lives in ONE place.
-        "with_mode_base",
     }
-
-
-# --------------------------------------------------------------------------
-# P5 — the mode base is a floor for any profile produced elsewhere
-# --------------------------------------------------------------------------
-
-
-def test_with_mode_base_extends_a_narrow_profile_and_keeps_its_source():
-    from tabs.image_gallery.services.metric_profile import profile_for_mode
-
-    narrow = MetricProfile(axis_ids=("ssim",), mode="camera", source="vlm")
-    merged = with_mode_base(narrow, mode="camera")
-
-    assert set(profile_for_mode("camera").axis_ids) <= set(merged.axis_ids)
-    assert "ssim" in merged.axis_ids
-    assert merged.source == "vlm" and merged.mode == "camera"
-    # Only what the input added on top of the base is "salient".
-    assert merged.salient_axes == tuple(
-        a for a in merged.axis_ids if a not in set(profile_for_mode("camera").axis_ids)
-    )
-
-
-def test_with_mode_base_is_idempotent_and_order_stable():
-    from tabs.image_gallery.services.metric_profile import profile_for_mode
-
-    base = profile_for_mode("fidelity")
-    once = with_mode_base(base, mode="fidelity")
-    assert once == with_mode_base(once, mode="fidelity")
-    assert once.axis_ids == base.axis_ids
-
-
-def test_with_mode_base_keeps_a_pinned_domain_and_rejects_hollow_input():
-    merged = with_mode_base(
-        MetricProfile(axis_ids=("sharpness",), mode="camera", source="vlm", domain="photo"),
-        mode="camera",
-    )
-    assert merged is not None and merged.domain == "photo"
-    assert with_mode_base(None, mode="camera") is None
