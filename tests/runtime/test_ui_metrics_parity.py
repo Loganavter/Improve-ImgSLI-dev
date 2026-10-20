@@ -961,35 +961,6 @@ def _label_widget_probe(widget: QWidget, dialog: QWidget, *, inner: int = 4) -> 
 
 
 def _build_tab_strip_pixels(qapp, monkeypatch):
-    """RED-BEFORE STEP (temporary, removed in the next commit).
-
-    A deliberately unscaled row standing in for the tab label: a fixed pixel
-    font and a fixed row box, i.e. the baked-design-px chrome the pixel gate
-    exists to catch. The tab strip itself is wired in the next commit.
-    """
-    from PySide6.QtCore import Qt
-
-    from PySide6.QtGui import QFont
-    from PySide6.QtWidgets import QLabel
-
-    label = QLabel("Image Compare")
-    font = QFont(label.font())
-    font.setPixelSize(12)
-    label.setFont(font)
-    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    label.setFixedSize(171, 36)
-    label.show()
-    qapp.processEvents()
-    probe = PixelProbe(
-        image=lambda: label.grab().toImage(),
-        label_region=lambda: label.rect().adjusted(4, 4, -4, -4),
-        row_region=lambda: label.rect(),
-        label_text=lambda: label.text(),
-    )
-    return label, probe
-
-
-def _build_tab_strip_pixels_real(qapp, monkeypatch):
     """WorkspaceTabStrip: the tab label's glyph ink inside the tab row.
 
     The tab strip is long-lived chrome, so its pixel probe drives the LIVE

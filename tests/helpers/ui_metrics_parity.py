@@ -95,6 +95,9 @@ REBUILD = "rebuild"
 #: for surfaces that need no module patching.
 Builder = Callable[[QApplication, Any], "tuple[QWidget, Callable[[], Any]]"]
 
+#: Pixel builder: (qapp, monkeypatch) -> (widget, ``PixelProbe``).
+PixelBuilder = Callable[[QApplication, Any], "tuple[QWidget, PixelProbe]"]
+
 
 @dataclass(frozen=True)
 class MetricsSurface:
@@ -579,7 +582,7 @@ class PixelSurface:
     """
 
     name: str
-    build: Builder
+    build: PixelBuilder
     axes: frozenset[str] = frozenset({"scale", "language"})
     modes: Mapping[str, str] = field(default_factory=dict)
     exemptions: Mapping[str, str] = field(default_factory=dict)
