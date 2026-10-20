@@ -16,6 +16,7 @@ placeholder path) instead.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from plugins.help.tree import resolve_help_asset
@@ -50,3 +51,129 @@ def test_locale_variant_wins_over_the_base_image(tmp_path):
 
     assert resolved == variant
     assert resolved != base
+
+
+def test_theme_only_variant_is_used_when_no_locale_variant_exists(tmp_path):
+    body, assets = _body_and_assets(tmp_path)
+    _write(assets / "shot.png", "base")
+    variant = _write(assets / "dark" / "shot.png", "dark")
+
+    resolved = resolve_help_asset("../assets/shot.png", body, locale="en", theme="dark")
+
+    assert resolved == variant
+
+
+def test_both_variant_wins_over_narrower_ones(tmp_path):
+    body, assets = _body_and_assets(tmp_path)
+    _write(assets / "shot.png", "base")
+    _write(assets / "ru" / "shot.png", "locale")
+    _write(assets / "dark" / "shot.png", "theme")
+    both = _write(assets / "ru" / "dark" / "shot.png", "both")
+
+    resolved = resolve_help_asset("../assets/shot.png", body, locale="ru", theme="dark")
+
+    assert resolved == both
+
+
+def test_base_image_still_resolves_without_variants(tmp_path):
+    """The 25 shipped figures are single-variant: today's flat path unchanged."""
+    body, assets = _body_and_assets(tmp_path)
+    base = _write(assets / "shot.png", "base")
+
+    assert resolve_help_asset("../assets/shot.png", body, locale="ru", theme="dark") == base
+    # No locale/theme arguments at all: legacy callers keep the old lookup.
+    assert resolve_help_asset("../assets/shot.png", body) == base
+
+
+def test_declared_variant_that_is_missing_fails_closed(tmp_path):
+    """A declared ru/dark file that is absent must not fall back to base."""
+    body, assets = _body_and_assets(tmp_path)
+    _write(assets / "shot.png", "base")
+
+    resolved = resolve_help_asset(
+        "../assets/shot.png",
+        body,
+        locale="ru",
+        theme="dark",
+        declared_variants=[("ru", "dark")],
+    )
+
+    assert resolved is None
+
+
+def test_undeclared_missing_variant_may_fall_back_to_base(tmp_path):
+    body, assets = _body_and_assets(tmp_path)
+    base = _write(assets / "shot.png", "base")
+
+    resolved = resolve_help_asset(
+        "../assets/shot.png",
+        body,
+        locale="zh",
+        theme="light",
+        declared_variants=[("ru", "dark")],
+    )
+
+    assert resolved == base
+
+
+def test_nested_asset_variants_live_under_the_assets_root(tmp_path):
+    """``assets/ui/toolbar.jpg`` variants are ``assets/<locale>/<theme>/toolbar.jpg``."""
+    body, assets = _body_and_assets(tmp_path)
+    _write(assets / "ui" / "toolbar.jpg", "base")
+    variant = _write(assets / "ru" / "dark" / "toolbar.jpg", "both")
+
+    resolved = resolve_help_asset(
+        "../assets/ui/toolbar.jpg", body, locale="ru", theme="dark"
+    )
+
+    assert resolved == variant
+
+
+def test_no_variant_and_no_base_returns_none(tmp_path):
+    body, _assets = _body_and_assets(tmp_path)
+
+    assert resolve_help_asset("../assets/shot.png", body, locale="ru", theme="dark") is None
+    assert resolve_help_asset("../assets/shot.png", None, locale="ru", theme="dark") is None
+
+
+def test_manifest_declares_the_variant_matrix(tmp_path, monkeypatch):
+    """``help_figures.json`` is the manifest of record for variants."""
+    from plugins.help import tree as help_tree
+
+    manifest = tmp_path / "help_figures.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "figures": [
+                    {
+                        "destination": "src/resources/help/assets/platform/shot.png",
+                        "locales": ["en", "ru"],
+                        "themes": ["dark", "light"],
+                    },
+                    {
+                        "destination": "src/resources/help/assets/platform/single.png",
+                        "locales": ["en"],
+                        "themes": ["dark"],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(help_tree, "_VARIANT_MANIFEST", manifest)
+    help_tree.clear_help_variant_cache()
+    try:
+        declared = help_tree._declared_variants_for(
+            Path("/repo/src/resources/help/assets/platform/shot.png")
+        )
+        assert declared == frozenset(
+            {("en", "dark"), ("en", "light"), ("ru", "dark"), ("ru", "light")}
+        )
+        # A single-variant recipe keeps the flat base path (no variant churn).
+        assert not help_tree._declared_variants_for(
+            Path("/repo/src/resources/help/assets/platform/single.png")
+        )
+    finally:
+        help_tree.clear_help_variant_cache()
+
