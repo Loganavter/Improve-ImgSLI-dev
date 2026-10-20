@@ -97,10 +97,15 @@ Paths must not escape the package's `resources/help/` dir
 `src/devtools/help_figures.py` wraps `capture_surface` (imported, never copied)
 with a committed recipe, `src/devtools/help_figures.json`: one entry per figure
 — `id`, `surface` (a `capture_surface.SURFACES` key), optional
-`crop: [x, y, w, h]`, `locales`, `themes`, `destination` (the asset path inside
-the owning package's `assets/`) and a `note`. `schema_version` pins the shape.
-The committed file carries no timestamps and is written canonically (sorted
-keys, sorted figures/captures, `\n` newlines), so a no-op run is byte-identical.
+`crop: [x, y, w, h]`, optional `size: [w, h]`, `locales`, `themes`, `destination`
+(the existing asset path inside the owning package's `assets/`), `covered`,
+`reason` and a `note`. `schema_version` pins the shape. Only figures with
+`covered: true` are generated; an `uncovered` entry names the shipped figure it
+would replace (or `null`) and carries `new-surface` / `hand-composed` as the
+reason it cannot be reproduced from these surfaces yet. The entry set is derived
+from the shipped asset inventory, not invented. The committed file carries no
+timestamps and is written canonically (sorted keys, sorted figures/captures,
+`\n` newlines), so a no-op run is byte-identical.
 
 ```bash
 env -u DISPLAY python src/devtools/help_figures.py --list        # no X needed
@@ -121,6 +126,7 @@ python src/devtools/help_figures.py --all --write-manifest       # record baseli
   compares `sha256` against the manifest, printing a table. `ok` = identical,
   `drift` = different hash (exit code 1), `unbaselined` = the entry has no
   recorded hash yet (reported, not drift, so a fresh recipe exits 0).
+  `uncovered` recipe entries are listed after the table and are never generated.
 - **Baselines.** `--write-manifest` records `sha256`, byte size, dimensions and
   the applied pins for what it generated. Recording needs a real display, so a
   fresh recipe stays `unbaselined` until someone runs `--all --write-manifest`

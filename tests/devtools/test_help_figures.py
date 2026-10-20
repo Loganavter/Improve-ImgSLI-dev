@@ -43,7 +43,7 @@ def _entry(figure_id="help-gallery-populated", surface="gallery-populated", **ov
         "crop": None,
         "locales": ["en"],
         "themes": ["dark"],
-        "destination": "src/tabs/image_gallery/resources/help/assets/probe.png",
+        "destination": "src/resources/help/assets/platform/tab_strip.png",
         "note": "",
         "captures": [],
     }
@@ -72,9 +72,14 @@ def test_recipe_covers_every_validated_surface_once(hf):
     )
     assert len(set(surfaces)) == len(surfaces), "one recipe per surface, no duplicates"
     for figure in manifest.figures:
-        assert figure.destination.startswith("src/")
-        assert "/resources/help/assets/" in figure.destination
         assert figure.locales and figure.themes
+        if figure.covered:
+            assert figure.destination, f"{figure.id}: a covered figure needs a shipped destination"
+            assert (hf.REPO_ROOT / figure.destination).is_file()
+        else:
+            assert figure.reason in {"new-surface", "hand-composed"}, figure.id
+            if figure.destination:
+                assert "/resources/help/assets/" in figure.destination
 
 
 def test_committed_manifest_is_canonical(hf):
@@ -197,6 +202,27 @@ def test_manifest_rejects_duplicate_destinations(hf, tmp_path):
         hf.load_manifest(_manifest_file(tmp_path, figures))
 
 
+def test_uncovered_figure_needs_reason_and_covered_needs_a_real_file(hf, tmp_path):
+    uncovered = _entry(
+        figure_id="help-empty", surface="gallery", covered=False, destination=None, reason=""
+    )
+    with pytest.raises(hf.ManifestError, match=r"uncovered figure needs a reason"):
+        hf.load_manifest(_manifest_file(tmp_path, [uncovered]))
+
+    ghost = _entry(destination="src/resources/help/assets/platform/no-such-figure.png")
+    with pytest.raises(hf.ManifestError, match=r"covered destination does not exist"):
+        hf.load_manifest(_manifest_file(tmp_path, [ghost]))
+
+
+def test_generate_skips_uncovered_figures(hf, tmp_path):
+    manifest = hf.load_manifest()
+    covered = [figure.id for figure in manifest.figures if figure.covered]
+    assert 0 < len(covered) < len(manifest.figures), "recipe needs both covered and uncovered entries"
+
+    records = hf.generate(manifest, tmp_path / "out", capture=_fake_capture(), stream=io.StringIO())
+    assert {record["figure"] for record in records} == set(covered)
+
+
 # ---------------------------------------------------------------------------
 # Drift detection
 # ---------------------------------------------------------------------------
@@ -248,7 +274,7 @@ def test_generate_writes_only_inside_out_dir(hf, tmp_path):
     out_dir = tmp_path / "shots"
     records = hf.generate(manifest, out_dir, capture=_fake_capture(), stream=io.StringIO())
 
-    assert len(records) == len(manifest.figures)
+    assert len(records) == len([f for f in manifest.figures if f.covered])
     for record in records:
         assert Path(record["path"]).is_relative_to(out_dir)
 
@@ -319,6 +345,15 @@ def test_check_cannot_write_manifest(hf, tmp_path):
     with pytest.raises(SystemExit) as exc:
         hf.main(["--check", "--write-manifest", "--manifest", str(path)])
     assert exc.value.code == 2
+
+
+def test_uncovered_figure_selection_exits_two(hf, monkeypatch, capsys):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(hf, "display_context", lambda *a, **k: pytest.fail("no display"))
+
+    assert hf.main(["--figure", "help-gallery-empty"]) == 2
+    err = capsys.readouterr().err
+    assert "uncovered" in err and "new-surface" in err
 
 
 def test_all_requires_a_mode(hf):

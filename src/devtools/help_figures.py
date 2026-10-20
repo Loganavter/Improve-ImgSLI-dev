@@ -61,8 +61,8 @@ _PINS_DARK = frozenset({"settings", "settings-keyboard"})
 _SHA_LEN = 64
 _BASELINE_KEYS = {"locale", "theme", "sha256", "size", "width", "height", "pins_applied", "pins_unavailable"}
 _FIGURE_KEYS = {
-    "id", "surface", "crop", "locales", "themes", "destination", "note",
-    "pins_applied", "pins_unavailable", "captures",
+    "id", "surface", "crop", "size", "locales", "themes", "destination", "covered",
+    "reason", "note", "pins_applied", "pins_unavailable", "captures",
 }
 
 
@@ -98,10 +98,13 @@ class Figure:
 
     id: str
     surface: str
-    destination: str
+    destination: str | None
     locales: tuple[str, ...] = ("en",)
     themes: tuple[str, ...] = ("dark",)
     crop: tuple[int, int, int, int] | None = None
+    size: tuple[int, int] | None = None
+    covered: bool = True
+    reason: str = ""
     note: str = ""
     pins_applied: tuple[str, ...] = ()
     pins_unavailable: tuple[str, ...] = ()
@@ -187,16 +190,38 @@ def _parse_figure(raw) -> Figure:
         raise ManifestError(
             f"{figure_id}: unknown surface {surface!r}; known: {', '.join(sorted(capture_surface.SURFACES))}"
         )
+    covered = raw.get("covered", True)
+    if not isinstance(covered, bool):
+        raise ManifestError(f"{figure_id}: covered must be a boolean")
+    reason = raw.get("reason", "")
+    if not isinstance(reason, str):
+        raise ManifestError(f"{figure_id}: reason must be a string")
+    if not covered and not reason.strip():
+        raise ManifestError(f"{figure_id}: an uncovered figure needs a reason (new-surface/hand-composed)")
     destination = raw.get("destination")
-    if not isinstance(destination, str) or not destination:
-        raise ManifestError(f"{figure_id}: destination must be a non-empty string")
-    dest = Path(destination)
-    if dest.is_absolute() or ".." in dest.parts:
-        raise ManifestError(f"{figure_id}: destination must be repo-relative without '..': {dest}")
-    if "/resources/help/assets/" not in dest.as_posix():
-        raise ManifestError(f"{figure_id}: destination must live under a help package assets dir: {dest}")
-    if dest.suffix.lower() not in (".png", ".jpg"):
-        raise ManifestError(f"{figure_id}: destination must be a .png/.jpg: {dest}")
+    if destination is None:
+        if covered:
+            raise ManifestError(f"{figure_id}: a covered figure needs a destination")
+        dest = None
+    else:
+        if not isinstance(destination, str) or not destination:
+            raise ManifestError(f"{figure_id}: destination must be a path or null")
+        dest = Path(destination)
+        if dest.is_absolute() or ".." in dest.parts:
+            raise ManifestError(f"{figure_id}: destination must be repo-relative without '..': {dest}")
+        if "/resources/help/assets/" not in dest.as_posix():
+            raise ManifestError(f"{figure_id}: destination must live under a help package assets dir: {dest}")
+        if dest.suffix.lower() not in (".png", ".jpg"):
+            raise ManifestError(f"{figure_id}: destination must be a .png/.jpg: {dest}")
+        if covered and not (REPO_ROOT / dest).is_file():
+            raise ManifestError(f"{figure_id}: covered destination does not exist: {dest}")
+    size = raw.get("size")
+    size_box = None
+    if size is not None:
+        if (not isinstance(size, (list, tuple)) or len(size) != 2
+                or any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in size)):
+            raise ManifestError(f"{figure_id}: size must be [width, height] positive ints, got {size!r}")
+        size_box = (size[0], size[1])
     locales = _strings(raw.get("locales", ["en"]), figure_id, "locales")
     themes = _strings(raw.get("themes", ["dark"]), figure_id, "themes")
     if not locales or not themes:
@@ -215,9 +240,10 @@ def _parse_figure(raw) -> Figure:
         raise ManifestError(f"{figure_id}: duplicate capture entries for the same locale+theme")
     crop = raw.get("crop")
     return Figure(
-        id=figure_id, surface=surface, destination=dest.as_posix(), locales=tuple(locales),
-        themes=tuple(themes), crop=None if crop is None else validate_crop(crop, figure_id=figure_id),
-        note=raw.get("note", ""),
+        id=figure_id, surface=surface, destination=None if dest is None else dest.as_posix(),
+        locales=tuple(locales), themes=tuple(themes),
+        crop=None if crop is None else validate_crop(crop, figure_id=figure_id), size=size_box,
+        covered=covered, reason=reason, note=raw.get("note", ""),
         pins_applied=_strings(raw.get("pins_applied", []), figure_id, "pins_applied"),
         pins_unavailable=_strings(raw.get("pins_unavailable", []), figure_id, "pins_unavailable"),
         captures=captures,
@@ -245,7 +271,8 @@ def load_manifest(path: Path | str = MANIFEST_PATH) -> Manifest:
     figures = tuple(_parse_figure(item) for item in figures_raw)
     if len({figure.id for figure in figures}) != len(figures):
         raise ManifestError(f"{path}: duplicate figure ids: {[f.id for f in figures]}")
-    if len({figure.destination for figure in figures}) != len(figures):
+    destinations = [figure.destination for figure in figures if figure.destination]
+    if len(set(destinations)) != len(destinations):
         raise ManifestError(f"{path}: two figures share one destination")
     return Manifest(figures=figures)
 
@@ -257,8 +284,13 @@ def manifest_to_dict(manifest: Manifest) -> dict:
     """Canonical dict: sorted figures/captures; tuples serialise as JSON arrays."""
     figures = []
     for figure in sorted(manifest.figures, key=lambda item: item.id):
-        entry = {key: value for key, value in asdict(figure).items() if key not in {"captures", "crop"}}
+        entry = {
+            key: value
+            for key, value in asdict(figure).items()
+            if key not in {"captures", "crop", "size"}
+        }
         entry["crop"] = list(figure.crop) if figure.crop is not None else None
+        entry["size"] = list(figure.size) if figure.size is not None else None
         entry["locales"] = sorted(figure.locales)
         entry["themes"] = sorted(figure.themes)
         entry["captures"] = [
@@ -325,7 +357,9 @@ class _RecordingSession(capture_surface.CaptureSession):
         return path
 
 
-def _run_surface(surface: capture_surface.Surface, dest: Path, theme: str, locale: str) -> Path:
+def _run_surface(
+    surface: capture_surface.Surface, dest: Path, theme: str, locale: str, size=None
+) -> Path:
     """Build one surface through ``capture_surface`` and return its PNG.
 
     Non-isolated surfaces are built in-process (imported builders + bootstrap).
@@ -333,14 +367,20 @@ def _run_surface(surface: capture_surface.Surface, dest: Path, theme: str, local
     which re-execs itself offscreen.
     """
     if surface.isolated:
-        code = capture_surface.main([surface.name, "--out", str(dest), "--theme", theme, "--lang", locale])
+        cmd = [surface.name, "--out", str(dest), "--theme", theme, "--lang", locale]
+        if size:
+            cmd += ["--width", str(size[0]), "--height", str(size[1])]
+        code = capture_surface.main(cmd)
         if code != 0:
             raise FigureError(f"{surface.name}: capture_surface exited {code}")
         pngs = sorted(path for path in dest.glob("*.png") if path.is_file())
         if not pngs:
             raise FigureError(f"{surface.name}: capture_surface produced no PNG in {dest}")
         return pngs[-1]
-    session = _RecordingSession(capture_surface._bootstrap_qt(theme, locale), dest)
+    width, height = size if size else (None, None)
+    session = _RecordingSession(
+        capture_surface._bootstrap_qt(theme, locale), dest, width=width, height=height
+    )
     surface.build(session)
     if not session.saved:
         raise FigureError(f"{surface.name}: surface builder saved no PNG")
@@ -351,7 +391,7 @@ def capture_png(figure: Figure, locale: str, theme: str, out_dir: Path | str) ->
     """Capture one figure into ``out_dir/<id>__<locale>__<theme>/`` + apply crop."""
     dest = Path(out_dir) / f"{figure.id}__{locale}__{theme}"
     dest.mkdir(parents=True, exist_ok=True)
-    path = _run_surface(capture_surface.SURFACES[figure.surface], dest, theme, locale)
+    path = _run_surface(capture_surface.SURFACES[figure.surface], dest, theme, locale, figure.size)
     return crop_png(path, figure.crop, figure_id=figure.id) if figure.crop else path
 
 
@@ -385,6 +425,8 @@ def generate(
     out_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict] = []
     for figure in manifest.figures:
+        if not figure.covered:
+            continue
         for locale, theme in _pairs(figure, locales, themes):
             path = Path(capture(figure, locale, theme, out_dir))
             sha256, size, width, height = _fingerprint(path)
@@ -449,6 +491,9 @@ def check_figures(
         counts[row["status"]] = counts.get(row["status"], 0) + 1
     summary = ", ".join(f"{s}={counts[s]}" for s in sorted(counts)) or "no captures"
     print(f"drift check: {summary}", file=stream)
+    uncovered = [f"{f.id} ({f.reason})" for f in manifest.figures if not f.covered]
+    if uncovered:
+        print("uncovered (not checked): " + ", ".join(uncovered), file=stream)
     return 1 if drifted else 0
 
 
@@ -576,12 +621,14 @@ def _list_recipes(manifest: Manifest) -> int:
     print(f"Help figures ({len(manifest.figures)}) — schema_version {manifest.schema_version}:")
     for figure in sorted(manifest.figures, key=lambda item: item.id):
         crop = "crop=%dx%d+%d+%d" % figure.crop if figure.crop else "crop=none"
+        status = "covered" if figure.covered else f"uncovered:{figure.reason}"
+        size = "%dx%d" % figure.size if figure.size else "default"
         print(
-            f"  {figure.id:<26} surface={figure.surface:<18} "
+            f"  {figure.id:<26} surface={figure.surface:<18} size={size:<9} "
             f"locales={','.join(sorted(figure.locales))} "
-            f"themes={','.join(sorted(figure.themes))} {crop}"
+            f"themes={','.join(sorted(figure.themes))} {crop} {status}"
         )
-        print(f"    -> {figure.destination}")
+        print(f"    -> {figure.destination or '(no shipped figure)'}")
         if figure.note:
             print(f"    note: {figure.note}")
     print("Surfaces (capture_surface.SURFACES): " + ", ".join(sorted(capture_surface.SURFACES)))
@@ -612,7 +659,15 @@ def main(argv: list[str] | None = None) -> int:
         if unknown := [figure_id for figure_id in args.figure if figure_id not in known]:
             print(f"unknown figure: {', '.join(unknown)}; known: {', '.join(sorted(known))}", file=sys.stderr)
             return 2
-        selected = replace(manifest, figures=tuple(f for f in manifest.figures if f.id in args.figure))
+        picked = {f.id: f for f in manifest.figures if f.id in args.figure}
+        for figure in picked.values():
+            if not figure.covered:
+                print(
+                    f"figure {figure.id!r} is uncovered ({figure.reason}) — nothing to generate",
+                    file=sys.stderr,
+                )
+                return 2
+        selected = replace(manifest, figures=tuple(picked.values()))
 
     out_dir = Path(args.out).expanduser() if args.out else Path(tempfile.mkdtemp(prefix="help-figures-"))
     print(f"output: {out_dir}", file=sys.stderr)
