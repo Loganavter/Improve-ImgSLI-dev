@@ -729,6 +729,7 @@ def test_list_actions_enabled_and_reason_degrade_when_omitted(tmp_path):
 
 _ELEMENTS_LIVE_RESULT = {
     "count": 2,
+    "total": 2,
     "window_count": 1,
     "elements": [
         {
@@ -742,6 +743,7 @@ _ELEMENTS_LIVE_RESULT = {
             "action_id": "platform.settings",
             "enabled": True,
             "visible": True,
+            "properties": {},
         },
         {
             "id": "gallery.card.menu.row1",
@@ -754,6 +756,7 @@ _ELEMENTS_LIVE_RESULT = {
             "action_id": None,
             "enabled": True,
             "visible": True,
+            "properties": {},
         },
     ],
     "source": "live",
