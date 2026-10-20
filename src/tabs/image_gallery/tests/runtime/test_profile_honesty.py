@@ -176,6 +176,12 @@ class _ProfileCtrl:
     def _apply_profile_outcome(self, profile, gen):
         return GalleryController._apply_profile_outcome(self, profile, gen)
 
+    def _resume_settle_after_profile(self, gen):
+        return GalleryController._resume_settle_after_profile(self, gen)
+
+    def _mark_profile_consumed(self):
+        return GalleryController._mark_profile_consumed(self)
+
     def _run_ai_for_visible(self):
         GalleryController._mark_profile_consumed(self)
         self.ai_starts.append(getattr(self.state, "metric_profile", None))
@@ -242,6 +248,27 @@ def test_settle_in_the_algorithms_domain_never_touches_the_profile(
     assert ctrl.launched == []
     assert ctrl.state.metric_profile.source == "heuristic"
     assert ctrl.ai_starts == [], "the AI pass stays off in the Algorithms domain"
+
+
+def test_late_vlm_reply_does_not_replace_the_profile_after_a_domain_switch(
+    monkeypatch, fake_workers
+) -> None:
+    """A switch back to Algorithms mid-flight wins over the landing reply."""
+    a, b = _item("a.png", ssim=0.9), _item("b.png", ssim=0.4)
+    ctrl = _ProfileCtrl([a, b], domain="ai")
+    monkeypatch.setattr(
+        controller_mod, "_profile_selector", lambda: _selector_returning(_vlm_profile())
+    )
+    ctrl.refresh_metric_profile()
+    heuristic = ctrl.state.metric_profile
+
+    ctrl._run_profile_select_on_settle()  # in flight
+    ctrl._judgment_domain = "algorithms"  # the toolbar flips back
+    ctrl.launched[0].run()
+
+    assert ctrl.state.metric_profile == heuristic, (
+        "the Algorithms domain must not receive a VLM-chosen profile"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -379,6 +406,11 @@ def test_profile_chip_names_the_profile_source(qtbot) -> None:
 
 
 def test_chip_source_keys_are_localized_in_every_locale() -> None:
+    """Both provenance tokens resolve in every locale (the chip is user-facing).
+
+    ``vlm`` is an acronym and may legitimately read the same in a locale; the
+    ``heuristic`` token is a word and must be translated.
+    """
     from resources.translations import add_i18n_root, tr
 
     repo = Path(__file__).resolve().parents[5]
@@ -397,6 +429,6 @@ def test_chip_source_keys_are_localized_in_every_locale() -> None:
             value = tr(key, language=language)
             if not value or value == key:
                 problems.append(f"{key} [{language}]: unresolved -> {value!r}")
-            elif value == en_value:
+            elif value == en_value and key.endswith(".heuristic"):
                 problems.append(f"{key} [{language}]: English fallback")
     assert not problems, "\n".join(problems)

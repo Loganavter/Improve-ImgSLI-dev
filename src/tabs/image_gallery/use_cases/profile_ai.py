@@ -5,6 +5,9 @@ chosen by ``use_cases/profile_probe`` and a compact salience summary, ask a
 vision model to pick the axes that discriminate THIS series **from the closed
 pool** (``metric_profile.MEASURED_POOL``). The model is a *selector*, never a
 source of new axes: unknown/free-form ids are dropped by ``MetricProfile``.
+It may only ADD axes on top of the mode base — the reply is unioned with
+``profile_for_mode(mode)`` (the P1 rule, ``profile_select.derive_profile``),
+so a configured axis set is never silently downgraded.
 
 One call per unchanged folder-generation: the selection is pinned
 (``services/profile_cache``, keyed on member fingerprint + mode + model + pool),
@@ -235,15 +238,31 @@ def parse_profile_reply(text, *, mode=None):
     duplicated ids are dropped, order is registry order. Returns ``None`` when
     nothing usable was found (no JSON, an empty list, or ids that are all
     outside the pool): never a guess, never a free-form axis.
+
+    The model is a *supplement*, not a replacement: the reply is UNIONed with
+    the mode base (``profile_for_mode(mode)``) — the same P1 rule
+    ``profile_select.derive_profile`` applies to salience
+    (``profile_select.py:94-99``). A reply may add discriminating axes, never
+    remove the configured ones: dropping them would be a silent downgrade of
+    the pipeline the user's mode already configures (live 2026-10-20: a
+    ``camera`` run was ranked on ``sharpness,noise source=vlm`` only).
+    ``salient_axes`` records what the reply added on top of the base.
     """
     ids = _reply_ids(text)
     if not ids:
         return None
     try:
         from tabs.image_gallery.services.metric_profile import MetricProfile
+        from tabs.image_gallery.use_cases.profile_select import with_mode_base
 
-        profile = MetricProfile(axis_ids=tuple(ids), mode=mode, source="vlm")
+        chosen = MetricProfile(axis_ids=tuple(ids), mode=mode, source="vlm")
+        if not chosen.axis_ids:
+            # Every id was outside the pool — junk, not a narrower profile.
+            return None
+        profile = with_mode_base(chosen, mode=mode)
     except Exception:
+        return None
+    if profile is None:
         return None
     return profile if profile.axis_ids else None
 
@@ -343,7 +362,10 @@ def choose_profile_sync(
         except Exception:
             hit = None
         if hit is not None:
-            return hit
+            # A pin from before the mode-base rule may be a narrow subset:
+            # normalize on the way out, so "configured axes survive" holds for
+            # any vintage of the cache (P5, same rule as the reply above).
+            return profile_select.with_mode_base(hit, mode=mode)
 
     try:
         probes = profile_probe.probe_members(members, reference_path=reference_path)

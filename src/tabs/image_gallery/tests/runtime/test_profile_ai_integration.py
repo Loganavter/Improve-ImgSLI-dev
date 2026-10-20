@@ -40,7 +40,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from tabs.image_gallery import controller as controller_mod
 from tabs.image_gallery.controller import GalleryController
 from tabs.image_gallery.models import GalleryState, Mode, Series
-from tabs.image_gallery.services.metric_profile import MEASURED_POOL
+from tabs.image_gallery.services.metric_profile import MEASURED_POOL, profile_for_mode
 from tabs.image_gallery.services.profile_cache import ProfileCache
 from tabs.image_gallery.services.rank_fusion import measured_axes_for, rank_series
 from tabs.image_gallery.ui.card.dots import metric_dots_for_item
@@ -135,10 +135,12 @@ def test_pin_prevents_a_second_call_and_returns_the_same_profile(tmp_path):
 
     assert len(transport.calls) == 1, "the pin must serve the second run"
     assert first == second and first.source == "vlm"
-    # A VLM profile is EXACTLY the pool ids the model chose: it may legitimately
-    # be NARROWER than the mode base (dropping an irrelevant axis is the point of
-    # the feature). Only the heuristic fallback guarantees the mode base.
-    assert set(first.axis_ids) == {"sharpness", "noise"}
+    # P5: a VLM profile is the mode base UNION the pool ids the model chose —
+    # it may only ADD axes (dropping a configured axis would be a silent
+    # downgrade of the pipeline the mode already implies).
+    base = profile_for_mode("camera")
+    assert set(base.axis_ids) <= set(first.axis_ids)
+    assert {"sharpness", "noise"} <= set(first.axis_ids)
     assert set(first.axis_ids) <= set(MEASURED_POOL)
 
     payload = transport.calls[0]["payload"]
@@ -156,7 +158,10 @@ def test_unknown_ids_are_dropped_never_fabricated():
         json.dumps({"axes": ["sharpness", "not_an_axis", "composition"]}), mode="camera"
     )
     assert profile is not None
-    assert profile.axis_ids == ("sharpness",)
+    assert set(profile_for_mode("camera").axis_ids) <= set(profile.axis_ids)
+    assert "sharpness" in profile.axis_ids
+    assert "not_an_axis" not in profile.axis_ids
+    assert "composition" not in profile.axis_ids
     assert profile.source == "vlm"
 
 
