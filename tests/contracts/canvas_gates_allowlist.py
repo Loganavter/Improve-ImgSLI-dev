@@ -1,0 +1,151 @@
+"""Allowlist for the seven C1 canvas-hardening gates (shrink-only ratchet).
+
+Wave C1 of the canvas hardening plan adds seven gates under
+``tests/contracts/`` (``test_render_visibility_declared.py``,
+``test_render_mode_declared.py``, ``test_no_duck_typed_arg_shuffle.py``,
+``test_no_except_nameerror.py``, ``test_scene_order_table_complete.py``,
+``test_capacity_agreement.py``,
+``test_pass_discovery_raises_on_broken_import.py``). Each gate owns one slice
+of the dict below, keyed by its file name; every slice is the same
+``entry -> reason`` ratchet ``drain_guard_allowlist.py`` documents:
+
+- a gate FAILS when it finds a violation with no entry (uncovered), and
+- a gate FAILS when an entry no longer suppresses a finding (stale).
+
+So the list can only shrink. An entry whose target is fixed must be deleted in
+the SAME commit that fixes it — otherwise the owning gate goes red on the
+stale half.
+
+Entry shape: ``"<repo-relative path>"`` (whole file) or
+``"<repo-relative path>::<symbol>"`` (one class / function / table). A symbol
+is the last dotted component of the owning scope (``Class.method`` for a
+method body). Every reason must name the wave that removes the entry (``C2`` /
+``C3`` — the waves after C1) and the precondition for removing it; the
+"real reason" half is enforced by ``allowlist_problems`` below.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from tests.contracts._framework import ROOT, read
+
+#: Waves after C1 that are allowed to clear entries. A reason naming any other
+#: wave is a planning error, not a get-out-of-jail card.
+_REMOVING_WAVES = ("C2", "C3")
+
+#: Shortest reason that can plausibly carry a wave + a precondition.
+_MIN_REASON = 60
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One gate violation, addressable by an allowlist entry.
+
+    ``path`` is repo-relative (use ``_framework.rel``); ``symbol`` is the
+    class/function/table the violation lives in, or ``""`` for a whole-file
+    finding (module-level literal, import shape, ...).
+    """
+
+    path: str
+    symbol: str
+    detail: str
+
+    @property
+    def key(self) -> str:
+        return f"{self.path}::{self.symbol}" if self.symbol else self.path
+
+
+#: gate file name -> {entry -> reason}. Namespaced by gate so a slice is
+#: reviewable on its own and stale entries are attributed to one gate.
+ALLOWLIST: dict[str, dict[str, str]] = {
+    "test_render_visibility_declared.py": {
+        "src/ui/canvas_infra/rhi/render_executor.py::_visibility_matches": (
+            "the matcher still catches TypeError and falls back to name-string "
+            "matching, so a wrong-typed visibility yields a verdict instead of "
+            "an error. C2 removes the fallback; precondition: FIRST grep that "
+            "no caller passes a string visibility, and add a runtime-assert "
+            "test — removing the fallback turns a silent mis-match into a "
+            "crash, so it must fail in a test, not on a user."
+        ),
+    },
+}
+
+
+def entries(gate: str) -> dict[str, str]:
+    """The allowlist slice owned by *gate* (a ``test_*.py`` file name)."""
+    return ALLOWLIST.get(gate) or {}
+
+
+def entry_parts(entry: str) -> tuple[str, str]:
+    """``"path::symbol"`` -> ``(path, symbol)``; ``symbol`` is ``""`` if absent."""
+    path, _sep, symbol = entry.partition("::")
+    return path, symbol
+
+
+def _entry_matches(entry: str, finding: Finding) -> bool:
+    path, symbol = entry_parts(entry)
+    if path != finding.path:
+        return False
+    if not symbol:
+        return True
+    return symbol == finding.symbol
+
+
+def allows(gate: str, finding: Finding) -> bool:
+    return any(_entry_matches(entry, finding) for entry in entries(gate))
+
+
+def unexplained(gate: str, findings: list[Finding]) -> list[Finding]:
+    """Findings with no allowlist entry — the uncovered half of the ratchet."""
+    return [finding for finding in findings if not allows(gate, finding)]
+
+
+def format_findings(findings: list[Finding]) -> str:
+    return "\n".join(f"  {f.key}: {f.detail}" for f in findings)
+
+
+def allowlist_problems(gate: str, findings: list[Finding]) -> list[str]:
+    """Shape *and* staleness problems for *gate*'s slice.
+
+    Shape: the entry names a real file, a ``::symbol`` that actually occurs in
+    it, and a substantive reason naming the removing wave and a precondition.
+    Staleness: the entry must still suppress at least one current finding.
+    """
+    problems: list[str] = []
+    slice_ = entries(gate)
+
+    for entry, reason in slice_.items():
+        path_text, symbol = entry_parts(entry)
+        reason_text = reason.strip()
+
+        if len(reason_text) < _MIN_REASON:
+            problems.append(f"{entry}: reason is too short to state a wave + precondition")
+        if "TODO" in reason_text or "FIXME" in reason_text:
+            problems.append(f"{entry}: reason is a placeholder")
+        if not any(wave in reason_text for wave in _REMOVING_WAVES):
+            problems.append(
+                f"{entry}: reason does not name the wave that removes it "
+                f"({' / '.join(_REMOVING_WAVES)})"
+            )
+
+        path = ROOT / path_text
+        if not path.is_file():
+            problems.append(f"{entry}: no such file under the repository root")
+            continue
+        source = read(path)
+        if symbol:
+            last = symbol.rsplit(".", 1)[-1]
+            if not re.search(rf"\b{re.escape(last)}\b", source):
+                problems.append(
+                    f"{entry}: symbol {symbol!r} does not occur in {path_text}"
+                )
+
+        if not any(_entry_matches(entry, finding) for finding in findings):
+            problems.append(
+                f"{entry}: stale entry — it no longer suppresses any finding of "
+                f"{gate}; delete it in the commit that fixed the seam"
+            )
+
+    return problems
