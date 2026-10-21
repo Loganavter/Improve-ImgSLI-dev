@@ -1,32 +1,28 @@
-"""The metric profile — which axes apply to a gallery series (P0/P7-A).
+"""The metric profile — which axes apply to a gallery series (P0/P5/P7-A).
 
 A **profile** is the axis set a series is measured and scored on. It has two
 halves, and they are different PROVENANCE, not different quality:
 
 - the **registry half** (``axis_ids``): axes of the fixed pool
-  (``metric_scores.SPECS``, minus ``EXCLUDED_AXES``). The pool itself is
-  immutable — only the active subset varies — and a local detector can produce
-  every one of them. ``rank_fusion.measured_axes_for`` answers from this half, so
-  the local rows, the fusion and the Jev vector keep ONE vocabulary.
+  (``metric_scores.SPECS``, minus ``EXCLUDED_AXES``). The pool is immutable — only
+  the active subset varies — and a local detector can produce every one of them,
+  so ``rank_fusion.measured_axes_for`` answers from this half and the local rows,
+  the fusion and the Jev vector keep ONE vocabulary. The set the model is ASKED
+  about is derived from the SERIES (:func:`profile_for_series`, plan-gallery-ai-
+  judgement P5): its measured axes above the producing instrument's noise floor.
+  The mode mapping (:func:`profile_for_mode`) is only the LAST fallback — no
+  discriminating measurement yet — and says so in the trace
+  (:func:`profile_source_label`).
 - the **judge half** (``axis_entries``): axes the model NAMED for THIS series,
   each a first-class ``models.AiAxisProposal`` (name + definition + scale +
   direction). No local producer exists for them and none is required — the judge
   measures them (plan-gallery-ai-judgement §OWNER REVISION 2026-10-22: "the judge
-  names the axes … from 3 to 8, in free form"). The intersection with a mode's
-  axis set is gone: a free name with a definition is the normal case.
+  names the axes … from 3 to 8, in free form"), and the intersection with a
+  mode's axis set is gone: a free name with a definition is the normal case. The
+  half's readers/normalization live in ``services.profile_judged``.
 
-The registry half the model is ASKED about is derived from the SERIES
-(:func:`profile_for_series`, plan-gallery-ai-judgement P5, stored on
-``state.metric_profile`` by ``controller.refresh_metric_profile``): the pool
-axes whose spread in THIS series the local metrics pass measured above the
-instrument's own noise floor. The mode mapping (:func:`profile_for_mode`) is
-only the LAST fallback — no discriminating measurement yet — and says so in
-the trace (:func:`profile_source_label`); it is never a second axis list.
-
-The judge half arrives from ``use_cases/profile_ai`` (the selector) and replaces
-the whole profile when it answers. This module stays the single definition of
-"what the pool is", "which axes a mode implies", "what can be offered for a
-series" and "how a judge-named entry is normalized".
+This module stays the single definition of "what the pool is", "which axes a mode
+implies" and "what can be offered for a series".
 
 The named metric domains (a manual "pin" that replaced the derived axis set)
 were deleted with the stats-strip chip that selected them (owner decision
@@ -51,19 +47,18 @@ a fabricated registry id.
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 
-from tabs.image_gallery.models import (
-    AXIS_DIRECTION_DEFAULT,
-    AiAxisProposal,
-    MetricKind,
-)
-from tabs.image_gallery.services.metric_scores import (
-    SPECS,
-    raw_for,
-    score_for,
-    spec_for,
+from tabs.image_gallery.models import MetricKind
+from tabs.image_gallery.services.axis_spread import axis_spreads
+from tabs.image_gallery.services.metric_scores import SPECS, spec_for
+from tabs.image_gallery.services.profile_judged import (
+    AXIS_PROVENANCE,
+    PROVENANCE_JUDGE,
+    PROVENANCE_LOCAL,
+    axis_provenance,
+    judged_axis_entries,
+    normalized_entries,
 )
 
 
@@ -106,14 +101,6 @@ PROFILE_SOURCES: tuple[str, ...] = (
     PROFILE_SOURCE_VLM,
     PROFILE_SOURCE_FALLBACK,
 )
-
-#: Which instrument measures an axis in a given context. Two tokens, never one
-#: blended bar (plan-gallery-ai-judgement P7-A item 6): a registry axis a local
-#: detector can produce is ``measured-locally``; an axis the judge named (or a
-#: registry axis this context has no local producer for) is ``measured-by-judge``.
-PROVENANCE_LOCAL = "measured-locally"
-PROVENANCE_JUDGE = "measured-by-judge"
-AXIS_PROVENANCE: tuple[str, ...] = (PROVENANCE_LOCAL, PROVENANCE_JUDGE)
 
 #: Why a VLM axis-set answer was NOT applied to the folder generation
 #: (``GalleryState.profile_reject_reason``, plan-gallery-ai-judgement P2/M5:
@@ -178,75 +165,6 @@ def pool_axis_ids() -> tuple[str, ...]:
 MEASURED_POOL: tuple[str, ...] = pool_axis_ids()
 
 
-def axis_spreads(items) -> dict[str, float]:
-    """``{axis_id: spread}`` for every pool axis the series can separate.
-
-    ``spread`` is ``max − min`` of the axis' 0–100 quality score over the items
-    that carry a value; axes with fewer than two measured values are omitted (a
-    single value must never invent a signal). Registry (pool) order.
-
-    A value for an axis is the item's engine record (``analysis_records``,
-    ``status="ok"``) when the item has a record for that axis, else the legacy
-    ``raw_for`` → ``score_for`` score. The record is already 0–100, so it is used
-    as-is. A record that is not ``ok`` (``gap``/``error``) **excludes** the item
-    from that axis — never 0, and never backfilled from ``item.metrics`` (the
-    engine ran and had nothing, which is a different fact).
-
-    The ONE spread over ITEM metrics, TWO named readers and no third:
-    the P5 offer (:func:`profile_for_series` — "which axes can separate THIS
-    series", i.e. what the model is asked about, and through
-    ``profile_select.salience_axes`` the adaptive-probe summary) reads it to
-    decide which axes are offered at all. It is NOT the rank's salience
-    measurement: the rank / Jev vector asks a different question — "does this
-    axis separate these variants under the producing INSTRUMENT's noise floor" —
-    over the per-member vectors, and that answer lives in
-    ``rank_fusion.axis_salience``.
-    """
-    # Deferred import: ``rank_fusion`` imports this module at load time, so a
-    # module-level import would be circular. One reader of the records
-    # (``rank_fusion._record_scores`` / ``_record_axes``) — never a second one.
-    from tabs.image_gallery.services.rank_fusion import _record_axes, _record_scores
-
-    try:
-        members = list(items or ())
-    except Exception:
-        members = []
-    if len(members) < 2:
-        return {}
-    record_maps: list[tuple[dict[str, float], frozenset[str]]] = []
-    for item in members:
-        try:
-            record_maps.append((_record_scores(item), _record_axes(item)))
-        except Exception:
-            record_maps.append(({}, frozenset()))
-    out: dict[str, float] = {}
-    for axis_id in MEASURED_POOL:
-        spec = spec_for(axis_id)
-        if spec is None:
-            continue
-        values: list[int] = []
-        for item, (record_scores, recorded_axes) in zip(members, record_maps):
-            try:
-                if axis_id in recorded_axes:
-                    record_value = record_scores.get(axis_id)
-                    if record_value is not None:
-                        values.append(int(record_value))
-                    continue  # a gap/error record excludes the item for this axis
-                metrics = getattr(item, "metrics", None)
-                if not isinstance(metrics, dict) or not metrics:
-                    continue
-                got = raw_for(spec, metrics)
-                if got is None:
-                    continue
-                _key, raw = got
-                values.append(int(score_for(spec, raw)))
-            except Exception:
-                continue
-        if len(values) >= 2:
-            out[axis_id] = float(max(values) - min(values))
-    return out
-
-
 @dataclass(frozen=True, eq=True)
 class MetricProfile:
     """The axes a series is measured/scored on — registry half + judge half.
@@ -300,7 +218,7 @@ class MetricProfile:
             source if source in PROFILE_SOURCES else PROFILE_SOURCE_FALLBACK,
         )
         object.__setattr__(
-            self, "axis_entries", _normalized_entries(self.axis_entries, ordered)
+            self, "axis_entries", normalized_entries(self.axis_entries, ordered)
         )
 
     def __bool__(self) -> bool:
@@ -322,108 +240,6 @@ class MetricProfile:
         return name in self.axis_ids or any(
             str(getattr(entry, "name", "")) == name for entry in self.axis_entries
         )
-
-
-def _normalized_entries(entries, registry_ids=()):
-    """Judge-named entries, de-duplicated and free of unusable/duplicate rows.
-
-    One rule for every producer of a profile (the selector, a cache read, a test
-    double): a name is normalized, a missing name/definition is dropped, a name
-    that IS a registry id of this profile is not a second axis, and the first
-    occurrence of a name wins. Never raises — a junk row is dropped, never stored.
-    """
-    try:
-        from tabs.image_gallery.services.axis_proposal import (
-            normalize_direction,
-            normalize_name,
-        )
-    except Exception:  # pragma: no cover - defensive: never block a profile
-        return ()
-    taken = {str(a) for a in (registry_ids or ())}
-    out: list = []
-    try:
-        rows = list(entries or ())
-    except Exception:
-        return ()
-    for entry in rows:
-        try:
-            name = normalize_name(getattr(entry, "name", ""))
-            definition = str(getattr(entry, "definition", "") or "").strip()
-            if not name or not definition or name in taken:
-                continue
-            if name in {str(getattr(row, "name", "")) for row in out}:
-                continue
-            direction = normalize_direction(getattr(entry, "direction", "")) or (
-                AXIS_DIRECTION_DEFAULT
-            )
-            try:
-                clean = dataclasses.replace(
-                    entry, name=name, definition=definition, direction=direction
-                )
-            except Exception:
-                # A duck-typed entry (a test double, a hand-built row) still
-                # normalizes — a profile never carries an unusable axis.
-                clean = AiAxisProposal(
-                    name=name, definition=definition, direction=direction
-                )
-            out.append(clean)
-            taken.add(name)
-        except Exception:
-            continue
-    return tuple(out)
-
-
-def judged_axis_entries(profile=None) -> tuple:
-    """The judge-named axes of *profile* (``()`` when it has none / is ``None``).
-
-    The ONE reader of the judge half: the scorecard prompt asks for these by name,
-    and a surface labels them ``measured-by-judge`` (``axis_provenance``). They
-    never enter ``measured_axes_for`` — that resolver is the registry half, so the
-    local rows/fusion keep reading a pool id they can actually produce.
-    """
-    try:
-        entries = tuple(getattr(profile, "axis_entries", ()) or ())
-    except Exception:
-        return ()
-    return entries
-
-
-def axis_provenance(axis, *, mode=None, profile=None) -> str:
-    """Which instrument measures *axis* here: ``measured-locally`` / judge / ``""``.
-
-    The label that stops the two halves being mixed in one bar (plan-gallery-
-    ai-judgement P7-A item 6):
-
-    - an axis the judge NAMED is ``measured-by-judge`` — no local producer exists;
-    - a registry id a detector can produce in this mode is ``measured-locally``;
-    - a registry id this mode has NO local producer for (a ``reference`` axis in
-      a camera folder) is ``measured-by-judge`` when the profile asks for it —
-      the model is the only one who can answer it;
-    - anything else is ``""`` (no claim can be made — never a guess).
-    """
-    try:
-        name = str(axis or "").strip()
-    except Exception:
-        return ""
-    if not name:
-        return ""
-    entries = judged_axis_entries(profile)
-    if any(str(getattr(entry, "name", "")) == name for entry in entries):
-        return PROVENANCE_JUDGE
-    if name not in MEASURED_POOL:
-        return ""
-    context_mode = mode if mode is not None else getattr(profile, "mode", None)
-    try:
-        local = set(profile_for_mode(context_mode).axis_ids)
-    except Exception:
-        local = set()
-    if name in local:
-        return PROVENANCE_LOCAL
-    try:
-        asked = name in tuple(getattr(profile, "axis_ids", ()) or ())
-    except Exception:
-        asked = False
-    return PROVENANCE_JUDGE if asked else ""
 
 
 def profile_for_mode(mode=None) -> MetricProfile:
