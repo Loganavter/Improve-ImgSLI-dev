@@ -62,22 +62,7 @@ class Finding:
 ALLOWLIST: dict[str, dict[str, str]] = {
     "test_render_visibility_declared.py": {},
     "test_no_duck_typed_arg_shuffle.py": {},
-    "test_no_except_nameerror.py": {
-        "src/tabs/image_compare/canvas/rhi_renderer/use_cases/coverage.py::evaluate_coverage": (
-            "the coverage read still wraps an optional context field in a "
-            "NameError handler, turning a missing field into a default coverage "
-            "verdict. C2 names the field on the seam (and extends the context "
-            "contract) instead; precondition: every caller passes a context with "
-            "the field or the evaluated coverage test builds the real context."
-        ),
-        "src/tabs/image_compare/canvas/rhi_renderer/use_cases/coverage.py::apply_first_paint_hold": (
-            "the first-paint hold still falls back through an `except "
-            "NameError` for a name its callers may not provide, so a broken "
-            "hold decision silently becomes 'hold nothing'. C2 names the seam "
-            "and removes the handler; precondition: the hold path has a "
-            "falsifying test that fails when the field is absent."
-        ),
-    },
+    "test_no_except_nameerror.py": {},
     "test_scene_order_table_complete.py": {
         "src/ui/canvas_infra/scene/stacking_policy.py::resolve_render_pass_order": (
             "the render-pass resolver still returns `_RENDER_PASS_ORDER.get(role, "
