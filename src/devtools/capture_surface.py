@@ -272,6 +272,7 @@ class CaptureSession:
         default_w: int,
         default_h: int,
         delay: int = 1200,
+        before_grab=None,
     ) -> Path:
         """pin -> show -> pump -> re-pin -> pump -> grab -> save.
 
@@ -283,6 +284,8 @@ class CaptureSession:
         h = self.height or default_h
         self.last_pin = (w, h)
         windowed = self.apply_size(widget, w, h, delay=delay)
+        if before_grab is not None:
+            before_grab(widget)
         pixmap = widget.grab()
         dest = self.out_dir / filename
         pixmap.save(str(dest))
@@ -462,9 +465,63 @@ class _FakeSessionContext:
         return None
 
 
+def _hide_overlay_scrollbars(widget) -> None:
+    """Force overlay scrollbars hidden before the grab.
+
+    ``MinimalistScrollBar`` auto-hides on an idle timer and glides its opacity;
+    a capture taken while the timer decides lands on either state, so the same
+    figure alternated between "no bar" and "bar visible" across runs (measured
+    as a 12 px right-edge strip and 7/8 drift cells). Hiding is layout-neutral
+    (overlay bar) and deterministic; the figure does not need a transient bar.
+    """
+    try:
+        from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+            MinimalistScrollBar,
+        )
+    except Exception:
+        return
+    for bar in widget.findChildren(MinimalistScrollBar):
+        try:
+            bar._idle_timer.stop()
+        except Exception:
+            pass
+        bar.hide()
+
+
+def _demo_recent_records(sess: CaptureSession):
+    """Deterministic stand-ins for the user's Recent shelf.
+
+    ``RecentProjectsPanel`` reads ``services.io.recent_projects`` from disk: a
+    raw capture embedded the user's real projects (private data in a shipped
+    help figure) and their thumbnails/mtimes changed between runs, which is
+    exactly what made the sha256 gate flaky. Demo covers come from
+    ``CaptureSession.make_samples()``.
+    """
+    from PySide6.QtGui import QPixmap
+
+    from services.io.recent_projects import RecentProjectRecord
+
+    opened = "2026-01-01T00:00:00+00:00"
+    kinds = ("image_compare", "multi_compare", "image_gallery")
+    records = []
+    for index, path in enumerate(sess.make_samples()[:3]):
+        records.append(
+            RecentProjectRecord(
+                path=str(path),
+                display_name=f"demo-{index + 1}.png",
+                opened_at=opened,
+                pinned_at=opened,
+                session_types=(kinds[index],),
+            )
+        )
+    return records, [QPixmap(str(path)) for path in sess.make_samples()[:3]]
+
+
 @_surface("session-picker", "Session Picker — tab-type chooser with demo sessions.")
 def _session_picker(sess: CaptureSession) -> None:
     from core.session_blueprints import SessionBlueprint
+    from tabs.session_picker.recent import cards as recent_cards
+    from tabs.session_picker.recent import panel as recent_panel
     from tabs.session_picker.widget import SessionPickerWidget
 
     context = _FakeSessionContext(
@@ -480,8 +537,44 @@ def _session_picker(sess: CaptureSession) -> None:
             ),
         ]
     )
-    widget = SessionPickerWidget(context=context)
-    sess.grab(widget, "session-picker.png", 1100, 760, delay=1200)
+    records, covers = _demo_recent_records(sess)
+    covers_by_path = {record.path: pixmap for record, pixmap in zip(records, covers)}
+    patched = [
+        (recent_panel, "list_recent_projects"),
+        (recent_panel, "get_recent_view_mode"),
+        (recent_panel, "get_recent_sort_mode"),
+        (recent_panel, "get_recent_sort_order"),
+        (recent_cards, "preview_for_record"),
+        (recent_cards, "prefetch_previews"),
+        (recent_cards, "format_relative_opened"),
+    ]
+    saved = [(target, name, getattr(target, name)) for target, name in patched]
+    try:
+        # Fixed records/prefs + a frozen relative label: no wall clock, no disk
+        # store, no user thumbnails in the frame.
+        recent_panel.list_recent_projects = lambda *a, **k: list(records)
+        recent_panel.get_recent_view_mode = lambda: "grid"
+        recent_panel.get_recent_sort_mode = lambda: "name"
+        recent_panel.get_recent_sort_order = lambda: "asc"
+        recent_cards.preview_for_record = lambda record: covers_by_path.get(str(record.path))
+        recent_cards.prefetch_previews = lambda records, budget=0: 0
+        recent_cards.format_relative_opened = (
+            lambda opened_at, translate=None: (
+                translate("recent.relative.just_now", "just now") if translate else "just now"
+            )
+        )
+        widget = SessionPickerWidget(context=context)
+        sess.grab(
+            widget,
+            "session-picker.png",
+            1100,
+            760,
+            delay=1200,
+            before_grab=_hide_overlay_scrollbars,
+        )
+    finally:
+        for target, name, value in saved:
+            setattr(target, name, value)
 
 
 @_surface("onboarding", "Onboarding overlay — first-run mode picker.")

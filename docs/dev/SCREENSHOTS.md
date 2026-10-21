@@ -145,6 +145,13 @@ python src/devtools/help_figures.py --all --write-manifest       # record baseli
   fallback is not deterministic, and a runner without a CJK font renders tofu.
   Both bundled fonts ship their OFL texts next to the files
   (`LICENSE-SourceSans3.txt`, `LICENSE-NotoSansSC.txt`).
+- **User state never enters a frame.** A capture surface must be a product
+  surface, not the maintainer's session. `session-picker`'s Recent shelf reads
+  `services.io.recent_projects` from disk, so a raw grab embedded the user's
+  real projects (private data in a shipped figure) and their changed
+  thumbnails/mtimes made the sha256 gate flaky. The devtool now injects demo
+  records with sample covers and a frozen relative label; nothing on the shelf
+  comes from the store.
 - **A JPEG destination is converted from the grab.** Captures are PNG; when the
   shipped asset is `.jpg` the generator converts the final frame (`quality=95`,
   `subsampling=0`, Pillow is pinned) so the installed bytes — and therefore the
