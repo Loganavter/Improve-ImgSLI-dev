@@ -199,6 +199,20 @@ def build_prompt(mode=None, *, profile=None, measured_block: str = "") -> str:
     """
     axes = _scorecard_axes(mode, profile=profile)
     axis_parts = ", ".join(f'"{axis_id}": <0-100 {label}>' for axis_id, label in axes)
+    # A judge-named axis carries its own 0..100 meaning in the definition ("0 =
+    # none, 100 = everywhere"), which is NOT always "100 = best quality". Say so
+    # only for such a profile: a registry-only prompt stays byte-identical (its
+    # cached scorecards keep answering the same question), and a prompt that does
+    # carry judge axes is already a new identity in the analyze cache.
+    axes_rule = (
+        "axes: one 0-100 score per axis listed above; for an axis whose definition "
+        "names its own scale (0 = …, 100 = …), score exactly that scale — do not "
+        "re-read it as quality; omit an axis you cannot judge (never invent a "
+        "number you did not see).\n"
+        if bool(getattr(profile, "axis_entries", ()) or ())
+        else "axes: one 0-100 score per axis listed above; omit an axis you cannot "
+        "judge (never invent a number you did not see).\n"
+    )
     text = (
         _PROMPT_CORE
         + "Reply with ONLY a JSON object, no prose and no code fences:\n"
@@ -211,9 +225,8 @@ def build_prompt(mode=None, *, profile=None, measured_block: str = "") -> str:
         '"definition": "<what it measures, 0 = …, 100 = …>", '
         '"scale": "0-100", "score": <0-100>}], '
         '"composition": <0-100>, "confidence": <0.0-1.0>}\n'
-        "axes: one 0-100 score per axis listed above; omit an axis you cannot "
-        "judge (never invent a number you did not see).\n"
-        "axis_proposals: AT MOST 2 technical dimensions the list above is "
+        + axes_rule
+        + "axis_proposals: AT MOST 2 technical dimensions the list above is "
         "missing AND you can actually SEE in this image (e.g. halation, sepia "
         "drift, jpeg blocking). Each needs a snake_case name, a one-sentence "
         "definition naming what moves between 0 and 100, and this image's score "
