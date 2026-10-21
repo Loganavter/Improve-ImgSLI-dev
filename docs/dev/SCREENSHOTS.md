@@ -136,9 +136,11 @@ python src/devtools/help_figures.py --all --write-manifest       # record baseli
   `font` and `ui_scale` are forced for every capture by the canonical
   bootstrap: the app's bundled **Source Sans 3** is loaded and proven applied
   (the run fails loudly if it is not), `QT_SCALE_FACTOR=1` and
-  `QT_FONT_DPI=100` are set before `QApplication`, and the private Xvfb starts
-  with `-dpi 100` — so a baseline hash does not depend on the host's fontconfig
-  or DPI. They are recorded as **applied**, not as caveats. Surfaces that
+  `QT_FONT_DPI=96` are set before `QApplication`, `QT_QPA_PLATFORM=xcb` is forced
+  for the Xvfb backend, and the private Xvfb starts with `-dpi 96` — so a
+  baseline hash does not depend on the host's fontconfig or DPI. (`96` is Qt's
+  baseline and the toolkit scales px by `logicalDpi / 96`: an Xvfb left at its
+  default 100 DPI misses every size pin by +42/+32 px.) They are recorded as **applied**, not as caveats. Surfaces that
   hardcode their own language or theme (`SETTINGS_KWARGS`, the onboarding store)
   list `locale:constructor-pins-en` / `theme:constructor-pins-dark` under
   `pins_unavailable`, so a non-default filter is never claimed as applied.

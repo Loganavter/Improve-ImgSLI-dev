@@ -49,7 +49,13 @@ if str(SRC_ROOT) not in sys.path:
 #: applied explicitly and the scale/DPI Qt reads at ``QApplication`` creation
 #: are fixed here. Without this, a CI runner (DejaVu) and a maintainer host
 #: (Noto) produce different pixels from the same widgets.
-CANONICAL_DPI = 100
+#:
+#: ``96`` is Qt's baseline (``logicalDpi / 96`` is the toolkit's px scale) and
+#: the DPI the shipped Help assets were produced at, so a pinned 1016x776 frame
+#: is really 1016x776. An Xvfb started without ``-dpi`` reports 100 on this
+#: host, which scales every toolkit px by 100/96 and silently misses the pin by
+#: +42/+32 px (measured 2026-10-21) — hence the explicit value, not a default.
+CANONICAL_DPI = 96
 BUNDLED_FONT_PATH = (
     SRC_ROOT / "shared_toolkit" / "resources" / "fonts" / "SourceSans3-Regular.ttf"
 )

@@ -343,7 +343,7 @@ def test_pin_report_flags_constructor_pins(hf):
 def test_xvfb_command_pins_dpi(hf):
     cmd = hf.xvfb_command(91)
     assert cmd[0] == "Xvfb" and ":91" in cmd
-    assert cmd[cmd.index("-dpi") + 1] == "100"
+    assert cmd[cmd.index("-dpi") + 1] == "96"
 
 
 def test_canonical_env_pins_scale_and_dpi(hf, monkeypatch):
@@ -351,7 +351,7 @@ def test_canonical_env_pins_scale_and_dpi(hf, monkeypatch):
     monkeypatch.delenv("QT_FONT_DPI", raising=False)
     hf.capture_surface._pin_canonical_env()
     assert hf.capture_surface.os.environ["QT_SCALE_FACTOR"] == "1"
-    assert hf.capture_surface.os.environ["QT_FONT_DPI"] == "100"
+    assert hf.capture_surface.os.environ["QT_FONT_DPI"] == "96"
 
 
 def test_bootstrap_applies_the_bundled_font(hf, monkeypatch):
