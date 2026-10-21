@@ -52,8 +52,11 @@ BACKENDS = ("native", "xvfb")
 #: Pins that really go through the surface API (``capture_surface`` CLI:
 #: ``--theme`` -> ``ThemeManager.set_theme``, ``--lang`` -> ``emit_language_changed``).
 PINNABLE = ("locale", "theme")
-#: Pins the surface API cannot express. Recorded, never faked.
-UNPINNABLE = ("font", "ui_scale")
+#: Pins the canonical capture bootstrap forces for EVERY frame (bundled
+#: Source Sans 3, ``QT_SCALE_FACTOR=1``, ``QT_FONT_DPI=100``, Xvfb ``-dpi 100``).
+#: Recorded as applied: the bootstrap fails loudly when the font does not take,
+#: so a capture can never be silently host-flavoured.
+FORCED_PINS = ("font", "ui_scale")
 #: Constructors that hardcode ``current_language="en"`` / ``current_theme="dark"``
 #: (``SETTINGS_KWARGS``, the onboarding store): a non-default filter only reaches
 #: text resolved through ``tr`` at build time, so it is recorded as a caveat.
@@ -324,16 +327,18 @@ def pin_report(
     *,
     captured_size: tuple[int, int] | None = None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Which pins the surface API really applied for this capture.
+    """Which pins the capture really applied for this figure.
 
+    ``locale``/``theme`` go through the surface API; ``font``/``ui_scale`` are
+    forced by the canonical bootstrap for every frame (see ``FORCED_PINS``).
     Constructors that hardcode their own language/theme are recorded as caveats
     instead of being claimed as applied. A ``size`` pin is only claimed when the
     grabbed pixels really are that size; a surface that refuses the pin is
     recorded as unavailable WITH the achieved size (never silently resized —
     that would fake parity).
     """
-    unavailable = list(UNPINNABLE)
-    applied = list(PINNABLE)
+    unavailable: list[str] = []
+    applied = list(PINNABLE) + list(FORCED_PINS)
     if figure.surface in _PINS_EN:
         unavailable.append("locale:constructor-pins-en")
     if figure.surface in _PINS_DARK and theme != "dark":
@@ -715,6 +720,16 @@ def _free_display_number(start: int = 90, stop: int = 140) -> int:
     raise FigureError(f"no free X display number in {start}..{stop}")
 
 
+def xvfb_command(number: int) -> list[str]:
+    """Private Xvfb invocation for a deterministic frame.
+
+    ``-dpi 100`` is explicit on purpose: Xvfb's default DPI is a property of the
+    server build, and every text metric in the grab scales with it. It matches
+    ``capture_surface.CANONICAL_DPI`` (also forced through ``QT_FONT_DPI``).
+    """
+    return ["Xvfb", f":{number}", "-screen", "0", "1400x1000x24", "-dpi", "100"]
+
+
 @contextmanager
 def display_context(backend: str = "xvfb") -> Iterator[str]:
     """Provide a DISPLAY for the captures; never defaults to ``:0``.
@@ -735,7 +750,7 @@ def display_context(backend: str = "xvfb") -> Iterator[str]:
         raise FigureError("Xvfb not found on PATH; use --backend native with a private DISPLAY")
     number = _free_display_number()
     proc = subprocess.Popen(
-        ["Xvfb", f":{number}", "-screen", "0", "1400x1000x24"],
+        xvfb_command(number),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
