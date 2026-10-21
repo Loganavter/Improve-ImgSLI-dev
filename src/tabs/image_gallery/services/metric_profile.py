@@ -329,9 +329,9 @@ def profile_for_series(
       spread and never picks a floor number of its own.
 
     Why it exists (plan-gallery-ai-judgement J4 / §P5): the mode mapping asks
-    the model for ``white_balance``, ``aesthetic`` and ``brisque`` on a series
-    of ONE picture, where those axes are constant by construction, so the
-    answer is a number that ranks nothing. An axis whose measured spread in
+    the model for white balance, aesthetic and brisque on a series of ONE
+    picture, where those axes are constant by construction, so the answer is a
+    number that ranks nothing. An axis whose measured spread in
     this series is inside the instrument's noise floor cannot separate the
     variants and is therefore **not offered** — not merely hidden later.
 

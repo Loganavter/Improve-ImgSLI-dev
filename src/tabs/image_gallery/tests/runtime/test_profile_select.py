@@ -7,7 +7,7 @@ Falsification story (what each test would catch):
 - an axis with a single measured value inventing a spread (or a "signal"
   from a lone item);
 - the mode mapping being MERGED into a measured offer — the pre-P5 defect that
-  kept asking the model about ``white_balance``/``aesthetic`` on a series where
+  kept asking the model about white balance/aesthetic on a series where
   they are constant by construction (plan-gallery-ai-judgement J4/P5);
 - an axis inside the local instrument's noise floor being offered anyway;
 - the mode mapping not being the LAST fallback (and not NAMED as one) when the

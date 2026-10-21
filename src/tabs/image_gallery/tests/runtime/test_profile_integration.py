@@ -8,16 +8,16 @@ vector all resolve — byte for byte, not "a similar count".
 
 Since P5 the stored profile is the SERIES offer (the axes whose measured spread
 clears the local floor, plus source-relative axes when a source exists), not
-"mode base ∪ salient": a series where ``white_balance`` is constant must never
-be measured, dotted, prompted or vectorised on it.
+"mode base ∪ salient": a series where white balance is constant must never be
+measured, dotted, prompted or vectorised on it.
 
 Falsification stories (what each test would catch):
 
 - the producer storing a profile nobody reads (every consumer silently keeping
   the mode mapping): an axis the mode base does NOT imply (`ssim` here — a
-  ``reference`` axis absent from ``batch_synthetic``) must appear in EVERY
-  surface, while an axis the mode base DOES imply but this series cannot
-  separate (`white_balance`) must appear in none;
+  ``reference`` axis absent from the batch-synthetic mode base) must appear in
+  EVERY surface, while an axis the mode base DOES imply but this series cannot
+  separate (white balance) must appear in none;
 - a consumer deriving its own axes (a second source of truth): the four
   surfaces must agree on the exact ordered id list, not merely on the count;
 - the rank reading a different axis set from the dots/prompt: the fusion order
@@ -51,11 +51,11 @@ from tabs.image_gallery.ui.card.dots import metric_dots_for_item
 from tabs.image_gallery.use_cases.profile_select import active_profile, describe
 
 #: The axis the series offer must carry: a ``reference`` axis, i.e. one the
-#: ``batch_synthetic`` mode base does NOT contain. If a surface shows it, that
+#: batch-synthetic mode base does NOT contain. If a surface shows it, that
 #: surface read the stored profile rather than the mode mapping.
 SALIENT = "ssim"
-#: An axis the mode base implies (`camera`/`batch_synthetic` both list it) but
-#: the fixture keeps constant across the series: P5 must not offer it anywhere.
+#: An axis the mode base implies (camera/batch-synthetic both list it) but the
+#: fixture keeps constant across the series: P5 must not offer it anywhere.
 FLAT = "white_balance"
 
 

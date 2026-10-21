@@ -6,9 +6,9 @@ content-aware (``salience_axes`` over the local metrics). P5 closes the offer
 side: **the axis set the model is ASKED about comes from the series**.
 
 Before P5 the stored profile was "the mode base ∪ the salient axes", so the
-camera base was always part of the offer and the model was asked for
-``white_balance``, ``aesthetic`` and ``brisque`` on a series of ONE picture,
-where those axes are constant by construction (the owner's complaint: "why
+camera base was always part of the offer and the model was asked for white
+balance, aesthetic and brisque on a series of ONE picture, where those axes are
+constant by construction (the owner's complaint: "why
 white balance, why aesthetics — the composition is identical everywhere").
 The derivation now delegates to ``metric_profile.profile_for_series``:
 
