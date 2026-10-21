@@ -61,6 +61,47 @@ def test_help_text_context_menu_stays_an_in_window_child(qtbot):
     menu.hide()
 
 
+def test_help_text_context_menu_stays_in_window_under_the_app_popup_default(qtbot):
+    """The manager policy must win over the toolkit's app-wide ``popup``.
+
+    Live report 2026-10-22 (Wayland): after opening this menu once, the help
+    dialog's frame broke (an extra bottom-right badge) and resizing lagged —
+    the documented "Qt.Popup parented to the top-level breaks the host's
+    compositing" failure (inv-2026-10-06-ql-rhi-menu-first). Cause: the app
+    bootstrap configures the toolkit global to ``popup``
+    (``ui/icon_manager.py``) and the manager forgot to pass its own
+    ``in_window`` policy to ``ContextMenu``. Before the fix this menu IS the
+    popup window (``isWindow() is True``).
+    """
+    from sli_ui_toolkit import config as tk_config
+
+    tk_config.configure_toolkit(context_menu_surface="popup")
+    assert tk_config.get_context_menu_surface() == "popup"
+
+    dialog = HelpDialog(current_language="en", app_name="Improve-ImgSLI")
+    qtbot.addWidget(dialog)
+    dialog.resize(880, 620)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+
+    dialog.navigate_to("platform.getting_started")
+    dialog._document.select_all_text()
+    global_pos = dialog._document.mapToGlobal(dialog._document.rect().center())
+    open_help_text_context_menu(
+        dialog=dialog,
+        document=dialog._document,
+        global_pos=global_pos,
+        language="en",
+    )
+    qtbot.wait(10)
+
+    menu = get_context_menu_manager()._active_menu
+    assert menu is not None
+    assert menu._surface == "in_window"
+    assert not menu.isWindow()
+    menu.hide()
+
+
 def test_help_text_context_menu_enables_copy_with_selection(qtbot):
     dialog = HelpDialog(current_language="en", app_name="Improve-ImgSLI")
     qtbot.addWidget(dialog)
