@@ -129,6 +129,34 @@ def test_unknown_phase_is_a_named_refusal(qapp) -> None:
         QApplication.processEvents()
 
 
+def test_wheel_over_a_child_scrolls_the_owning_area(qapp) -> None:
+    """A wheel aimed at a child inside a scroll area scrolls that area.
+
+    This is the live case: the gallery inventory exposes cards, not the scroll
+    viewport, and a toolkit card (a Button) can return from ``wheelEvent``
+    without scrolling. The verb walks up to the owning ``QAbstractScrollArea``
+    instead of silently doing nothing.
+    """
+    area = _PhaseRecorder()
+    try:
+        for _ in range(3):
+            QApplication.processEvents()
+        child = area.widget()
+        assert child is not None
+        element = _element(child)
+        element.rect = child.rect()
+        interaction.wheel_element(element, delta=-120, phase="begin", count=10)
+        for _ in range(20):
+            QApplication.processEvents()
+        assert area.verticalScrollBar().value() > 0, (
+            "a wheel over a child of the scroll area did not scroll it"
+        )
+    finally:
+        area.close()
+        area.deleteLater()
+        QApplication.processEvents()
+
+
 def test_count_never_sends_zero_events(qapp) -> None:
     _, phases = _run("none", count=0)
     assert len(phases) >= 1, "count=0 sent no event at all"

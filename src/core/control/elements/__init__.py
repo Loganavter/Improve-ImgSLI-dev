@@ -149,11 +149,13 @@ class ElementMethodsMixin:
         delta = int(params.get("delta", 120))
         phase = str(params.get("phase") or "none")
         count = int(params.get("count", 1))
-        wheel_element(target, delta=delta, phase=phase, count=count)
+        raw = bool(params.get("raw", False))
+        wheel_element(target, delta=delta, phase=phase, count=count, raw=raw)
         return {
             "sent": max(1, count),
             "delta": delta,
             "phase": phase.lower(),
+            "raw": raw,
             "id": target.id,
             "rect": rect_list(target.rect),
             "target": target.target,
