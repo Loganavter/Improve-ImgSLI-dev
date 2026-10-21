@@ -151,12 +151,25 @@ def test_every_declared_cell_exists_on_disk():
 
 
 def test_single_cell_figures_have_no_stray_variant_folder():
-    """An undeclared cell is dead weight the storage gate still charges for."""
+    """An undeclared cell is dead weight the storage gate still charges for.
+
+    A destination may be described by two manifests (``help-multi-populated``
+    is the devtool surface of record, ``help-mc-layouts`` is the live recipe
+    that actually produces the cells), so a figure whose flat destination is
+    owned by a matrix elsewhere is not stray.
+    """
+    matrix_destinations = {
+        Path(figure.destination)
+        for _source, figure in _figures()
+        if figure.destination and len(_declared_pairs(figure)) > 1
+    }
     for source, figure in _figures():
         pairs = _declared_pairs(figure)
         if len(pairs) != 1 or not figure.destination:
             continue
         destination = Path(figure.destination)
+        if destination in matrix_destinations:
+            continue
         root = _assets_root(destination)
         stray = [
             (root / locale / theme / destination.name).as_posix()
@@ -191,7 +204,8 @@ def test_live_install_writes_one_cell_per_declared_pair():
     recipe path, which already installed per cell.
     """
     figure = next(f for f in help_live.load_recipes() if f.id == "help-toolbar")
-    assert help_live.install_target(figure, "en", "dark") == (
+    single = replace(figure, locales=("en",), themes=("dark",))
+    assert help_live.install_target(single, "en", "dark") == (
         help_live.REPO_ROOT / figure.destination
     ), "a single-cell figure keeps its flat destination"
 

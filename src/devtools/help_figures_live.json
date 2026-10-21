@@ -20,10 +20,14 @@
       ],
       "destination": "src/resources/help/assets/ui/toolbar.jpg",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "note": "Live Image Compare toolbar row (Line / View / Magnifier / Record). Cropped from the window capture; the states inside the groups are the buttons' own current affordances. Variant need: locale+theme — the frame carries translatable group captions (\"Line\", \"View\", \"Magnifier\", \"Record\").",
       "min_size": [
@@ -60,10 +64,14 @@
       ],
       "destination": "src/resources/help/assets/platform/tab_strip.png",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "note": "Session tab strip with three sessions; live chrome, so the labels are the running app's. Variant need: locale+theme — the tabs read their translatable titles (\"New Tab\", \"Image Compare\", …).",
       "min_size": [
@@ -101,10 +109,14 @@
       "crop": null,
       "destination": "src/tabs/multi_compare/resources/help/assets/export_save_dialog.png",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "note": "Live Multi Compare save dialog (Save Grid) over a loaded grid. Variant need: locale+theme — dialog title and field labels (\"Output directory:\", \"File name:\", the buttons) are translated.",
       "min_size": [
@@ -139,10 +151,14 @@
       "crop": null,
       "destination": "src/tabs/image_gallery/resources/help/assets/triage_stats.png",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "min_size": [
         1000,
@@ -185,10 +201,14 @@
       "crop": null,
       "destination": "src/tabs/image_gallery/resources/help/assets/quality_quicklook.png",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "min_size": [
         1000,
@@ -229,7 +249,8 @@
         "en"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "min_size": [
         1000,
@@ -364,10 +385,14 @@
       "crop": null,
       "destination": "src/plugins/export/resources/help/assets/export_dialog.jpg",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "min_size": [
         800,
@@ -409,10 +434,14 @@
       "crop": null,
       "destination": "src/plugins/image_properties/resources/help/assets/platform/image_properties.png",
       "locales": [
-        "en"
+        "en",
+        "pt_BR",
+        "ru",
+        "zh"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "min_size": [
         420,
@@ -463,7 +492,8 @@
         "en"
       ],
       "themes": [
-        "dark"
+        "dark",
+        "light"
       ],
       "min_size": [
         800,
