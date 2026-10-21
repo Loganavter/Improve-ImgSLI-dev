@@ -76,6 +76,32 @@ def active_tab_shortcut_owns_event(event: QKeyEvent) -> bool:
         return False
 
 
+def chord_claim_report(event: QKeyEvent) -> str:
+    """Route-log diagnostic: which tab is active and who claims this chord.
+
+    Printed only where a key is about to be routed globally despite the
+    binder veto, because a live "the chord died" report cannot be told apart
+    from "the binder had no claim at that instant" (a resync that ran for
+    another tab, or one that has not run yet) without these three values.
+    """
+    chord = key_event_chord(event)
+    try:
+        tab = get_shared_tab_registry().get_active_tab()
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never raise
+        return f"chord={chord!r} active_tab=<registry error {exc!r}>"
+    active_tab = getattr(tab, "session_type", None) if tab is not None else None
+    tab_desc = "none" if tab is None else f"{type(tab).__name__}({active_tab!r})"
+    try:
+        from ui.actions.binder import get_action_shortcut_binder
+
+        claim = get_action_shortcut_binder().describe_claim(
+            chord, active_tab=active_tab
+        )
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never raise
+        claim = f"<binder error {exc!r}>"
+    return f"chord={chord!r} active_tab={tab_desc} {claim}"
+
+
 def redispatch_unhandled_key_to_global_handler(widget, event: QKeyEvent) -> bool:
     """Hand a key a tab shell could not use back to the global handler.
 

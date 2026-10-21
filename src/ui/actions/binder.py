@@ -122,6 +122,27 @@ class ActionShortcutBinder:
             return True
         return self._owner_tabs.get(portable) in (None, active_tab)
 
+    def describe_claim(
+        self, chord: str, *, active_tab: str | None = None
+    ) -> str:
+        """One-line "who claims ``chord``" report for the ``[kbd-route]`` log.
+
+        ``owns_chord`` is a boolean and a False is indistinguishable between
+        "no claim at all" (binder not resynced yet, or a resync that ran with
+        another tab) and "claimed by a different tab". Live debugging needs
+        that difference, and shared event code must not reach into
+        ``_claimed``/``_owner_tabs`` itself — so the diagnostic lives here,
+        next to the data it reports. Never used for control flow.
+        """
+        portable = normalize_sequence(chord)
+        action_id = self._claimed.get(portable)
+        owner = self._owner_tabs.get(portable)
+        return (
+            f"claims={len(self._claimed)} claim={action_id or '-'} "
+            f"owner_tab={owner!r} "
+            f"tab_match={active_tab is None or owner in (None, active_tab)}"
+        )
+
     def clear(self) -> None:
         for shortcut in self._shortcuts:
             try:

@@ -155,6 +155,17 @@ def route_global_keyboard_event(event_handler, watched_obj, event: QEvent) -> bo
             event.key() if isinstance(event, QKeyEvent) else "?",
         )
         return False
+    if logger.isEnabledFor(logging.DEBUG):
+        # A live "the tab chord died" report cannot be told apart from "the
+        # binder held no claim for it at that instant" without these values.
+        from events.app_event.keyboard import chord_claim_report
+
+        logger.debug(
+            "[kbd-route] %s -> veto-miss (watched=%s) %s",
+            "Press" if event_type == QEvent.Type.KeyPress else "Release",
+            type(watched_obj).__name__,
+            chord_claim_report(event),
+        )
     if not event_handler.keyboard_handler.should_route_globally(event, watched_obj):
         logger.debug(
             "[kbd-route] %s -> CONSUMED_BY_TAB (watched=%s should_route_globally=False)",
