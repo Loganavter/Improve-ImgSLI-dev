@@ -213,7 +213,11 @@ class ActionShortcutBinder:
         active_tab: str | None,
     ) -> None:
         self.clear()
-        actions = registry.list_for(active_tab=active_tab)
+        # Shortcut installation must not follow toolbar visibility: in the
+        # simple UI mode the divider button is hidden while its action still
+        # has a live target, and dropping it here silently removed the ``D``
+        # chord (Image Compare). Find Action keeps the chrome filter.
+        actions = registry.list_for(active_tab=active_tab, chrome_only=False)
         # Rank through the shared scheme so the winner matches keymap /
         # Settings even when registration order disagrees with priority.
         ranked = sorted(

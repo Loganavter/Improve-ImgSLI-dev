@@ -408,3 +408,63 @@ def test_key_release_is_symmetric(qapp, no_active_tab):
         assert handler.global_releases.events == [event]
     finally:
         shell.deleteLater()
+
+
+# --------------------------------------------------------------------------
+# D — a hidden toolbar slot must not remove the keyboard shortcut
+# --------------------------------------------------------------------------
+#
+# Live cause of the dead `D`: `registry.list_for()` filtered the action out
+# because its target button is hidden in the simple UI mode
+# (`_action_chrome_is_available`), so `binder.resync` never saw it, `_claimed`
+# had no `D`, and the router (correctly) routed the key globally. The two
+# questions — "list it in Find Action" and "may it own a shortcut" — are
+# separate: a hidden button is still a live target.
+
+
+def _registry_with_hidden_target():
+    from core.actions.types import ActionDescriptor, ActionTarget
+    from ui.actions.registry import ActionRegistry
+
+    button = QWidget()
+    button.hide()
+    registry = ActionRegistry()
+    registry.register(
+        ActionDescriptor(
+            action_id="image_compare.divider.visible",
+            label_key="image_compare.action.divider_visible",
+            owner_tab="image_compare",
+            topic="divider",
+            shortcut="D",
+            run=lambda: None,
+            target=ActionTarget(widget=button),
+        )
+    )
+    return registry, button
+
+
+def test_chrome_filter_hides_the_action_but_shortcut_scope_keeps_it(qapp):
+    """Find Action still hides a hidden-button action; the binder must not."""
+    registry, _button = _registry_with_hidden_target()
+    assert registry.list_for(active_tab="image_compare") == []
+    kept = [
+        action.action_id
+        for action in registry.list_for(active_tab="image_compare", chrome_only=False)
+    ]
+    assert kept == ["image_compare.divider.visible"]
+
+
+def test_binder_installs_a_chord_whose_button_is_hidden(qapp):
+    """`D` survives a UI mode that hides the divider button."""
+    from ui.actions.binder import ActionShortcutBinder
+
+    registry, _button = _registry_with_hidden_target()
+    window = QWidget()
+    binder = ActionShortcutBinder()
+    binder.resync(window, registry=registry, overrides={}, active_tab="image_compare")
+    try:
+        assert binder.owns_chord("D", active_tab="image_compare") is True
+        assert binder.owns_chord("D", active_tab="multi_compare") is False
+    finally:
+        window.close()
+        window.deleteLater()
