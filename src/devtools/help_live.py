@@ -86,6 +86,7 @@ class LiveFigure:
     themes: tuple[str, ...]
     note: str
     min_size: tuple[int, int] | None = None
+    crop_element: dict | None = None
 
 
 def _parse_step(raw: dict, figure_id: str) -> Step:
@@ -151,6 +152,7 @@ def load_recipes(path: Path = RECIPE_PATH) -> tuple[LiveFigure, ...]:
                 themes=tuple(entry.get("themes") or ("dark",)),
                 note=str(entry.get("note") or ""),
                 min_size=tuple(int(v) for v in entry["min_size"]) if entry.get("min_size") else None,
+                crop_element=dict(entry["crop_element"]) if entry.get("crop_element") else None,
             )
         )
     return tuple(figures)
@@ -185,6 +187,10 @@ def ensure_samples(out_dir: Path) -> Path:
         draw.ellipse([500, 300, 780, 580], fill=(255, 240, 200))
         draw.text((40, 40), name, fill=(255, 255, 255))
         image.save(samples / f"{name}.png")
+    three = samples / "three"
+    three.mkdir(parents=True, exist_ok=True)
+    for name in ("sunset", "forest", "ocean"):
+        shutil.copyfile(samples / f"{name}.png", three / f"{name}.png")
     for name in specs:
         single = samples / "singles" / name / f"{name}.png"
         single.parent.mkdir(parents=True, exist_ok=True)
@@ -447,6 +453,25 @@ def stable_capture(app: LiveClient, what: str, out_path: Path,
     raise LiveError(f"{what}: no two consecutive captures matched in {STABLE_ATTEMPTS} attempts")
 
 
+def _crop_from_element(app: LiveClient, spec: dict) -> tuple[int, int, int, int]:
+    """Crop box for one live element (menu/flyout), from its screen rect."""
+    params = {}
+    for key in ("role", "label"):
+        if spec.get(key):
+            params[key] = str(spec[key])
+    if not params:
+        raise LiveError("crop_element needs role and/or label")
+    elements = app.call("ui_elements", params).get("elements") or []
+    if not elements:
+        raise LiveError(f"crop_element: no element matched {params!r}")
+    rect = elements[0].get("screen_rect") or elements[0].get("rect")
+    if not rect or len(rect) != 4:
+        raise LiveError(f"crop_element: element has no screen rect ({params!r})")
+    pad = int(spec.get("pad", 6))
+    x, y, width, height = (int(v) for v in rect)
+    return (max(0, x - pad), max(0, y - pad), width + 2 * pad, height + 2 * pad)
+
+
 def crop_and_install(
     screenshot: Path, destination: Path, crop: tuple[int, int, int, int] | None
 ) -> Path:
@@ -516,7 +541,10 @@ def main(argv: list[str] | None = None) -> int:
                                               out_dir / f"{figure.id}__{locale}__{theme}.png",
                                               figure.min_size)
                     destination = REPO_ROOT / figure.destination
-                    crop_and_install(shot, destination, figure.crop)
+                    crop = figure.crop
+                    if figure.crop_element is not None:
+                        crop = _crop_from_element(live.client, figure.crop_element)
+                    crop_and_install(shot, destination, crop)
                     print(f"installed {figure.id} [{locale}/{theme}] -> {figure.destination}")
                 except LiveError as exc:
                     failures += 1

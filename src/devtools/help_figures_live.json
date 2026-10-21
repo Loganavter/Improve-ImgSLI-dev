@@ -231,6 +231,46 @@
         600
       ],
       "note": "Live Quick Look overlay after clicking a gallery card; the metrics/rows are the running analysis, not a fixture."
+    },
+    {
+      "id": "help-mc-layouts",
+      "capture": "multi_compare",
+      "steps": [
+        {
+          "open_tab": "multi_compare"
+        },
+        {
+          "sleep": 1.5
+        },
+        {
+          "open_folder": {
+            "path": "@samples/three",
+            "tab": "multi_compare",
+            "side": "right"
+          }
+        },
+        {
+          "sleep": 4.0
+        }
+      ],
+      "crop": [
+        0,
+        222,
+        1280,
+        290
+      ],
+      "destination": "src/tabs/multi_compare/resources/help/assets/layouts.jpg",
+      "locales": [
+        "en"
+      ],
+      "themes": [
+        "dark"
+      ],
+      "min_size": [
+        1000,
+        600
+      ],
+      "note": "Live Multi Compare row: three slots side by side with dividers and filename labels, composed through open_folder side=right. The first image auto-places; side drives the split of the following ones (documented limitation)."
     }
   ]
 }
