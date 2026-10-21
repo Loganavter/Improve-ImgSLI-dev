@@ -20,6 +20,8 @@ on:
       - "src/tabs/session_picker/**"
       - "src/tabs/multi_compare/**"
       - "src/shared_toolkit/**"
+      - "src/core/theme.py"
+      - "src/resources/themes.json"
       - ".github/workflows/help-figures.yml"
   push:
     branches:
