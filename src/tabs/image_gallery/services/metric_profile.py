@@ -56,6 +56,7 @@ from dataclasses import dataclass
 
 from tabs.image_gallery.models import (
     AXIS_DIRECTION_DEFAULT,
+    AiAxisProposal,
     MetricKind,
 )
 from tabs.image_gallery.services.metric_scores import (
@@ -345,24 +346,30 @@ def _normalized_entries(entries, registry_ids=()):
     except Exception:
         return ()
     for entry in rows:
-        name = normalize_name(getattr(entry, "name", ""))
-        definition = str(getattr(entry, "definition", "") or "").strip()
-        if not name or not definition or name in taken:
-            continue
-        if name in {str(getattr(row, "name", "")) for row in out}:
-            continue
-        direction = normalize_direction(getattr(entry, "direction", "")) or (
-            AXIS_DIRECTION_DEFAULT
-        )
-        out.append(
-            dataclasses.replace(
-                entry,
-                name=name,
-                definition=definition,
-                direction=direction,
+        try:
+            name = normalize_name(getattr(entry, "name", ""))
+            definition = str(getattr(entry, "definition", "") or "").strip()
+            if not name or not definition or name in taken:
+                continue
+            if name in {str(getattr(row, "name", "")) for row in out}:
+                continue
+            direction = normalize_direction(getattr(entry, "direction", "")) or (
+                AXIS_DIRECTION_DEFAULT
             )
-        )
-        taken.add(name)
+            try:
+                clean = dataclasses.replace(
+                    entry, name=name, definition=definition, direction=direction
+                )
+            except Exception:
+                # A duck-typed entry (a test double, a hand-built row) still
+                # normalizes — a profile never carries an unusable axis.
+                clean = AiAxisProposal(
+                    name=name, definition=definition, direction=direction
+                )
+            out.append(clean)
+            taken.add(name)
+        except Exception:
+            continue
     return tuple(out)
 
 

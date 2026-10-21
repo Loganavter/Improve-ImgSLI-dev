@@ -883,15 +883,12 @@ class GalleryController:
             except Exception:
                 pass
         try:
-            axis_ids = tuple(getattr(profile, "axis_ids", None) or ())
-        except Exception:
-            axis_ids = ()
-        try:
             usable = bool(profile) and bool(
-                axis_ids or tuple(getattr(profile, "axis_entries", ()) or ())
+                tuple(getattr(profile, "axis_ids", None) or ())
+                or tuple(getattr(profile, "axis_entries", ()) or ())
             )
         except Exception:
-            usable = bool(axis_ids)
+            usable = bool(getattr(profile, "axis_ids", None))
         if not usable:
             if profile is not None:
                 _note_profile_reject(
