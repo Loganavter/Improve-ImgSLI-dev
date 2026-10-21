@@ -66,18 +66,7 @@ ALLOWLIST: dict[str, dict[str, str]] = {
     "test_scene_order_table_complete.py": {
                             },
     "test_capacity_agreement.py": {},
-    "test_pass_discovery_raises_on_broken_import.py": {
-        "src/ui/canvas_infra/scene/registry.py::_iter_feature_modules": (
-            "the feature-module iterator catches every ModuleNotFoundError and "
-            "continues, so a broken transitive import inside an existing "
-            "passes.py is indistinguishable from 'this feature has no "
-            "passes.py' — its passes silently vanish from every frame. C3 "
-            "narrows the catch to `exc.name == '<feature>.passes'` and lets "
-            "every other ImportError propagate; precondition: this gate's "
-            "three-feature probe stays green and the registry's own tests "
-            "still cover a feature that genuinely ships no passes.py."
-        ),
-    },
+    "test_pass_discovery_raises_on_broken_import.py": {},
 }
 
 
