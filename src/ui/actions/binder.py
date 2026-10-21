@@ -93,6 +93,34 @@ class ActionShortcutBinder:
         self._shortcuts: list = []
         self._claimed: dict[str, str] = {}
         self._entries: list[tuple[str, object]] = []
+        # chord -> owning action's tab (None = platform action). Lets
+        # ``owns_chord`` answer per-tab questions without a registry lookup.
+        self._owner_tabs: dict[str, str | None] = {}
+
+    def owns_chord(self, chord: str, *, active_tab: str | None = None) -> bool:
+        """True when this binder installed ``chord`` in the active tab's scope.
+
+        The binder is resynced for the ACTIVE tab (see
+        ``resync_action_shortcuts``), so its claimed chords are exactly the
+        shortcuts that tab's focused widgets may receive. Platform actions
+        (``owner_tab is None``) are installed in every tab's scope and count
+        for any ``active_tab``. ``active_tab=None`` asks the plain question
+        "is this chord bound at all".
+
+        Shared-event code uses this to decide whether a key belongs to the
+        shortcut map instead of the global keyboard route — e.g. Image
+        Compare's ``D`` is both the divider-visibility shortcut and an
+        overlay-movement key.
+        """
+        portable = normalize_sequence(chord)
+        if not portable:
+            return False
+        action_id = self._claimed.get(portable)
+        if action_id is None:
+            return False
+        if active_tab is None:
+            return True
+        return self._owner_tabs.get(portable) in (None, active_tab)
 
     def clear(self) -> None:
         for shortcut in self._shortcuts:
@@ -113,6 +141,7 @@ class ActionShortcutBinder:
         self._shortcuts.clear()
         self._claimed.clear()
         self._entries.clear()
+        self._owner_tabs.clear()
 
     def drop_prefix(self, prefix: str) -> None:
         """Delete live shortcuts whose action id starts with ``prefix``.
@@ -147,6 +176,11 @@ class ActionShortcutBinder:
                 chord: action_id
                 for chord, action_id in self._claimed.items()
                 if not action_id.startswith(prefix)
+            }
+            self._owner_tabs = {
+                chord: owner_tab
+                for chord, owner_tab in self._owner_tabs.items()
+                if chord in self._claimed
             }
 
     def resync(
@@ -226,6 +260,7 @@ class ActionShortcutBinder:
         self._shortcuts.append(shortcut)
         self._entries.append((portable, action_id))
         self._claimed[portable] = action_id
+        self._owner_tabs[portable] = getattr(action, "owner_tab", None)
 
     @staticmethod
     def _invoke(run, action_id: str) -> None:
