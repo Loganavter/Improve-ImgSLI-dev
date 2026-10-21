@@ -1,29 +1,30 @@
-"""Model-NAMED axes: the judge's own entries and the pool a scorecard may extend.
+"""Model-NAMED axes: the per-image proposal rule and the shared axis vocabulary.
 
-The judged axis set is the fixed registry (``metric_scores.SPECS``) plus the
-axes the model NAMES. Two producers reach this module, both with the same rule —
-a name is nothing without a definition:
+Two producers name axes in this app, and this module owns the rules they SHARE
+plus the scorecard's own:
 
-- the **selector** (``use_cases/profile_ai``) asks the model for 3..8 axes that
-  most differentiate a series, in free form (plan-gallery-ai-judgement §OWNER
-  REVISION 2026-10-22). A name that matches a registry id is that id (a local
-  detector can score it too); any other name is a first-class entry with a
-  definition, a scale and a direction. This is the NORMAL case — the filter that
-  intersected the answer with a mode's axis set is gone.
-- the **scorecard** (``services/axis_proposal`` below) lets a per-image reply add
-  at most two dimensions the asked set is missing, each with this image's score.
+- the **scorecard** (``services/ai_client/parse``) lets a per-image reply add at
+  most :data:`AXIS_PROPOSAL_LIMIT` dimensions the asked set is missing, each with
+  this image's score. That rule lives here: name, measurable definition, 0–100
+  scale, score.
+- the **selector** (``use_cases/profile_ai``) asks the model for 3..8 axes for a
+  whole series (plan-gallery-ai-judgement §OWNER REVISION 2026-10-22). Its
+  classification is ``services/axis_choice`` — a separate rule for a separate
+  reply shape, importing the vocabulary from here (``normalize_name``,
+  ``direction_of``, ``scale_of``, the refusal codes).
 
-Both paths refuse only a proposal that is NOT MEASURABLE, with a recorded reason:
+Shared vocabulary: a NAME (an axis id, not a phrase), a DEFINITION that names a
+technical dimension (content is identical across variants of one picture and
+cannot separate them), a 0–100 SCALE, and a DIRECTION ("higher is better" unless
+the definition says otherwise). A proposal that fails the per-image rule is
+**refused with a reason** and never stored: an axis with no measurable meaning
+cannot be ranked on, and a stored one would silently become a weight in the order
+(the "nine bars that meant nothing" failure). Accepted proposals become
+``models.AiAxisProposal`` entries (``producer="vlm"``, ``kind="candidate"``,
+plus the direction) and travel with the scorecard into the Jev vector by name.
 
-- no NAME (a phrase or an empty string is not an axis);
-- no DEFINITION (or a definition that only describes the scene — content is
-  identical across variants of one picture and cannot separate them);
-- a DUPLICATE of a registry axis (a renamed axis is not a new dimension);
-- no SCALE / no SCORE where a number is required.
-
-Pure: no Qt, no HTTP, no registry mutation. A free axis lives on the profile
-(selector) or on the result of the image that proposed it (scorecard); the pool
-itself is never written.
+Pure: no Qt, no HTTP, no registry mutation. The pool itself is never written —
+the proposal lives on the result of the image that proposed it.
 """
 
 from __future__ import annotations
@@ -56,12 +57,6 @@ _SCALE_SPELLINGS = frozenset(
 #: Upper bound per image: a proposal is a *gap* in the pool, not a second
 #: scorecard. Beyond this the reply is over-limit and the extra ones are refused.
 AXIS_PROPOSAL_LIMIT = 2
-
-#: How many axes the SELECTOR may keep (owner rule: "from 3 to 8"). The floor is
-#: the instruction, not a parser refusal — a two-axis answer is kept as given (a
-#: parser never fabricates a third) and the trace says so.
-AXIS_CHOICE_MIN = 3
-AXIS_CHOICE_MAX = 8
 
 #: Refusal codes (the recorded reason). Codes, never prose: a surface localizes
 #: them and the trace stays stable across a language switch.
@@ -212,20 +207,6 @@ def _definition_problem(definition: str) -> str:
     return ""
 
 
-def _definition_missing(definition: str) -> bool:
-    """True when *definition* says nothing at all (the SELECTOR-level rule).
-
-    The selector's rule is the owner's: a free name WITH a definition is the
-    normal case, and the model's own vocabulary is the point — so this checks
-    only that a definition EXISTS (a sentence, not a word or a placeholder).
-    Judging whether the vocabulary is "technical enough" is the SCORECARD
-    proposal rule (``_definition_problem``), where an invented per-image axis
-    would otherwise become a weight in the order.
-    """
-    text = str(definition or "").strip()
-    return len(text) < 10 or len(_words(text)) < 2
-
-
 def _pool_axis_for(name: str) -> str:
     """The existing pool axis *name* duplicates (``""`` when it is new)."""
     try:
@@ -325,7 +306,7 @@ def direction_of(entry, definition=None) -> str:
     return AXIS_DIRECTION_DEFAULT
 
 
-def _scale_of(value) -> str:
+def scale_of(value) -> str:
     try:
         text = str(value or "").strip().lower()
     except Exception:
@@ -346,7 +327,7 @@ def refusal_reason(entry) -> str:
     problem = _definition_problem(str(entry.get("definition", "") or ""))
     if problem:
         return problem
-    if not _scale_of(entry.get("scale")):
+    if not scale_of(entry.get("scale")):
         return REJECT_SCALE
     if _score_of(entry.get("score")) < 0:
         return REJECT_SCORE
@@ -394,133 +375,9 @@ def parse_proposals(value, *, limit: int = AXIS_PROPOSAL_LIMIT):
     return tuple(accepted), tuple(refusals)
 
 
-@dataclass(frozen=True)
-class AxisChoiceSet:
-    """The selector reply split into what it can become (plan P7-A).
-
-    ``registry_ids`` are the axes of the fixed pool the judge named (a local
-    detector can produce them; the profile keeps them in ``axis_ids``).
-    ``entries`` are the axes the judge NAMED that the pool does not have — each a
-    first-class :class:`~tabs.image_gallery.models.AiAxisProposal` with a
-    definition, a scale and a direction. ``refusals`` is ``(name, reason)`` for
-    every pick that was NOT stored, so the loss is traceable and never silent.
-
-    A registry id and an entry are different PROVENANCE, not different quality:
-    the first reads "measured locally", the second "measured by the judge".
-    """
-
-    registry_ids: tuple[str, ...] = ()
-    entries: tuple[AiAxisProposal, ...] = ()
-    refusals: tuple[tuple[str, str], ...] = ()
-
-
-def parse_axis_choices(value, *, limit: int = AXIS_CHOICE_MAX) -> AxisChoiceSet:
-    """Classify a selector reply's ``axes`` list (never raises).
-
-    Every element may be:
-
-    - a string: a registry axis id (the reply of a terse/older answer) — kept
-      when it IS a pool id, refused as ``no-definition`` otherwise (a bare name
-      with no meaning cannot be measured, and the app will not invent one);
-    - an object: ``{name, definition, scale, direction}``. A name equal to a
-      registry id is that registry axis (the model asked for a measurable
-      dimension that already exists — the local detector should score it too);
-      any other name becomes a first-class entry, which is the normal answer of
-      the free-form selector.
-
-    The pool filter that used to drop every non-registry name is GONE (owner
-    revision 2026-10-22): a free name WITH a definition is kept. What stays
-    refused is what is not measurable — an unusable/empty name, an entry without
-    a definition (or one that only describes the scene), and a name repeated
-    inside one reply.
-    """
-    try:
-        items = list(value or ())
-    except Exception:
-        return AxisChoiceSet()
-    try:
-        from tabs.image_gallery.services.metric_profile import MEASURED_POOL
-
-        pool = frozenset(MEASURED_POOL)
-    except Exception:
-        pool = frozenset()
-
-    registry: list[str] = []
-    entries: list[AiAxisProposal] = []
-    refusals: list[tuple[str, str]] = []
-    seen: set[str] = set()
-
-    def _refuse(row_name: str, reason: str) -> None:
-        refusals.append((row_name, reason))
-
-    for index, item in enumerate(items):
-        if isinstance(item, str):
-            raw_name = item
-            name = normalize_name(item)
-            if not name:
-                _refuse(item.strip() or f"#{index + 1}", REJECT_NAME)
-                continue
-            if name not in pool:
-                _refuse(name, REJECT_DEFINITION)
-                continue
-            definition = ""
-            direction = AXIS_DIRECTION_DEFAULT
-        elif isinstance(item, dict):
-            raw_name = item.get("name")
-            name = normalize_name(raw_name)
-            if not name:
-                _refuse(str(raw_name or f"#{index + 1}")[:40], REJECT_NAME)
-                continue
-            definition = str(item.get("definition", "") or "").strip()[:240]
-            direction = direction_of(item, definition)
-            if name in pool:
-                # A named registry axis: it is the pool axis, measured locally.
-                pass
-            else:
-                if _definition_missing(definition):
-                    _refuse(name, REJECT_DEFINITION)
-                    continue
-                if not _scale_of(item.get("scale")):
-                    _refuse(name, REJECT_SCALE)
-                    continue
-        else:
-            _refuse(f"#{index + 1}", REJECT_NAME)
-            continue
-
-        if name in seen:
-            _refuse(name, REJECT_REPEAT)
-            continue
-        if name in pool:
-            seen.add(name)
-            if name not in registry:
-                registry.append(name)
-            continue
-        if len(entries) >= int(limit):
-            _refuse(name, REJECT_LIMIT)
-            continue
-        seen.add(name)
-        entries.append(
-            AiAxisProposal(
-                name=name,
-                definition=definition,
-                scale=AXIS_PROPOSAL_SCALE,
-                score=-1,  # chosen, not yet read: the scorecard fills the numbers
-                direction=direction,
-            )
-        )
-    return AxisChoiceSet(
-        registry_ids=tuple(registry),
-        entries=tuple(entries),
-        refusals=tuple(refusals),
-    )
-
-
 __all__ = [
-    "AXIS_CHOICE_MAX",
-    "AXIS_CHOICE_MIN",
     "AXIS_PROPOSAL_LIMIT",
     "AXIS_PROPOSAL_SCALE",
-    "AxisChoiceSet",
     "PROPOSAL_REJECT_CODES",
     "REJECT_CONTENT",
     "REJECT_DEFINITION",
@@ -533,7 +390,7 @@ __all__ = [
     "direction_of",
     "normalize_direction",
     "normalize_name",
-    "parse_axis_choices",
     "parse_proposals",
     "refusal_reason",
+    "scale_of",
 ]
