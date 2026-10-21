@@ -20,6 +20,16 @@
   (`test_help_copy_markdown_copies_only_the_selected_list_items` — red before:
   the clipboard held the whole page).
 
+- **Copy actions drop the selection highlight.** Choosing "Copy" or "Copy as
+  Markdown" left the text washed as if the selection were still live. The rule
+  is now the toolkit's standard copy behaviour (`Text.copy_selection()` /
+  `Text.copy_selection_markdown(source)` — copy, then clear), used by the help
+  menu rows instead of setting the clipboard directly; the toolkit routes its
+  built-in Ctrl+C paths and the default label (menu row + Ctrl+C) through the
+  same rule. Toolkit CHANGELOG has the mechanism; the app test asserts the
+  selection is gone after BOTH menu rows
+  (`tests/plugins/test_help_text_context_menu.py`).
+
 - **Hover no longer pops the value flyout on scroll-value controls.** The
   divider / magnifier-guide width buttons (Image Compare, Multi Compare) show
   the value **inside** the button on hover; the value pill above the button is

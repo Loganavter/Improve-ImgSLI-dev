@@ -443,8 +443,11 @@ remains separate chrome above the canvas (clickable `_LinkLabel` rows, not part
 of body selection).
 
 Public document API used by the app: `set_markdown`, `plain_text`,
-`selected_plain_text()`, `selected_markdown()`, `select_all_text()`,
-`scroll_to_anchor`, `textContextMenuRequested(QPoint)`.
+`selected_plain_text()`, `selected_markdown()`, `copy_selection()`,
+`copy_selection_markdown()`, `select_all_text()`, `scroll_to_anchor`,
+`textContextMenuRequested(QPoint)`. Both copy entries set the clipboard and
+then drop the selection (the toolkit's standard copy rule — the highlight must
+not linger after the menu closes).
 
 Help body right-click opens a toolkit `ContextMenu` via
 `open_help_text_context_menu` → `ContextMenuManager`. That path passes
