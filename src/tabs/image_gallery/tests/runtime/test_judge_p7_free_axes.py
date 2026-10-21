@@ -44,11 +44,13 @@ from tabs.image_gallery.controller import GalleryController
 from tabs.image_gallery.models import AiAxisProposal, GalleryItem
 from tabs.image_gallery.services.ai_cache import analysis_cache_identity
 from tabs.image_gallery.services.ai_client.prompt import _scorecard_axes, build_prompt
-from tabs.image_gallery.services.axis_proposal import (
+from tabs.image_gallery.services.axis_choice import (
     AXIS_CHOICE_MAX,
+    parse_axis_choices,
+)
+from tabs.image_gallery.services.axis_proposal import (
     REJECT_DEFINITION,
     REJECT_REPEAT,
-    parse_axis_choices,
     parse_proposals,
     refusal_reason,
 )

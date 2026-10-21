@@ -21,7 +21,7 @@ The pool/mode filter that used to drop every non-registry name and every
 registry id the mode could not measure is GONE: a free name with a definition is
 the normal case. What is still refused (with a recorded reason) is an axis that
 is NOT MEASURABLE — an unusable/empty name, a name with no definition, a name
-repeated inside the reply (``services/axis_proposal.parse_axis_choices``).
+repeated inside the reply (``services/axis_choice.parse_axis_choices``).
 
 One call per unchanged folder-generation: the selection is pinned
 (``services/profile_cache``, keyed on member fingerprint + mode + model + pool),
@@ -269,7 +269,7 @@ def _reply_axes(text) -> list | None:
 
     An element may be a bare id string (terse/older answers) or an object with
     ``name``/``definition``/``scale``/``direction`` (the free-form answer this
-    prompt asks for) — ``axis_proposal.parse_axis_choices`` classifies them.
+    prompt asks for) — ``axis_choice.parse_axis_choices`` classifies them.
     """
     obj = None
     try:
@@ -295,7 +295,7 @@ def parse_profile_reply(text, *, mode=None):
 
     Accepts ``{"axes": [{"name": …, "definition": …, "scale": …, "direction": …}]}``
     (also bare ids, also a bare array), through the shared tolerant JSON extractor
-    and the ONE classifier (``axis_proposal.parse_axis_choices``):
+    and the ONE classifier (``axis_choice.parse_axis_choices``):
 
     - a name that IS a registry id is the registry axis (``axis_ids``) — a local
       detector can score it;
@@ -314,7 +314,7 @@ def parse_profile_reply(text, *, mode=None):
     if not axes:
         return None
     try:
-        from tabs.image_gallery.services.axis_proposal import parse_axis_choices
+        from tabs.image_gallery.services.axis_choice import parse_axis_choices
         from tabs.image_gallery.services.metric_profile import MetricProfile
 
         choices = parse_axis_choices(axes)
