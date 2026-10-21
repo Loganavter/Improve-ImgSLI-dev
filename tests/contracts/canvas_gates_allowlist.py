@@ -61,17 +61,7 @@ class Finding:
 #: reviewable on its own and stale entries are attributed to one gate.
 ALLOWLIST: dict[str, dict[str, str]] = {
     "test_render_visibility_declared.py": {},
-    "test_no_duck_typed_arg_shuffle.py": {
-        "src/tabs/image_compare/canvas/rhi_renderer/use_cases/draw.py::submit_array_draw": (
-            "the function still accepts the plan-doc positional call style by "
-            "duck-typing (`hasattr(ctx, 'scene_frame')` re-binds the arguments) "
-            "and keeps a **kwargs catch-all. C2 removes the accepted positional "
-            "style, which changes a public signature; precondition: migrate all "
-            "four call sites (renderer.py's `_submit_array_draw_impl` plus the "
-            "three in src/tabs/image_compare/tests/render/test_ic_perf_spans.py) "
-            "to the keyword form and re-run the render suite."
-        ),
-    },
+    "test_no_duck_typed_arg_shuffle.py": {},
     "test_no_except_nameerror.py": {
         "src/tabs/image_compare/canvas/rhi_renderer/use_cases/coverage.py::evaluate_coverage": (
             "the coverage read still wraps an optional context field in a "
