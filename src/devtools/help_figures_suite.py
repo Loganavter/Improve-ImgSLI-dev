@@ -20,9 +20,9 @@ content, never to remembering which script runs with which flags in which
 order.
 
 The run is **fail-fast**: a red devtool stage makes the live stage pointless
-and the live stage costs minutes of app boots, so the suite stops at the first
-failing stage, names it and prints the tail of its output. There is no retry
-and no "continue anyway" flag — a failed stage is a failed run.
+(the live stage boots an app instance per figure), so the suite stops at the
+first failing stage, names it and prints the tail of its output. There is no
+retry and no "continue anyway" flag — a failed stage is a failed run.
 
 ``--check`` is the drift gate and only the devtool set has a sha256 baseline;
 the live slot prints ``live: unverified — no sha256 baseline yet (P10-D)``
@@ -51,8 +51,8 @@ STAGES = ("devtool", "live")
 #: Devtool capture workers per stage run. A cell is dominated by its settle
 #: pump, so four is the measured-parallelism default of ``help_figures.py``.
 DEFAULT_JOBS = 4
-#: Per-stage budget. 48 devtool cells at 4 jobs plus nine app boots fit well
-#: inside it; exceeding it is reported as a failed stage, never a hang.
+#: Per-stage budget. Generous because the live stage boots one app instance per
+#: figure; exceeding it is a failed stage naming the violation, never a hang.
 DEFAULT_TIMEOUT_S = 1800.0
 #: How many of a stage's last stdout+stderr lines the summary keeps.
 TAIL_LINES = 20
