@@ -72,7 +72,6 @@ AXIS_EXAMPLES: tuple[tuple[str, str], ...] = (
 )
 
 
-
 def _as_list(items) -> list:
     try:
         return list(items or ())
