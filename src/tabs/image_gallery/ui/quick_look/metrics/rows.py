@@ -761,7 +761,10 @@ def rebuild_metrics(overlay, item, is_fidelity: bool, mode_str: str) -> None:
         _comp = int(getattr(getattr(item, "analysis", None), "composition", -1) or -1)
     except Exception:
         _comp = -1
-    if domain == "ai" and _comp >= 0:
+    if domain == "ai" and _comp >= 0 and not _is_judged_axis("composition"):
+        # A judge-named "composition" already rendered through the judged row
+        # (with the model's own wording) — drawing this one too would show the
+        # same axis twice under two labels.
         _ccol = _band_color(_comp)
         _add_metric_row(
             _titled(_metric_label(overlay, "composition", "Composition"), "composition", _comp),

@@ -360,9 +360,68 @@ def test_a_measured_noise_floor_is_the_one_the_rows_use(qtbot):
         ov._report_host.deleteLater()
 
 
-# ---------------------------------------------------------------------------
-# (d) provenance is visible, and the registry half is unchanged
-# ---------------------------------------------------------------------------
+def test_a_judge_axis_renders_once_when_its_name_is_the_ai_only_composition_axis(
+    qtbot,
+):
+    """The AI-only Composition row must not duplicate a judge-named one."""
+    judged_composition = AiAxisProposal(
+        name="composition",
+        definition="framing and balance of the main subject; 0 = poor, 100 = excellent",
+    )
+    profile = MetricProfile(
+        axis_ids=("sharpness",),
+        mode="camera",
+        source="vlm",
+        axis_entries=(judged_composition,),
+    )
+    item = _item("composition.png", axes={"sharpness": 80, "composition": 66})
+    item.analysis = AiAnalysisResult(
+        description="",
+        tags=(),
+        model="m",
+        analyzed_at_iso="t",
+        axes={"sharpness": 80, "composition": 66},
+        composition=66,
+    )
+
+    ov = _build_rows(qtbot, item, profile)
+    try:
+        titles = _row_titles(ov)
+        composition_rows = [t for t in titles if "omposition" in t]
+        assert len(composition_rows) == 1, (
+            f"the same axis is rendered twice under two labels: {titles}"
+        )
+        assert judged_composition.definition in composition_rows[0], (
+            "the judge's own wording must win over the registry label"
+        )
+    finally:
+        ov._report_host.deleteLater()
+
+
+def test_engine_records_carry_the_reader_provenance_token():
+    """Engine-on: the record keeps its producer and gains the instrument token."""
+    from engine.analysis.contracts import AxisValue
+
+    record = AxisValue(
+        axis=FREE.name,
+        value=73.0,
+        producer="vlm",
+        status="ok",
+    )
+    profile = _profile(FREE)
+    item = _item("engine.png")
+    item.analysis_records = (record,)
+
+    read = read_axes(
+        item, domain="ai", axes=(FREE.name,), profile=profile
+    )[0]
+
+    assert read.provenance == PROVENANCE_JUDGE
+    assert read.axis == FREE.name and read.value == 73.0
+    assert read.producer == "vlm", "the producer id is never rewritten"
+    assert record.provenance == "", (
+        "the engine's own record is not mutated — the reader stamps a copy"
+    )
 
 
 def test_the_registry_half_is_byte_identical_when_a_judge_entry_is_added(qtbot):
