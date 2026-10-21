@@ -60,16 +60,7 @@ class Finding:
 #: gate file name -> {entry -> reason}. Namespaced by gate so a slice is
 #: reviewable on its own and stale entries are attributed to one gate.
 ALLOWLIST: dict[str, dict[str, str]] = {
-    "test_render_visibility_declared.py": {
-        "src/ui/canvas_infra/rhi/render_executor.py::_visibility_matches": (
-            "the matcher still catches TypeError and falls back to name-string "
-            "matching, so a wrong-typed visibility yields a verdict instead of "
-            "an error. C2 removes the fallback; precondition: FIRST grep that "
-            "no caller passes a string visibility, and add a runtime-assert "
-            "test — removing the fallback turns a silent mis-match into a "
-            "crash, so it must fail in a test, not on a user."
-        ),
-    },
+    "test_render_visibility_declared.py": {},
     "test_no_duck_typed_arg_shuffle.py": {
         "src/tabs/image_compare/canvas/rhi_renderer/use_cases/draw.py::submit_array_draw": (
             "the function still accepts the plan-doc positional call style by "
