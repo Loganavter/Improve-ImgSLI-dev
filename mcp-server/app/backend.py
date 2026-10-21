@@ -979,6 +979,30 @@ class AppBackend:
     def ui_hover(self, *, id: str) -> dict:
         return self._live_only("ui_hover", self._elements_need_live(), id=id)
 
+    def ui_wheel(
+        self,
+        *,
+        id: str,
+        steps: int = 1,
+        horizontal: bool = False,
+        ctrl: bool = False,
+        shift: bool = False,
+        alt: bool = False,
+        count: int = 1,
+    ) -> dict:
+        """Wheel one element — live-only (no element exists without a window)."""
+        return self._live_only(
+            "ui_wheel",
+            self._elements_need_live(),
+            id=id,
+            steps=steps,
+            horizontal=horizontal,
+            ctrl=ctrl,
+            shift=shift,
+            alt=alt,
+            count=count,
+        )
+
     def ui_focus(self, *, id: str) -> dict:
         return self._live_only("ui_focus", self._elements_need_live(), id=id)
 

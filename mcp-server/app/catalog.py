@@ -1421,6 +1421,59 @@ TOOLS: list[dict] = [
         "handler": "ui_hover",
     },
     {
+        "name": "ui_wheel",
+        "title": "Wheel over an element by id",
+        "description": (
+            "Deliver wheel notches to one element in-process, at its centre — the only "
+            "wheel path in the surface. One step = 120 angle units; positive scrolls up "
+            "(zoom in on a canvas); horizontal=true sends X; ctrl/shift/alt add modifiers; "
+            "count repeats (max 20). The widget, then its ancestors, are tried until one "
+            "accepts: accepted/delivered_to say which. Call ui_elements first; ids are "
+            "session-scoped."
+        ),
+        "inputSchema": _params(
+            {
+                "id": {**_STR, "description": "Element id from ui_elements (session-scoped), or a stable property:<name>=<value> reference."},
+                "steps": {
+                    **_INT,
+                    "minimum": -50,
+                    "maximum": 50,
+                    "default": 1,
+                    "description": "Signed notches of 120 angle units; positive = up / zoom in.",
+                },
+                "horizontal": {**_BOOL, "default": False, "description": "Send the X axis instead of Y."},
+                "ctrl": {**_BOOL, "default": False, "description": "Hold Ctrl (canvas zoom uses Ctrl+wheel)."},
+                "shift": {**_BOOL, "default": False, "description": "Hold Shift."},
+                "alt": {**_BOOL, "default": False, "description": "Hold Alt."},
+                "count": {
+                    **_INT,
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 1,
+                    "description": "Repeat the notch N times (bounded to 20).",
+                },
+            },
+            ["id"],
+        ),
+        "outputSchema": _object(
+            {
+                "wheeled": _BOOL,
+                "id": _STR,
+                "steps": _INT,
+                "angle_delta": {"type": "array", "items": _INT},
+                "accepted": _BOOL,
+                "delivered_to": _STR,
+                "rect": _rect("Widget-local rect the wheel resolved to."),
+                "screen_rect": {"type": ["array", "null"], "items": _INT},
+                "target": _STR,
+                "source": _source(),
+            },
+            ["wheeled", "id", "steps", "angle_delta", "accepted", "delivered_to"],
+        ),
+        "annotations": MUTATING,
+        "handler": "ui_wheel",
+    },
+    {
         "name": "ui_focus",
         "title": "Focus an element by id",
         "description": (

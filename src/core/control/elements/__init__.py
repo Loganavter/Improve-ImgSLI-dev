@@ -86,7 +86,12 @@ from .inventory import (
     rect_list,
     screen_rect_of,
 )
-from .interaction import click_element, focus_element, hover_element
+from .interaction import (
+    click_element,
+    focus_element,
+    hover_element,
+    wheel_element,
+)
 from .query import MAX_ELEMENT_LIMIT, filter_elements
 from .resolve import PROPERTY_PREFIX, focus_target, key_target, resolve_element
 
@@ -151,6 +156,56 @@ class ElementMethodsMixin:
             "hovered": True,
             "id": target.id,
             "rect": rect_list(target.rect),
+            "target": target.target,
+        }
+
+    def ui_wheel(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Deliver wheel notches to one element (the only wheel path in the surface).
+
+        Zoom and every scroll surface used to be reachable only by leaving the
+        control channel (filed as ``mcp-c-019``). ``steps`` is signed notches
+        (positive = wheel up / zoom in), ``horizontal`` sends the X axis, and
+        ``count`` repeats (bounded). The answer says whether anything accepted
+        the event and which class did — a widget that ignores wheel events
+        propagates to its ancestors exactly as with real input.
+        """
+        from PySide6.QtCore import Qt
+
+        target = resolve_element(self._registry(), params.get("id"))  # type: ignore[attr-defined]
+        try:
+            steps = int(params.get("steps", 1))
+        except (TypeError, ValueError):
+            raise MethodError(
+                "ui_wheel 'steps' must be an integer",
+                "positive scrolls up (zoom in on a canvas), negative scrolls down",
+            )
+        try:
+            count = int(params.get("count", 1))
+        except (TypeError, ValueError):
+            raise MethodError("ui_wheel 'count' must be an integer", "1 repeats once")
+        modifiers = Qt.KeyboardModifier.NoModifier
+        if params.get("ctrl"):
+            modifiers |= Qt.KeyboardModifier.ControlModifier
+        if params.get("shift"):
+            modifiers |= Qt.KeyboardModifier.ShiftModifier
+        if params.get("alt"):
+            modifiers |= Qt.KeyboardModifier.AltModifier
+        result = wheel_element(
+            target,
+            steps=steps,
+            horizontal=bool(params.get("horizontal", False)),
+            modifiers=modifiers,
+            count=count,
+        )
+        return {
+            "wheeled": True,
+            "id": target.id,
+            "steps": steps,
+            "angle_delta": result["angle_delta"],
+            "accepted": result["accepted"],
+            "delivered_to": result["delivered_to"],
+            "rect": rect_list(target.rect),
+            "screen_rect": rect_list(target.screen_rect),
             "target": target.target,
         }
 

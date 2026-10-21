@@ -9,7 +9,7 @@ on the mouse path and one that uses ``CustomContextMenu`` behave identically.
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QContextMenuEvent, QEnterEvent
+from PySide6.QtGui import QContextMenuEvent, QEnterEvent, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -86,3 +86,70 @@ def focus_element(element: Element) -> None:
             f"could not focus {element.id!r}: {exc}",
             "the element may not accept keyboard focus",
         )
+
+
+def wheel_element(
+    element: Element,
+    *,
+    steps: int = 1,
+    horizontal: bool = False,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+    count: int = 1,
+) -> dict:
+    """Deliver wheel notches to *element* in-process, at its centre.
+
+    The surface had no wheel primitive at all (filed as ``mcp-c-019``): zoom and
+    every scroll surface were reachable only by leaving the control channel.
+    One step is Qt's 120-angle-unit notch, positive = away from the user (wheel
+    up / zoom in on the canvases); ``horizontal`` sends it on the X axis
+    instead.
+
+    Delivery mimics Qt's own routing: the event goes to the element's widget
+    first and, when the widget does not accept it, bubbles to the ancestors
+    (a plain ``QWidget`` ignores wheel events by default, a
+    ``QAbstractScrollArea``/canvas accepts). ``accepted`` reports whether
+    anything took it, and ``delivered_to`` names the class that did.
+    """
+    widget = element.widget
+    pos = element.rect.center()
+    global_pos = widget.mapToGlobal(pos)
+    angle = int(steps) * 120
+    angle_delta = QPoint(0, angle) if not horizontal else QPoint(angle, 0)
+    repeats = max(1, min(int(count), 20))
+    accepted = False
+    delivered_to = type(widget).__name__
+    for _ in range(repeats):
+        target = widget
+        local = QPointF(pos)
+        while target is not None:
+            event = QWheelEvent(
+                local,
+                QPointF(global_pos),
+                QPoint(0, 0),
+                angle_delta,
+                Qt.MouseButton.NoButton,
+                modifiers,
+                Qt.ScrollPhase.NoScrollPhase,
+                False,
+            )
+            QApplication.sendEvent(target, event)
+            # ``sendEvent`` returns True even for an ignored event (Qt only
+            # reports that it delivered one); the acceptance flag is the truth.
+            if event.isAccepted():
+                accepted = True
+                delivered_to = type(target).__name__
+                break
+            parent = target.parentWidget()
+            if parent is None:
+                delivered_to = type(widget).__name__
+                break
+            local = QPointF(target.mapTo(parent, pos))
+            target = parent
+        if not accepted:
+            break
+    return {
+        "accepted": accepted,
+        "delivered_to": delivered_to,
+        "angle_delta": [angle_delta.x(), angle_delta.y()],
+        "pos": [pos.x(), pos.y()],
+    }
