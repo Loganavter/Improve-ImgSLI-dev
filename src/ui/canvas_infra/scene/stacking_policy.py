@@ -79,6 +79,7 @@ _SCENE_OBJECT_ORDER: dict[CanvasStackRole, tuple[CanvasStackLayer, int]] = {
     CanvasStackRole.IMAGE_OVERLAY_CONTENT: (CanvasStackLayer.OBJECT, 0),
     CanvasStackRole.ANNOTATION_BORDER:     (CanvasStackLayer.OVERLAY, 5),
     CanvasStackRole.HUD_LABEL:             (CanvasStackLayer.HUD, 0),
+    CanvasStackRole.HUD_INTERACTION_OVERLAY: (CanvasStackLayer.HUD, 10),
     CanvasStackRole.TRANSIENT_PREVIEW:     (CanvasStackLayer.FOREGROUND, 0),
     CanvasStackRole.INTERACTION_HANDLE:    (CanvasStackLayer.FOREGROUND, 10),
     CanvasStackRole.DEBUG_VIS:             (CanvasStackLayer.DEBUG, 0),
