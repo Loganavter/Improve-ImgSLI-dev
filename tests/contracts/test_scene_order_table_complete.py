@@ -30,6 +30,7 @@ Allowlist: three entries (both resolvers and the missing scene role — C2).
 from __future__ import annotations
 
 import ast
+from types import SimpleNamespace
 
 from tests.contracts._framework import ROOT, parse
 from tests.contracts.canvas_gates_allowlist import (
@@ -221,3 +222,42 @@ def test_collision_is_flagged_on_the_fallback_role():
     assert "_RENDER_PASS_ORDER.HUD_INTERACTION_OVERLAY" not in symbols, (
         "the render-pass table has the row — it must not report a fallback collision"
     )
+
+
+def test_hud_interaction_overlay_sits_above_the_hud_label():
+    """The role's declared order, checked through the REAL scene sort.
+
+    ``HUD_INTERACTION_OVERLAY`` is interaction chrome for the HUD: it belongs
+    ABOVE the HUD label it annotates (the pass table already ranks it 150
+    against the label's 100). No scene object declares the role yet, so a live
+    frame cannot show it — this is the ordering proof instead: one object per
+    role, sorted by ``resolve_render_order``. Red before the scene row exists:
+    the missing key resolves the overlay to ``(OBJECT, 0)`` through the
+    resolver's default, so it sorts *below* the label.
+    """
+    from ui.canvas_infra.scene.feature_contract import CanvasFeatureZOrder
+    from ui.canvas_infra.scene.stacking import resolve_render_order
+    from ui.canvas_infra.scene.stacking_policy import CanvasStackLayer, CanvasStackRole
+
+    def _obj(obj_id: str, role: CanvasStackRole) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=obj_id,
+            stack_hint=CanvasFeatureZOrder(stack_role=role).stack_hint(),
+        )
+
+    label = _obj("hud_label", CanvasStackRole.HUD_LABEL)
+    overlay = _obj("interaction_overlay", CanvasStackRole.HUD_INTERACTION_OVERLAY)
+
+    order = [obj.id for obj in resolve_render_order([overlay, label])]
+    assert order == ["hud_label", "interaction_overlay"], (
+        "the HUD interaction overlay must sort ABOVE the HUD label (back-to-front "
+        f"order); got {order} — the missing scene row fell back to "
+        f"{(overlay.stack_hint.layer, overlay.stack_hint.priority)}"
+    )
+    assert overlay.stack_hint.layer == CanvasStackLayer.HUD, (
+        f"the overlay belongs on the HUD layer, got {overlay.stack_hint.layer!r}"
+    )
+    assert (overlay.stack_hint.layer, overlay.stack_hint.priority) > (
+        label.stack_hint.layer,
+        label.stack_hint.priority,
+    ), "the overlay's resolved pair must be strictly above the HUD label's"
