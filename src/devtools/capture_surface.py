@@ -60,6 +60,19 @@ BUNDLED_FONT_PATH = (
     SRC_ROOT / "shared_toolkit" / "resources" / "fonts" / "SourceSans3-Regular.ttf"
 )
 BUNDLED_FONT_FAMILY = "Source Sans 3"
+#: Bundled CJK fallback (Noto Sans SC, SIL OFL 1.1) — see LICENSE-NotoSansSC.txt.
+#: Without it a zh frame resolves Han glyphs to whatever the host ships, so the
+#: sha256 baseline is host-specific (and a bare runner renders tofu).
+BUNDLED_CJK_FONT_PATH = (
+    SRC_ROOT / "shared_toolkit" / "resources" / "fonts" / "NotoSansSC-Regular.otf"
+)
+BUNDLED_CJK_FONT_FAMILY = "Noto Sans SC"
+#: Characters every zh frame must be able to draw from the bundled fallback.
+_CJK_PROBE = "设置图像"
+#: Path -> loaded family. ``addApplicationFont`` is not free for an 8 MB CJK
+#: OTF, and ``_bootstrap_qt`` runs once per captured (figure, locale, theme)
+#: cell: without this cache a 40-cell baseline pays the parse 40 times.
+_LOADED_FONTS: dict[str, str] = {}
 
 #: i18n roots registered at bootstrap. Without these, widget strings show the
 #: raw key (``help.topic.foo``) instead of translated text. Mirrors the app's
@@ -511,33 +524,69 @@ def _pin_canonical_env() -> None:
     os.environ["QT_FONT_DPI"] = str(CANONICAL_DPI)
 
 
-def _apply_canonical_font(app) -> str:
-    """Apply the font the product ships and prove it took.
+def _load_bundled_font(path: Path, expected_family: str) -> str:
+    """Load one bundled font once and prove Qt sees the expected family."""
+    from PySide6.QtGui import QFontDatabase
 
-    The app's default ``ui_font_mode`` is ``builtin`` (Source Sans 3); a capture
-    that silently falls back to the system sans is a different product. Loading
-    the TTF directly (rather than ``FontManager``) keeps this devtool free of
-    app bootstrap imports and fails loudly instead of shipping a host-flavoured
-    frame.
-    """
-    from PySide6.QtGui import QFont, QFontDatabase
-
-    if not BUNDLED_FONT_PATH.is_file():
-        raise RuntimeError(f"bundled font missing: {BUNDLED_FONT_PATH}")
-    font_id = QFontDatabase.addApplicationFont(str(BUNDLED_FONT_PATH))
+    key = str(path)
+    if key in _LOADED_FONTS:
+        family = _LOADED_FONTS[key]
+        if family != expected_family:
+            raise RuntimeError(
+                f"cached family {family!r} != expected {expected_family!r} for {path}"
+            )
+        return family
+    if not path.is_file():
+        raise RuntimeError(f"bundled font missing: {path}")
+    font_id = QFontDatabase.addApplicationFont(str(path))
     families = QFontDatabase.applicationFontFamilies(font_id) if font_id != -1 else []
     if not families:
-        raise RuntimeError(f"bundled font not loadable: {BUNDLED_FONT_PATH}")
-    family = families[0]
-    if family != BUNDLED_FONT_FAMILY:
+        raise RuntimeError(f"bundled font not loadable: {path}")
+    if families[0] != expected_family:
         raise RuntimeError(
-            f"bundled font family is {family!r}, expected {BUNDLED_FONT_FAMILY!r}"
+            f"bundled font family is {families[0]!r}, expected {expected_family!r} ({path})"
         )
-    app.setFont(QFont(family))
-    applied = app.font().family()
-    if applied != BUNDLED_FONT_FAMILY:
-        raise RuntimeError(f"canonical font did not take: app font is {applied!r}")
-    return applied
+    _LOADED_FONTS[key] = families[0]
+    return families[0]
+
+
+def _cjk_run_families(font) -> tuple[str, ...]:
+    """Families Qt actually used to draw a Han probe string with ``font``."""
+    from PySide6.QtGui import QTextLayout
+
+    layout = QTextLayout(_CJK_PROBE, font)
+    layout.beginLayout()
+    line = layout.createLine()
+    layout.endLayout()
+    return tuple(run.rawFont().familyName() for run in line.glyphRuns())
+
+
+def _apply_canonical_font(app) -> str:
+    """Apply the product's font chain and prove BOTH faces took.
+
+    The app's default ``ui_font_mode`` is ``builtin`` (Source Sans 3) plus the
+    bundled CJK fallback (Noto Sans SC). A capture that silently falls back to
+    the system sans / a system Han font is a different product and a different
+    baseline. Loading the TTFs directly (rather than ``FontManager``) keeps this
+    devtool free of app bootstrap imports; both the family list and an actual
+    Han glyph run are asserted, so a cleared fallback cannot slip through.
+    """
+    from PySide6.QtGui import QFont
+
+    family = _load_bundled_font(BUNDLED_FONT_PATH, BUNDLED_FONT_FAMILY)
+    cjk_family = _load_bundled_font(BUNDLED_CJK_FONT_PATH, BUNDLED_CJK_FONT_FAMILY)
+    canonical = QFont(family)
+    canonical.setFamilies([family, cjk_family])
+    app.setFont(canonical)
+    applied = tuple(app.font().families())
+    if applied[:2] != (family, cjk_family):
+        raise RuntimeError(f"canonical font families did not take: {applied!r}")
+    runs = _cjk_run_families(app.font())
+    if cjk_family not in runs:
+        raise RuntimeError(
+            f"bundled CJK fallback did not take: Han probe {_CJK_PROBE!r} ran with {runs!r}"
+        )
+    return family
 
 
 def _bootstrap_qt(theme: str, lang: str):
