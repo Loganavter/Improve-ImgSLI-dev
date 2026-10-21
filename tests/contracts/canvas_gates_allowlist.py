@@ -64,23 +64,7 @@ ALLOWLIST: dict[str, dict[str, str]] = {
     "test_no_duck_typed_arg_shuffle.py": {},
     "test_no_except_nameerror.py": {},
     "test_scene_order_table_complete.py": {
-        "src/ui/canvas_infra/scene/stacking_policy.py::resolve_render_pass_order": (
-            "the render-pass resolver still returns `_RENDER_PASS_ORDER.get(role, "
-            "_RENDER_PASS_DEFAULT)`, so a CanvasStackRole without a row draws at "
-            "a silent default. C2 switches it to `__getitem__`; precondition: "
-            "grep every resolve_render_pass_order caller for a role that could "
-            "arrive without a row, then add a test asserting an unknown role "
-            "raises KeyError (the strictness must fail in a test, not a frame)."
-        ),
-        "src/ui/canvas_infra/scene/stacking_policy.py::resolve_scene_object_order": (
-            "the scene-object resolver still returns `_SCENE_OBJECT_ORDER.get("
-            "role, _SCENE_OBJECT_DEFAULT)`, so a missing role silently takes "
-            "(OBJECT, 0). C2 switches it to `__getitem__`; precondition: land "
-            "the HUD_INTERACTION_OVERLAY row FIRST (otherwise the strict "
-            "resolver raises on that role), then grep the callers and add a "
-            "test asserting an unknown role raises KeyError."
-        ),
-            },
+                            },
     "test_capacity_agreement.py": {
         "src/tabs/image_compare/canvas/rhi_renderer/resources.py::_ARRAY_CAPACITY": (
             "the IC pool sizes its SRB-bound array for 2032 layers "
