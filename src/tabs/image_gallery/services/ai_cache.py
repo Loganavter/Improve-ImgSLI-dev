@@ -40,7 +40,11 @@ import json
 import logging
 from pathlib import Path
 
-from tabs.image_gallery.models import AiAnalysisResult, ai_scored_axes
+from tabs.image_gallery.models import (
+    AXIS_DIRECTION_DEFAULT,
+    AiAnalysisResult,
+    ai_scored_axes,
+)
 from tabs.image_gallery.services.thumbnail_cache import cache_key_for
 
 logger = logging.getLogger("ImproveImgSLI")
@@ -370,6 +374,12 @@ def load_cached_analysis(
                         definition=str(entry.get("definition", "") or ""),
                         scale=str(entry.get("scale", "") or ""),
                         score=int(entry.get("score", -1)),
+                        # A v3 payload written before the direction field has no
+                        # value: the owner default is the honest read, and a HIT
+                        # must not hand the ranker a different axis than a MISS.
+                        direction=str(
+                            entry.get("direction") or AXIS_DIRECTION_DEFAULT
+                        ),
                     )
                 )
             except Exception:
@@ -594,6 +604,9 @@ def save_analysis(
                             "definition": p.definition,
                             "scale": p.scale,
                             "score": p.score,
+                            # The direction travels with the entry (P7-A): it is
+                            # what stops a ranker from guessing which end is good.
+                            "direction": getattr(p, "direction", ""),
                         }
                         for p in (getattr(result, "axis_proposals", ()) or ())
                     ],

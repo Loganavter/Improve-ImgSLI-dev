@@ -290,10 +290,14 @@ def _mixed_profile() -> MetricProfile:
 
 
 def test_the_scorecard_prompt_names_the_chosen_free_axis_with_its_definition():
+    from tabs.image_gallery.services.metric_scores import spec_for
+
     profile = _mixed_profile()
     axes = _scorecard_axes("camera", profile=profile)
 
-    assert ("noise", "Noise") in axes or axes[0][0] == "noise"
+    assert ("noise", spec_for("noise").label) in axes, (
+        "the registry half keeps its registry label"
+    )
     assert ("jpeg_noise", FREE.definition) in axes, (
         "a free axis reaches the model as a NAME + its definition, so it can be "
         f"measured instead of guessed; got {axes}"
@@ -317,6 +321,26 @@ def test_a_free_only_profile_asks_for_its_own_axes_not_the_mode_mapping():
 def test_without_a_profile_the_scorecard_is_byte_identical():
     for mode in ("camera", "fidelity", "batch_synthetic", None):
         assert build_prompt(mode) == build_prompt(mode, profile=None)
+
+
+def test_a_registry_only_profile_prompt_is_byte_identical_to_the_mode_mapping():
+    mode_only = build_prompt("camera")
+    registry = MetricProfile(
+        axis_ids=profile_for_mode("camera").axis_ids, mode="camera", source="vlm"
+    )
+    assert build_prompt("camera", profile=registry) == mode_only, (
+        "no judge axes → the scorecard asks the same question it always did, so "
+        "existing cached scorecards stay readable"
+    )
+    assert "score exactly that scale" not in mode_only
+
+
+def test_a_judge_axis_makes_the_scale_explicit():
+    text = build_prompt("camera", profile=_mixed_profile())
+    assert "score exactly that scale" in text, (
+        "a free axis' definition fixes its own 0..100 meaning — the prompt must "
+        "not let the model re-read it as '100 = best'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +455,46 @@ def test_a_free_only_answer_is_applied_not_rejected_as_hollow():
     )
     assert owner.state.profile_reject_reason == ""
     assert owner.refreshed, "the cards are refreshed like the neighbouring apply-tails"
+
+    # End to end through the seam the analyze path reads: the stored profile is
+    # what the scorecard is built from, and it asks for the judge's axis by name.
+    prompt = build_prompt(owner.state.mode, profile=owner.state.metric_profile)
+    assert '"jpeg_noise"' in prompt and FREE.definition in prompt
+
+
+def test_a_cached_scorecard_keeps_the_proposal_direction(tmp_path, monkeypatch):
+    from tabs.image_gallery.models import AiAnalysisResult
+    from tabs.image_gallery.services import ai_cache
+
+    monkeypatch.setattr(ai_cache, "ai_cache_dir", lambda: tmp_path)
+    identity = ai_cache.analysis_cache_identity(
+        None, mode="camera", profile=("noise",)
+    )
+    path = Path("/gallery/one.png")
+    result = AiAnalysisResult(
+        description="",
+        tags=(),
+        model="m",
+        analyzed_at_iso="t",
+        axes={"noise": 80},
+        axis_proposals=(
+            AiAxisProposal(
+                name="invented_detail",
+                definition="made-up texture; 0 = none, 100 = fully invented",
+                score=62,
+                direction="lower-is-better",
+            ),
+        ),
+    )
+    ai_cache.save_analysis(path, 1, result, identity)
+
+    loaded = ai_cache.load_cached_analysis(path, 1, identity)
+
+    assert loaded is not None
+    assert [p.name for p in loaded.axis_proposals] == ["invented_detail"]
+    assert loaded.axis_proposals[0].direction == "lower-is-better", (
+        "a HIT must not hand the ranker a different axis than a MISS would"
+    )
 
 
 def test_provenance_labels_the_two_halves_and_never_guesses():

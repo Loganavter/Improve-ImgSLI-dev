@@ -114,7 +114,6 @@ PROVENANCE_LOCAL = "measured-locally"
 PROVENANCE_JUDGE = "measured-by-judge"
 AXIS_PROVENANCE: tuple[str, ...] = (PROVENANCE_LOCAL, PROVENANCE_JUDGE)
 
-
 #: Why a VLM axis-set answer was NOT applied to the folder generation
 #: (``GalleryState.profile_reject_reason``, plan-gallery-ai-judgement P2/M5:
 #: "every loss is a visible state with a cause"). Codes, never prose — a surface
@@ -299,7 +298,9 @@ class MetricProfile:
             "source",
             source if source in PROFILE_SOURCES else PROFILE_SOURCE_FALLBACK,
         )
-        object.__setattr__(self, "axis_entries", _normalized_entries(self.axis_entries, ordered))
+        object.__setattr__(
+            self, "axis_entries", _normalized_entries(self.axis_entries, ordered)
+        )
 
     def __bool__(self) -> bool:
         return bool(self.axis_ids or self.axis_entries)
