@@ -14,6 +14,9 @@ from __future__ import annotations
 import logging
 from collections import deque
 
+#: Logger whose records the live ``read_log`` ring captures.
+APP_LOGGER_NAME = "ImproveImgSLI"
+
 #: Bounded size of the live log ring (records kept for ``read_log``).
 LOG_RING_CAPACITY = 2000
 
@@ -21,8 +24,10 @@ LOG_RING_CAPACITY = 2000
 class LogRing(logging.Handler):
     """Bounded in-process capture of the app logger.
 
-    The server attaches it to the app logger (``APP_LOGGER_NAME``) on start and
-    detaches on stop.
+    ``log.txt`` is truncated by ``setup_logging`` on every start, so it cannot
+    answer "what happened in the *running* process". This handler keeps the
+    newest records in memory instead; the server attaches it to the app logger
+    (``APP_LOGGER_NAME``) on start and detaches on stop.
     """
 
     def __init__(self, capacity: int = LOG_RING_CAPACITY) -> None:

@@ -24,6 +24,7 @@ MAX_REQUEST_LINE_BYTES = 1024 * 1024
 MAX_REPLY_BYTES = 8 * 1024 * 1024
 
 
+
 def encode_reply(payload: dict[str, Any]) -> bytes | None:
     """Serialize one reply into a newline-terminated frame, or ``None``.
 
@@ -42,6 +43,7 @@ def encode_reply(payload: dict[str, Any]) -> bytes | None:
     return blob + b"\n"
 
 
+
 def _reply_error_frame(request_id: Any) -> bytes:
     """The fallback frame written when ``encode_reply`` refuses a payload."""
     payload = {
@@ -54,3 +56,21 @@ def _reply_error_frame(request_id: Any) -> bytes:
         ),
     }
     return json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n"
+
+
+def send_frame(owner: Any, socket: Any, payload: Any) -> None:
+    """Write one reply frame; a payload that cannot be framed gets the named error.
+
+    ``owner`` supplies ``_drop_client``: a write failure means the peer is gone.
+    This is the ONE write path, so a broken or truncated frame is never emitted
+    (the client's line reader would desync on one).
+    """
+    request_id = payload.get("id") if isinstance(payload, dict) else None
+    frame = encode_reply(payload) if isinstance(payload, dict) else None
+    if frame is None:
+        frame = _reply_error_frame(request_id)
+    try:
+        socket.write(frame)
+        socket.flush()
+    except Exception:
+        owner._drop_client(socket)
