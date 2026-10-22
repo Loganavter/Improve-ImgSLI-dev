@@ -115,3 +115,49 @@ def test_an_unanalyzed_matrix_still_kicks_the_selector(monkeypatch) -> None:
     ctrl._run_profile_select_on_settle()
     assert ctrl.selector_calls == 0, "the selector runs inside the worker, not on the UI thread"
     assert len(ctrl.launched) == 1, "the stage must still schedule its worker"
+
+
+# -- the settle hydrates with a REAL identity, before the selector -----------
+
+
+def test_the_settle_hydrates_the_cache_before_the_selector() -> None:
+    """The open-time hydrate cannot match a real analysis (mode is None there).
+
+    The settle is the first moment ``mode`` and the profile exist, i.e. the
+    identity a scorecard was written under — so the cache pass must run THERE,
+    before the selector/AI tails (live 2026-10-22: without it a warm folder
+    looked unanalyzed at every open and the selector spent a probe image).
+    """
+    from tabs.image_gallery.use_cases import triage_run
+
+    order: list[str] = []
+
+    class _SettleOwner:
+        def __init__(self) -> None:
+            self._folder_gen = 4
+            self._metrics_settled_gen = -1
+            self._profile_settle_pending_gen = None
+            self.state = SimpleNamespace(items=[], series=[], mode="camera")
+            self._judgment_domain = "algorithms"
+
+        def _mark_local_pass(self, items, phase):
+            return None
+
+        def refresh_metric_profile(self):
+            order.append("profile")
+
+        def _hydrate_ai_cache(self, items, *, ctx=None):
+            order.append("hydrate")
+            return 0
+
+        def _run_profile_select_on_settle(self):
+            order.append("select")
+
+        def _apply_fusion_ranks(self, series, *, mode=None):
+            return None
+
+    owner = _SettleOwner()
+    triage_run._settle_metrics_pass(owner, [SimpleNamespace(path=Path("/gallery/a.png"))])
+    assert order[:2] == ["profile", "hydrate"], order
+    assert "select" in order, "the selector kick still runs after the hydrate"
+    assert order.index("hydrate") < order.index("select")
