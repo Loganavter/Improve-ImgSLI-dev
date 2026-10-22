@@ -1,16 +1,5 @@
 {
   "common": {
-    "calendar": {
-      "weekday": {
-        "fri": "周五",
-        "mon": "周一",
-        "sat": "周六",
-        "sun": "周日",
-        "thu": "周四",
-        "tue": "周二",
-        "wed": "周三"
-      }
-    },
     "cancel": "取消",
     "error": "错误",
     "file_type": {},
@@ -24,6 +13,17 @@
     "switch": {
       "off": "关闭",
       "on": "开"
+    },
+    "calendar": {
+      "weekday": {
+        "mon": "周一",
+        "tue": "周二",
+        "wed": "周三",
+        "thu": "周四",
+        "fri": "周五",
+        "sat": "周六",
+        "sun": "周日"
+      }
     }
   }
 }

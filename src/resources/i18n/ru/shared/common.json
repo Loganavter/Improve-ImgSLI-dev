@@ -1,16 +1,5 @@
 {
   "common": {
-    "calendar": {
-      "weekday": {
-        "fri": "Пт",
-        "mon": "Пн",
-        "sat": "Сб",
-        "sun": "Вс",
-        "thu": "Чт",
-        "tue": "Вт",
-        "wed": "Ср"
-      }
-    },
     "cancel": "Отмена",
     "error": "Ошибка",
     "file_type": {},
@@ -24,6 +13,17 @@
     "switch": {
       "off": "Выкл",
       "on": "Вкл"
+    },
+    "calendar": {
+      "weekday": {
+        "mon": "Пн",
+        "tue": "Вт",
+        "wed": "Ср",
+        "thu": "Чт",
+        "fri": "Пт",
+        "sat": "Сб",
+        "sun": "Вс"
+      }
     }
   }
 }
