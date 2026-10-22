@@ -39,7 +39,7 @@ from tabs.image_gallery.models import ActivityPhase, GalleryItem, Mode
 from tabs.image_gallery.services import metrics_cache, proxy
 from tabs.image_gallery.services.activity import activity_of
 from tabs.image_gallery.services.rank_fusion import rank_series
-from tabs.image_gallery.use_cases import proxy_pass, quality, triage_run
+from tabs.image_gallery.use_cases import local_metrics, proxy_pass, quality, triage_run
 
 
 # -- fixtures ---------------------------------------------------------------
@@ -236,6 +236,20 @@ class _Owner:
         return None
 
 
+@pytest.fixture
+def isolated_disk_caches(tmp_path, monkeypatch):
+    """Point the OTHER disk caches at tmp: the reset clears them too."""
+    from tabs.image_gallery.services import ai_cache, profile_cache
+
+    ai_dir = tmp_path / "ai"
+    ai_dir.mkdir()
+    monkeypatch.setattr(ai_cache, "ai_cache_dir", lambda: ai_dir)
+    pins = tmp_path / "pins"
+    pins.mkdir()
+    monkeypatch.setattr(profile_cache, "_default_cache", profile_cache.ProfileCache(pins))
+    return ai_dir, pins
+
+
 def _open(owner) -> None:
     """The reopen path: the triage tail decides what Stage-2 must still compute."""
     proxy_pass._apply_triage_result(owner, [], None, owner.state.mode)
@@ -275,6 +289,11 @@ def test_a_known_folder_reopen_runs_no_detector(gallery, detectors) -> None:
     # immediately (same contract as the "analyses unchanged" branch).
     assert all(activity_of(item)[0] == ActivityPhase.DONE.value for item in warm.state.items)
 
+    # A second tail in the same run (regroup / tab return) stays free as well.
+    detectors["detector"] = 0
+    _open(warm)
+    assert detectors["detector"] == 0
+
 
 def test_the_reopen_shows_the_same_dots_ranks_and_records(gallery, detectors) -> None:
     cold = _Owner(_items(gallery))
@@ -299,6 +318,17 @@ def test_the_reopen_shows_the_same_dots_ranks_and_records(gallery, detectors) ->
     assert [dict(item.metrics) for item in cold.state.items] == [
         dict(item.metrics) for item in warm.state.items
     ]
+
+
+def test_a_fidelity_entry_is_not_served_in_camera_mode(gallery, detectors) -> None:
+    """``mode`` is part of the identity: the camera lane is a different pass."""
+    _open(_Owner(_items(gallery), mode=Mode.FIDELITY))
+
+    camera = _Owner(_items(gallery), mode=Mode.CAMERA)
+    detectors["detector"] = 0
+    _open(camera)
+
+    assert detectors["detector"] == len(gallery), "another mode must re-measure"
 
 
 def test_a_partially_known_pool_only_measures_the_misses(gallery, detectors) -> None:
@@ -395,6 +425,25 @@ def test_a_pipeline_version_bump_invalidates_once_and_says_so(
     ), "the invalidation must be announced"
 
 
+def test_the_reset_drops_the_persisted_local_result(
+    gallery, detectors, isolated_disk_caches
+) -> None:
+    """ "Reset metrics cache" must not hydrate the numbers back on the next pass."""
+    from tabs.image_gallery.use_cases import cache_reset
+
+    cold = _Owner(_items(gallery))
+    _open(cold)
+    assert len(_entry_files()) == len(gallery)
+
+    cache_reset.clear_metrics_caches(cold)
+    assert _entry_files() == [], "the reset must drop the persisted local result"
+
+    reopen = _Owner(_items(gallery))
+    detectors["detector"] = 0
+    _open(reopen)
+    assert detectors["detector"] == len(gallery), "a reset folder must recompute"
+
+
 # -- the delivery seam ------------------------------------------------------
 
 
@@ -423,7 +472,7 @@ def test_the_delivery_persists_what_the_pass_produced(gallery) -> None:
         full_res_artifacts=True,
     )
 
-    identity = proxy_pass._local_metrics_identity(
+    identity = local_metrics.identity_for(
         item, None, Mode.FIDELITY, full_res_artifacts=True
     )
     stored = metrics_cache.load_local_metrics(identity)
