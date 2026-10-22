@@ -58,12 +58,18 @@ Helpful commands:
 
 Manual venv (optional):
 ```bash
+# the app installs the toolkit editable from a sibling checkout
+git clone https://github.com/Loganavter/sli-ui-toolkit.git ../sli-ui-toolkit
 python -m venv venv
 source venv/bin/activate        # Linux/macOS
 # .\venv\Scripts\activate      # Windows PowerShell
-pip install -r requirements.txt
+pip install -r requirements-gui.txt
 python -m src
 ```
+
+`requirements-gui.txt` contains `-e ../sli-ui-toolkit`; if the toolkit lives
+somewhere else, either edit that line or point the launcher at it with
+`SLI_TOOLKIT_DIR=/path/to/sli-ui-toolkit ./launcher.sh run`.
 
 ---
 
@@ -73,7 +79,7 @@ In-app Help (recommended):
 - English: src/resources/help/en/
 - Russian: src/resources/help/ru/
 
-Entry topic (EN): src/resources/help/en/introduction.md
+Entry topic (EN): src/resources/help/en/about.md
 
 ---
 

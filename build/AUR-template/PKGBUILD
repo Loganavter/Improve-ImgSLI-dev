@@ -19,7 +19,7 @@ depends=(
   'python-pyvips'
   'pyside6'
   'python-scikit-image'
-  'python-sli-ui-toolkit>=3.1.11'
+  'python-sli-ui-toolkit>=4.0.0'
 )
 optdepends=(
   'python-snakeviz: for performance profiling'
