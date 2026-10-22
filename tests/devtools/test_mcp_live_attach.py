@@ -33,6 +33,7 @@ MCP_DIR = REPO_ROOT / "mcp-server"
 if str(MCP_DIR) not in sys.path:
     sys.path.insert(0, str(MCP_DIR))
 
+from app import catalog  # noqa: E402
 from app.backend import AppBackend  # noqa: E402
 from app.live import (  # noqa: E402
     CONTROL_DIR_ENV,
@@ -46,6 +47,7 @@ from app.live import (  # noqa: E402
     LiveClient,
     LiveError,
     LiveUnavailable,
+    control_dirs,
     discover_socket,
     summarize_request_params,
 )
@@ -159,7 +161,13 @@ def default_handler(method: str, params: dict):
             "rhi_layers": 1,
         }
     if method == "press_keys":
-        return True, {"pressed": ["ctrl+shift+p"], "count": 1, "target": "QMainWindow"}
+        return True, {
+            "pressed": ["ctrl+shift+p"],
+            "count": 1,
+            "target": "QMainWindow",
+            "activated": True,
+            "focus_is_ours": True,
+        }
     if method == "ui_elements":
         return True, {
             "count": 2,
@@ -362,11 +370,19 @@ class FakeControlServer:
         return True
 
 
-def _write_pointer(directory: Path, *, pid: int, socket_path: Path | None = None) -> Path:
+def _write_pointer(
+    directory: Path,
+    *,
+    pid: int,
+    socket_path: Path | None = None,
+    uid: int | None = None,
+) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     data = {"pid": pid, "started": "2026-10-17T00:00:00Z", "version": "0.1.0"}
     if socket_path is not None:
         data["socket"] = str(socket_path)
+    if uid is not None:
+        data["uid"] = uid
     pointer = directory / "instance.json"
     pointer.write_text(json.dumps(data), encoding="utf-8")
     return pointer
@@ -496,17 +512,84 @@ def test_dead_pid_alone_never_declares_a_working_pointer_stale(isolated_env, mon
         (directory / CONTROL_SOCKET_NAME).unlink(missing_ok=True)
 
 
-def test_discover_socket_uses_the_runtime_dir_when_no_override(monkeypatch, tmp_path):
+def test_discover_socket_uses_a_private_runtime_dir(monkeypatch, tmp_path):
+    """A private ``$XDG_RUNTIME_DIR`` is the app's first choice, so it is ours.
+
+    The mode is set explicitly: a bare ``mkdir()`` yields ``0755`` under the
+    usual umask, which BOTH sides must now refuse (this test used to pin the
+    opposite — discovery succeeding in a world-readable dir).
+    """
     runtime = tmp_path / "runtime"
     runtime.mkdir()
+    os.chmod(runtime, 0o700)
     socket_path = FakeControlServer(runtime / "control.sock").start().path
     try:
         monkeypatch.delenv(SOCKET_OVERRIDE_ENV, raising=False)
         monkeypatch.delenv(CONTROL_DIR_ENV, raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
         assert discover_socket() == socket_path
     finally:
         (runtime / "control.sock").unlink(missing_ok=True)
+
+
+def test_discover_socket_refuses_a_shared_runtime_dir(monkeypatch, tmp_path):
+    """Symmetric with ``core.control.discovery._is_private_dir``.
+
+    Falsification: with the old ``isdir + W_OK`` rule this returned the socket
+    in the ``0755`` dir, while the app refused to publish there — the same
+    machine, two different answers for "where is the control socket".
+    """
+    runtime = tmp_path / "shared"
+    runtime.mkdir()
+    os.chmod(runtime, 0o755)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(runtime / "control.sock"))
+    listener.listen(4)
+    try:
+        monkeypatch.delenv(SOCKET_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(CONTROL_DIR_ENV, raising=False)
+        data_home = tmp_path / "share"
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+        assert discover_socket() is None
+
+        # And the fallback is the dir the app would publish in, not the shared one.
+        assert control_dirs()[0] == data_home / "ImproveImgSLI" / "run"
+    finally:
+        listener.close()
+
+
+def test_discover_socket_refuses_a_pointer_from_another_uid(isolated_env):
+    """A pointer written by a different user is not a live instance.
+
+    The pointer carries the owning ``uid`` (the app writes it); a client that
+    ignored it would hand a foreign socket to the request layer, which the app
+    then refuses at ``SO_PEERCRED`` — a confusing refusal instead of "absent".
+    """
+    directory = isolated_env / "run"
+    socket_path = FakeControlServer(directory / CONTROL_SOCKET_NAME).start().path
+    try:
+        _write_pointer(
+            directory,
+            pid=os.getpid(),
+            socket_path=socket_path,
+            uid=os.getuid() + 1,
+        )
+        assert discover_socket() is None
+    finally:
+        (directory / CONTROL_SOCKET_NAME).unlink(missing_ok=True)
+
+
+def test_discover_socket_accepts_a_pointer_without_a_uid(isolated_env):
+    """Older pointers (no ``uid`` field) stay usable: absence is not a refusal."""
+    directory = isolated_env / "run"
+    socket_path = FakeControlServer(directory / CONTROL_SOCKET_NAME).start().path
+    try:
+        _write_pointer(directory, pid=os.getpid(), socket_path=socket_path)
+        assert discover_socket() == socket_path
+    finally:
+        (directory / CONTROL_SOCKET_NAME).unlink(missing_ok=True)
 
 
 def test_discover_socket_falls_back_to_the_app_data_run_dir(monkeypatch, tmp_path):
@@ -1005,7 +1088,14 @@ _PROXY_CASES = [
         {"keys": "ctrl+shift+p"},
         "press_keys",
         {"keys": "ctrl+shift+p"},
-        {"pressed": ["ctrl+shift+p"], "count": 1, "target": "QMainWindow", "source": "live"},
+        {
+            "pressed": ["ctrl+shift+p"],
+            "count": 1,
+            "target": "QMainWindow",
+            "activated": True,
+            "focus_is_ours": True,
+            "source": "live",
+        },
     ),
     (
         "ui_elements",
@@ -1621,9 +1711,145 @@ def test_press_keys_round_trips_through_the_backend(live_wired):
         "pressed": ["ctrl+shift+p"],
         "count": 1,
         "target": "QMainWindow",
+        "activated": True,
+        "focus_is_ours": True,
         "source": "live",
     }
     assert ("press_keys", {"keys": "ctrl+shift+p"}) in server.calls
+
+
+def test_press_keys_reports_activation_and_focus_ownership_unchanged(tmp_path, monkeypatch):
+    """The two honest fields must survive the MCP path, including ``false``.
+
+    The app makes the window OS-active before typing and answers ``activated``
+    (this call had to bring it forward) and ``focus_is_ours`` (the key went to
+    the window holding OS focus). Normalising them to anything but what the app
+    said hides exactly the case that matters: a sweep reading ``ok`` for keys
+    the window system dropped (complaint mcp-c-015).
+    """
+
+    def handler(method, params):
+        if method == "press_keys":
+            # Already active, and the key went to the window that holds focus.
+            return True, {
+                "pressed": ["ctrl+p"],
+                "count": 1,
+                "target": "QCanvasView",
+                "activated": False,
+                "focus_is_ours": True,
+            }
+        return default_handler(method, params)
+
+    directory = tmp_path / "run"
+    server = FakeControlServer(directory / CONTROL_SOCKET_NAME, handler).start()
+    _write_pointer(directory, pid=os.getpid(), socket_path=server.path)
+    monkeypatch.setenv(CONTROL_DIR_ENV, str(directory))
+    monkeypatch.delenv(SOCKET_OVERRIDE_ENV, raising=False)
+    backend = AppBackend(
+        REPO_ROOT,
+        artifacts_dir=tmp_path / "artifacts",
+        data_dir=tmp_path / "data",
+        live_backend=LiveBackend(retry_cooldown_s=0.0),
+    )
+    protocol = MCPProtocol(backend)
+    try:
+        result = _call(protocol, "press_keys", {"keys": "ctrl+p", "target": "main.canvas"})
+        assert result["isError"] is False
+        structured = result["structuredContent"]
+        assert structured["activated"] is False
+        assert structured["focus_is_ours"] is True
+        assert structured["pressed"] == ["ctrl+p"]
+        assert structured["source"] == "live"
+    finally:
+        server.stop()
+
+
+def _schema_accepts(schema: dict, value: object) -> bool:
+    """Minimal JSON-Schema check for the keywords the catalog uses.
+
+    Deliberately small: this pins *which shapes a strict host may see*, it is
+    not a general validator. ``anyOf`` is the one non-trivial keyword — a live
+    tool's declared output is its normal result OR the transport's early
+    answer. A keyword this helper does not understand fails loudly instead of
+    passing silently, so the checker cannot become a no-op.
+    """
+    if not isinstance(schema, dict) or not schema:
+        return True
+    branches = schema.get("anyOf")
+    if branches is not None and not any(
+        _schema_accepts(branch, value) for branch in branches
+    ):
+        return False
+    if "const" in schema and value != schema["const"]:
+        return False
+    if "enum" in schema and value not in schema["enum"]:
+        return False
+    expected = schema.get("type")
+    if expected is not None:
+        options = list(expected) if isinstance(expected, list) else [expected]
+        checks = {
+            "object": lambda item: isinstance(item, dict),
+            "array": lambda item: isinstance(item, list),
+            "string": lambda item: isinstance(item, str),
+            "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+            "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+            "boolean": lambda item: isinstance(item, bool),
+            "null": lambda item: item is None,
+        }
+        unknown = set(options) - set(checks)
+        assert not unknown, f"schema type(s) this helper does not understand: {unknown}"
+        if not any(checks[option](value) for option in options):
+            return False
+    if isinstance(value, dict):
+        properties = schema.get("properties") or {}
+        for name in schema.get("required") or ():
+            if name not in value:
+                return False
+        if schema.get("additionalProperties") is False and set(value) - set(properties):
+            return False
+        for name, sub in properties.items():
+            if name in value and not _schema_accepts(sub, value[name]):
+                return False
+    if isinstance(value, list) and "items" in schema:
+        return all(_schema_accepts(schema["items"], item) for item in value)
+    return True
+
+
+def test_press_keys_schema_accepts_the_normal_and_the_early_answer():
+    """A strict host must not flag either frame the transport can put on the wire.
+
+    The control channel answers on its own behalf when a handler overruns its
+    budget (``server._arm_early_answer``): ``ok: true`` with ``accepted /
+    answered_early / still_running / modal_open / method / budget_ms`` and none
+    of the tool's own fields — a chord that opened a modal dialog is the case.
+    A schema that declares only the normal result would report a mismatch for a
+    call that worked.
+    """
+    tool = next(entry for entry in catalog.TOOLS if entry["name"] == "press_keys")
+    schema = tool["outputSchema"]
+
+    normal = {
+        "pressed": ["ctrl+shift+p"],
+        "count": 1,
+        "target": "QMainWindow",
+        "activated": True,
+        "focus_is_ours": True,
+        "source": "live",
+    }
+    early = {
+        "accepted": True,
+        "answered_early": True,
+        "still_running": True,
+        "modal_open": True,
+        "method": "press_keys",
+        "budget_ms": 2000,
+    }
+
+    assert _schema_accepts(schema, normal) is True
+    assert _schema_accepts(schema, early) is True
+    # Falsification: the checker really rejects frames the schema does not declare.
+    assert _schema_accepts(schema, {**normal, "invented": 1}) is False
+    assert _schema_accepts(schema, {"accepted": True}) is False
 
 
 def test_element_tools_round_trip_through_the_backend(live_wired):
