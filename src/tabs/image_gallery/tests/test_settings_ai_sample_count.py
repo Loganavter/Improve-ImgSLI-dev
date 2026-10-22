@@ -130,6 +130,31 @@ def test_the_payload_carries_the_run_count(dialog):
     assert seeded["sample_count"] == 2
 
 
+def test_a_run_count_change_moves_the_apply_identity(dialog):
+    """Apply compares analysis identities — k must be in the one it snapshots.
+
+    The same identity is the disk-cache key, so a k change also turns the old
+    scorecards into MISSes (re-drawn at the new k) instead of serving them.
+    """
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.services.ai_settings_store import AiSettingsStore
+    from tabs.image_gallery.ui import settings_ai
+
+    owner = SimpleNamespace(
+        _ai_settings_store=AiSettingsStore(),
+        state=SimpleNamespace(mode="camera"),
+    )
+    before = settings_ai._identity_snapshot(owner)
+    assert before is not None and before["k"] == "3"
+
+    dialog.gallery_ai_samples.setCurrentIndex(_choice_index(5))
+
+    after = settings_ai._identity_snapshot(owner)
+    assert after is not None and after["k"] == "5"
+    assert before != after
+
+
 def test_the_hint_states_the_cost_per_card_and_follows_the_choice(dialog):
     hint = dialog.gallery_ai_samples_hint
     default_text = hint.text().lower()
@@ -156,6 +181,16 @@ def test_the_label_fits_its_text(dialog):
     label = dialog.gallery_ai_samples_label
     need = QFontMetrics(label.font()).horizontalAdvance(label.text())
     assert label.width() >= need, (label.text(), label.width(), need)
+
+
+def test_the_control_and_hint_use_the_page_typography(dialog):
+    from plugins.settings.typography import SETTINGS_BODY_PX, SETTINGS_CAPTION_PX
+
+    assert dialog.gallery_ai_samples.font().pixelSize() == SETTINGS_BODY_PX
+    assert dialog.gallery_ai_samples_hint.font().pixelSize() == SETTINGS_CAPTION_PX
+    # Both live on the AI page — the hint sits under the picker, in the group.
+    assert dialog.page_gallery_ai.isAncestorOf(dialog.gallery_ai_samples)
+    assert dialog.page_gallery_ai.isAncestorOf(dialog.gallery_ai_samples_hint)
 
 
 def test_every_locale_carries_the_same_settings_keys():
