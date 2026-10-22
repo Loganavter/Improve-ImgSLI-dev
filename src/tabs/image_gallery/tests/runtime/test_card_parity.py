@@ -21,6 +21,7 @@ from PySide6.QtGui import QColor
 
 from tabs.image_gallery.models import Artifact, GalleryItem, Severity, ThumbnailStatus
 from tabs.image_gallery.services.rank_fusion import measured_axes_for
+from tabs.image_gallery.tests._activity_fixtures import mark_analyzing
 from tabs.image_gallery.ui.card import (
     _apply_rejected_visuals,
     _dots_for_item,
@@ -93,9 +94,10 @@ def test_per_dot_colors_are_individually_computed():
         }
     )
     dot_text, colors = _dots_for_item(item, mode="camera")
-    expected = len(measured_axes_for("camera"))
     assert dot_text == "● ● ●"  # legacy constant, not authoritative
-    assert len(colors) == expected
+    # Only the MEASURED axes are dotted once anything is measured (the owner
+    # 2026-10-22 rule): the three metrics above, in camera registry order.
+    assert len(colors) == 3
     assert len({str(c.name()) for c in colors}) >= 3
 
 
@@ -110,7 +112,8 @@ def test_card_stores_per_dot_colors_and_overlay_is_attached(qapp):
     card = build_gallery_card(item, parent=None, mode="camera")
     qapp.processEvents()
     colors = getattr(card, "_gallery_dot_colors", ())
-    assert len(colors) == len(measured_axes_for("camera"))
+    # Measured axes only (gaps suppressed): sharpness, noise, white_balance.
+    assert len(colors) == 3
     assert len(getattr(card, "_gallery_dot_infos", ())) == len(colors)
     # S2-1: overlay painter layer present in the button painter pipeline.
     layer_types = [
@@ -194,7 +197,8 @@ def test_unreadable_card_shows_placeholder_and_danger_error_row(qapp):
 
 
 def test_readable_card_has_no_placeholder(qapp):
-    item = _item()
+    # Placeholder dots are an in-progress affordance: mark the item analyzing.
+    item = mark_analyzing(_item())
     card = build_gallery_card(item, parent=None)
     qapp.processEvents()
     regions = {r.id: r for r in card.regions()}
