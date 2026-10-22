@@ -42,9 +42,21 @@ from PIL import Image
 
 
 def _big_png(path: Path, size=(2400, 1800)) -> Path:
-    """An incompressible oversized PNG (large file, honest payload ratio)."""
-    noise = Image.effect_noise(size, 100).convert("RGB")
-    noise.save(path, format="PNG")
+    """An incompressible oversized PNG (large file, honest payload ratio).
+
+    Deliberately NOT ``Image.effect_noise``: that consumes Pillow's global noise
+    RNG, and ``tests/test_series_override.py`` builds its "these two noise images
+    must not cluster" pair from the same sequence — a served-in-order suite
+    failure that is not a product bug (measured 2026-10-22: ``cluster_items``
+    clusters any pair whose HSV embedding distance is ``<= 0.25``, and two gray
+    noise images sit right at that line depending on the RNG state).
+    ``random.Random(seed)`` keeps this fixture deterministic and side-effect free.
+    """
+    import random
+
+    w, h = size
+    data = random.Random(7).randbytes(w * h * 3)
+    Image.frombytes("RGB", (w, h), data).save(path, format="PNG")
     return path
 
 
@@ -210,33 +222,41 @@ def test_a_stage2_chunk_stops_early_on_a_generation_bump(monkeypatch) -> None:
     """A cancelled folder must not finish its 50-item pass."""
     proxy = _fake_proxy_layer(monkeypatch)
     items = [SimpleNamespace(path=Path(f"/gallery/{i:03d}.png")) for i in range(50)]
-    state = {"gen": 1, "yields": 0}
+    checks = {"yields": 0}
 
-    def _yield_to_scheduler() -> None:
-        state["yields"] += 1
-        state["gen"] += 1  # the user opened another folder mid-pass
+    def _cancel() -> bool:
+        checks["yields"] += 1  # one call per yield boundary of the pass
+        return checks["yields"] > 1  # the user opened another folder mid-pass
 
-    monkeypatch.setattr(proxy, "_yield_to_scheduler", _yield_to_scheduler)
+    out = proxy.run_proxy_stages_sync(items, None, cancel=_cancel)
 
-    out = proxy.run_proxy_stages_sync(
-        items, None, cancel=lambda: state["gen"] != 1
-    )
-
-    assert state["yields"] >= 1, "the pass never yielded to the scheduler"
+    assert checks["yields"] >= 2, "the pass never yielded to the scheduler"
     assert 0 < len(out) < 50, f"the cancelled pass produced {len(out)}/50 items"
 
 
-def test_a_stage2_chunk_yields_to_the_scheduler_while_running(monkeypatch) -> None:
+def test_a_stage2_chunk_yields_the_gil_between_items(monkeypatch) -> None:
     """A live pass gives the pool a slice every few items, and ends when done."""
     proxy = _fake_proxy_layer(monkeypatch)
     items = [SimpleNamespace(path=Path(f"/gallery/{i:03d}.png")) for i in range(10)]
     yields: list[int] = []
-    monkeypatch.setattr(proxy, "_yield_to_scheduler", lambda: yields.append(1))
+    sleeps = []
+    real_sleep = proxy.time.sleep
 
-    out = proxy.run_proxy_stages_sync(items, None)
+    def _count_sleep(seconds) -> None:
+        sleeps.append(seconds)
+        real_sleep(seconds)
+
+    monkeypatch.setattr(proxy.time, "sleep", _count_sleep)
+
+    def _cancel() -> bool:
+        yields.append(1)  # one call per yield boundary
+        return False
+
+    out = proxy.run_proxy_stages_sync(items, None, cancel=_cancel)
 
     assert len(out) == 10
     assert len(yields) >= 2, yields
+    assert sleeps and set(sleeps) == {0}, sleeps
 
 
 def test_the_proxy_scheduler_hands_each_chunk_a_generation_cancel(monkeypatch) -> None:
