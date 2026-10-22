@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -35,6 +37,7 @@ from app.backend import AppBackend  # noqa: E402
 from app.live import (  # noqa: E402
     CONTROL_DIR_ENV,
     CONTROL_SOCKET_NAME,
+    INFLIGHT_NOTE_NAME,
     NOT_SENT,
     READ_RETRY_BUDGET,
     SENT_NO_REPLY,
@@ -44,9 +47,10 @@ from app.live import (  # noqa: E402
     LiveError,
     LiveUnavailable,
     discover_socket,
+    summarize_request_params,
 )
 from app.protocol import MCPProtocol  # noqa: E402
-from app.process_policy import PRESERVED_LOG_NAME  # noqa: E402
+from app.process_policy import PRESERVED_LOG_NAME, process_report  # noqa: E402
 
 #: Handler sentinel: close the connection without answering (transport fault).
 CLOSE = object()
@@ -1645,8 +1649,16 @@ def test_element_tools_round_trip_through_the_backend(live_wired):
     assert ("ui_focus", {"id": "main.settings.btn"}) in server.calls
 
 
-def test_ui_click_transport_fault_errors_honestly(tmp_path, monkeypatch):
-    """A live instance that dies mid-call leaves ``ui_click`` an honest error."""
+def test_ui_click_transport_fault_names_the_request_and_the_broken_channel(
+    tmp_path, monkeypatch
+):
+    """A mid-``ui_click`` drop names the request instead of "no live instance".
+
+    This fake server keeps *listening* (only the one connection is dropped), so
+    the honest verdict here is "the channel broke, the process still answers",
+    and the request that was in flight is named. The death wording is pinned by
+    the ``press_keys`` test, where the socket node goes away too.
+    """
 
     def handler(method, params):
         if method == "ui_click":
@@ -1669,8 +1681,12 @@ def test_ui_click_transport_fault_errors_honestly(tmp_path, monkeypatch):
         result = _call(protocol, "ui_click", {"id": "main.settings.btn"})
         assert result["isError"] is True
         text = result["content"][0]["text"]
-        assert "no live instance" in text
-        assert "element targeting needs a running app" in text
+        assert "ui_click" in text
+        assert "id='main.settings.btn'" in text
+        assert "still answers" in text
+        assert "the app's process is still running" in text
+        assert "no live instance" not in text
+        assert "element targeting needs a running app" not in text
     finally:
         server.stop()
 
@@ -1801,9 +1817,8 @@ def test_press_keys_without_an_instance_repeats_the_recorded_death(
     _write_pointer(
         directory, pid=_UNALLOCATED_PID, socket_path=directory / CONTROL_SOCKET_NAME
     )
-    # Frozen on-disk name the app writes next to ``instance.json`` (its own
-    # control server owns it; imported as a constant once the client side lands).
-    (directory / "inflight.json").write_text(
+    # Time the app's own control server stamped into the note it left behind.
+    (directory / INFLIGHT_NOTE_NAME).write_text(
         json.dumps(
             {
                 "method": "press_keys",
@@ -1870,6 +1885,60 @@ def test_death_report_names_the_request_without_echoing_secrets(tmp_path):
     assert "<redacted>" in message
     assert "di0dbeef" not in message
     assert "sk-or-v1" not in message
+
+
+def test_request_digest_redacts_secret_names_and_token_shaped_values():
+    """The digest identifies the call without ever echoing what it carried."""
+    summary = summarize_request_params(
+        {
+            "action_id": "image_compare.export",
+            "api_key": "abc123",
+            "token": "def456",
+            "value": "sk-or-v1-di0dbeef",
+            "n": 3,
+            "nested": {"a": 1, "b": 2},
+            "keys": "ctrl+p",
+        }
+    )
+    for secret in ("abc123", "def456", "di0dbeef"):
+        assert secret not in summary
+    assert "<redacted>" in summary
+    assert "action_id='image_compare.export'" in summary
+    assert "keys='ctrl+p'" in summary
+    assert "n=3" in summary
+    assert "nested={2 keys}" in summary
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs procfs")
+def test_process_report_reads_a_zombies_signal_then_admits_it_is_gone():
+    """A signal is reported when ``/proc`` still has it, and never invented after."""
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        child.kill()  # SIGKILL: unreaped, so /proc still carries the wait status
+        deadline = time.monotonic() + 5.0
+        report = process_report(child.pid)
+        while report["state"] != "zombie" and time.monotonic() < deadline:
+            time.sleep(0.02)
+            report = process_report(child.pid)
+        assert report["state"] == "zombie"
+        assert report["observable"] is True
+        assert report["signal"] == int(signal.SIGKILL)
+        assert "SIGKILL" in report["detail"]
+    finally:
+        child.wait()
+    # Reaped: a sibling can no longer read the status, and must not guess one.
+    gone = process_report(child.pid)
+    assert gone["state"] == "gone"
+    assert gone["observable"] is False
+    assert gone["signal"] is None
+    assert "not observable" in gone["detail"]
+
+
+def test_process_report_without_a_pid_does_not_guess():
+    report = process_report(None)
+    assert report["state"] == "no-pid"
+    assert report["observable"] is False
+    assert "not observable" in report["detail"]
 
 
 def test_press_keys_live_app_error_keeps_the_apps_hint(tmp_path, monkeypatch):
