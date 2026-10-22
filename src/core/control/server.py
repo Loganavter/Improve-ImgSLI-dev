@@ -48,9 +48,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
-from collections import deque
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -58,6 +55,19 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from . import discovery
 from .discovery import MethodError
+from .frames import (  # noqa: F401 — re-exported for the tests/MCP docs
+    MAX_REPLY_BYTES,
+    MAX_REQUEST_LINE_BYTES,
+    _reply_error_frame,
+    encode_reply,
+)
+from .inflight import (  # noqa: F401 — re-exported for the tests/MCP docs
+    INFLIGHT_NOTE_NAME,
+    clear_inflight,
+    note_inflight,
+    summarize_request_params,
+)
+from .log_ring import LogRing  # noqa: F401 — re-exported for the tests
 
 logger = logging.getLogger("ImproveImgSLI")
 
@@ -66,142 +76,6 @@ APP_LOGGER_NAME = "ImproveImgSLI"
 
 #: Owner-only mode for the socket file (matches the pointer).
 _SOCKET_MODE = 0o600
-
-#: Bounded size of the live log ring (records kept for ``read_log``).
-_LOG_RING_CAPACITY = 2000
-
-#: Hard cap on one request line (1 MiB). A larger line is refused by name
-#: (``"request line too large"``) instead of being buffered/truncated silently.
-MAX_REQUEST_LINE_BYTES = 1024 * 1024
-
-#: Sanity cap on one serialized reply (8 MiB). A bigger (or unserialisable)
-#: result is reported as an error frame, never emitted as a broken frame.
-MAX_REPLY_BYTES = 8 * 1024 * 1024
-
-#: Name of the in-flight request note, written next to the pointer. It is
-#: written *before* a handler runs and removed once the reply is sent, so a note
-#: that outlives the process is where the app died — the only trace a sibling
-#: process can read after a segfault (no teardown, no reply). The MCP client
-#: mirrors this name (`mcp-server/app/live.py`, stdlib-only, cannot import here).
-INFLIGHT_NOTE_NAME = "inflight.json"
-
-#: Cap on the redacted params digest kept in the note.
-_PARAM_SUMMARY_LIMIT = 400
-
-#: Per-value cap inside the digest.
-_PARAM_VALUE_LIMIT = 48
-
-#: Parameter NAMES whose value is never written down. ``run_action`` forwards
-#: free-form params, so a token can sit in the request that kills the app.
-_SECRET_KEY_RE = re.compile(
-    r"(?i)(api[_-]?key|token|secret|passw|credential|authori[sz]|cookie|bearer|private[_-]?key)"
-)
-
-#: Values that *look* like a credential, whatever their parameter is called.
-_SECRET_VALUE_RE = re.compile(
-    r"(?i)^(sk-|pk-|ghp_|gho_|ghs_|github_pat_|xox[abp]-|bearer[ =:]|ey[A-Za-z0-9_-]{8,}\.)"
-)
-
-
-def _param_value(value: Any) -> str:
-    """One digest fragment: short scalars verbatim, secrets and shapes masked."""
-    if isinstance(value, str):
-        if _SECRET_VALUE_RE.match(value.strip()):
-            return "<redacted>"
-        shown = (
-            value
-            if len(value) <= _PARAM_VALUE_LIMIT
-            else value[:_PARAM_VALUE_LIMIT] + "…"
-        )
-        return repr(shown)
-    if isinstance(value, dict):
-        return f"{{{len(value)} keys}}"
-    if isinstance(value, (list, tuple, set)):
-        return f"[{len(value)} items]"
-    if isinstance(value, (bool, int, float)) or value is None:
-        return repr(value)
-    return f"<{type(value).__name__}>"
-
-
-def summarize_request_params(params: Any) -> str:
-    r"""A bounded, secret-free digest of one request's params (``k=v, ...``).
-
-    Identifies the request after the fact without echoing what it carried:
-    secret-named parameters become ``<redacted>``, credential-shaped values are
-    masked wherever they appear, strings are truncated, and containers are
-    reduced to their shape. ``mcp-server/app/live.py`` carries the same rule for
-    the request *it* sent (it cannot import this module — stdlib only).
-    """
-    if not isinstance(params, dict) or not params:
-        return ""
-    parts: list[str] = []
-    for key, value in params.items():
-        name = str(key)
-        if _SECRET_KEY_RE.search(name):
-            parts.append(f"{name}=<redacted>")
-        else:
-            parts.append(f"{name}={_param_value(value)}")
-    summary = ", ".join(parts)
-    if len(summary) > _PARAM_SUMMARY_LIMIT:
-        summary = summary[:_PARAM_SUMMARY_LIMIT] + "…"
-    return summary
-
-
-def encode_reply(payload: dict[str, Any]) -> bytes | None:
-    """Serialize one reply into a newline-terminated frame, or ``None``.
-
-    ``None`` means the payload cannot be framed — either it is not
-    JSON-serialisable (e.g. a circular structure, which ``json.dumps`` raises
-    on) or it exceeds ``MAX_REPLY_BYTES``. The caller then sends a named error
-    frame instead of writing a broken/truncated frame that would desync the
-    client's line reader.
-    """
-    try:
-        blob = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    except Exception:
-        return None
-    if len(blob) > MAX_REPLY_BYTES:
-        return None
-    return blob + b"\n"
-
-
-def _reply_error_frame(request_id: Any) -> bytes:
-    """The fallback frame written when ``encode_reply`` refuses a payload."""
-    payload = {
-        "id": request_id,
-        "ok": False,
-        "error": "reply could not be framed",
-        "hint": (
-            f"the result was not JSON-serialisable or exceeded {MAX_REPLY_BYTES} "
-            "bytes; check the app log via read_log"
-        ),
-    }
-    return json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n"
-
-class LogRing(logging.Handler):
-    """Bounded in-process capture of the app logger.
-
-    ``log.txt`` is truncated by ``setup_logging`` on every start, so it cannot
-    answer "what happened in the *running* process". This handler keeps the
-    newest records in memory instead; the server attaches it to the app logger
-    (``APP_LOGGER_NAME``) on start and detaches on stop.
-    """
-
-    def __init__(self, capacity: int = _LOG_RING_CAPACITY) -> None:
-        super().__init__(level=logging.DEBUG)
-        self._entries: deque[tuple[str, str]] = deque(maxlen=capacity)
-        self.setFormatter(
-            logging.Formatter("%(asctime)s - [%(levelname)s] - %(message)s")
-        )
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self._entries.append((record.levelname, self.format(record)))
-        except Exception:  # never let logging kill the app
-            pass
-
-    def entries(self) -> list[tuple[str, str]]:
-        return list(self._entries)
 
 
 class ControlServer:
@@ -474,44 +348,16 @@ class ControlServer:
     ) -> None:
         """Record the request about to run, atomically, next to the pointer.
 
-        Written to a sibling temp file then ``os.replace``-d so a reader never
-        sees a half-written note. Best-effort: a read-only runtime dir must not
-        stop the request from running.
+        The write lives in ``core.control.inflight`` (atomic temp + ``os.replace``,
+        best-effort: a read-only runtime dir must not stop the request).
         """
-        if self._note_path is None:
-            return
-        payload = {
-            "method": method,
-            "summary": summarize_request_params(params),
-            "request_id": request_id
-            if isinstance(request_id, (int, float, str))
-            else None,
-            "pid": os.getpid(),
-            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-        tmp = self._note_path.with_name(
-            self._note_path.name + f".tmp.{os.getpid()}"
+        note_inflight(
+            self._note_path, request_id=request_id, method=method, params=params
         )
-        try:
-            tmp.write_text(json.dumps(payload), encoding="utf-8")
-            os.chmod(tmp, _SOCKET_MODE)
-            os.replace(tmp, self._note_path)
-        except OSError:
-            logger.debug("control channel: could not record the in-flight request")
-        finally:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
 
     def _clear_inflight(self) -> None:
         """Drop the in-flight record: the app answered, or is shutting down."""
-        if self._note_path is None:
-            return
-        try:
-            self._note_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        clear_inflight(self._note_path)
 
     def _reply(self, socket: QLocalSocket, payload: dict[str, Any]) -> None:
         """Send one reply, then clear the note (the app survived the request)."""
