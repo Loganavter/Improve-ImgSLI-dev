@@ -1,5 +1,16 @@
 {
   "common": {
+    "calendar": {
+      "weekday": {
+        "fri": "Sex",
+        "mon": "Seg",
+        "sat": "Sáb",
+        "sun": "Dom",
+        "thu": "Qui",
+        "tue": "Ter",
+        "wed": "Qua"
+      }
+    },
     "cancel": "Cancelar",
     "error": "Erro",
     "file_type": {},

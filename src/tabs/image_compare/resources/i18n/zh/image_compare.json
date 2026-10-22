@@ -1,11 +1,5 @@
 {
   "image_compare": {
-    "session_type": "图像比较",
-    "help": {
-      "hub": {
-        "desc": "双图对比、放大镜、导出"
-      }
-    },
     "action": {
       "magnifier": "切换放大镜",
       "swap": "交换图像",
@@ -79,11 +73,12 @@
     "button": {
       "add_images_1": "添加图像1",
       "add_images_2": "添加图像2",
-      "save_result": "保存结果",
+      "hold_clear_entire_list": "按住以清空整个列表",
       "pause": "暂停",
       "play": "播放",
       "record": "录制",
       "redo": "重做",
+      "save_result": "保存结果",
       "select_images": "选择图像",
       "stop": "停止",
       "trim_to_selection": "裁剪到选择",
@@ -96,17 +91,10 @@
       },
       "warning": "警告"
     },
-    "ui": {
-      "drop_images_1_here": "在此处拖放图像1",
-      "drop_images_2_here": "在此处拖放图像2",
-      "choose_capture_ring_color": "选择捕获环颜色",
-      "choose_magnifier_base_color": "选择放大镜元素的基础颜色",
-      "choose_magnifier_border_color": "选择放大镜边框颜色",
-      "choose_magnifier_divider_line_color": "选择放大镜分隔线颜色",
-      "choose_magnifier_guides_color": "选择放大镜引导线颜色",
-      "edit_current_image_1_name": "编辑当前图像1名称",
-      "edit_current_image_2_name": "编辑当前图像2名称",
-      "include_file_names_in_saved_image": "在保存的图像中包含文件名"
+    "help": {
+      "hub": {
+        "desc": "双图对比、放大镜、导出"
+      }
     },
     "label": {
       "border": "边框",
@@ -122,6 +110,10 @@
       "output": "输出",
       "video_codec": "视频编解码器"
     },
+    "magnifier": {
+      "capture_ring": "捕获环",
+      "fit_mode_toggle": "切换适配模式"
+    },
     "misc": {
       "name_length_limit_exceeded": "名称长度超出限制 ({limit})！",
       "select_an_image": "选择一个图像"
@@ -129,30 +121,46 @@
     "msg": {
       "edge_comparison_done": "边缘比较完成",
       "edge_comparison_in_progress": "边缘比较中...",
+      "error_normalizing_path": "路径规范化错误",
+      "error_processing_path": "路径处理错误",
+      "failed_to_quick_save_image": "无法快速保存图像",
+      "failed_to_save_image": "无法保存图像",
       "grayscale_diff_done": "灰度差异已完成",
       "grayscale_diff_in_progress": "灰度差异中...",
       "highlight_diff_done": "高亮差异已完成",
       "highlight_diff_in_progress": "高亮差异中...",
       "invalid_data": "无效数据",
+      "invalid_item_type_or_empty_path": "不支持的项目类型或路径为空",
       "select_both_images_first": "请先在两个插槽中加载并选择图像。",
       "some_images_could_not_be_loaded": "某些图像无法加载",
       "specify_output_directory_and_file_name": "请指定输出目录和文件名。",
       "ssim_calculation_done": "SSIM 已完成",
-      "ssim_calculation_in_progress": "SSIM 计算中...",
-      "ssim_calculation_failed": "SSIM 计算失败"
+      "ssim_calculation_failed": "SSIM 计算失败",
+      "ssim_calculation_in_progress": "SSIM 计算中..."
     },
+    "session_type": "图像比较",
     "settings": {
       "recording_fps": "录制帧率",
       "video_recording": "视频录制"
+    },
+    "ui": {
+      "choose_capture_ring_color": "选择捕获环颜色",
+      "choose_magnifier_base_color": "选择放大镜元素的基础颜色",
+      "choose_magnifier_border_color": "选择放大镜边框颜色",
+      "choose_magnifier_divider_line_color": "选择放大镜分隔线颜色",
+      "choose_magnifier_guides_color": "选择放大镜引导线颜色",
+      "drop_images_1_here": "在此处拖放图像1",
+      "drop_images_2_here": "在此处拖放图像2",
+      "edit_current_image_1_name": "编辑当前图像1名称",
+      "edit_current_image_2_name": "编辑当前图像2名称",
+      "include_file_names_in_saved_image": "在保存的图像中包含文件名",
+      "psnr": "PSNR",
+      "ssim": "SSIM"
     },
     "workspace": {
       "session_types": {
         "image_compare": "图像比较"
       }
-    },
-    "magnifier": {
-      "capture_ring": "捕获环",
-      "fit_mode_toggle": "切换适配模式"
     }
   }
 }

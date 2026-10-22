@@ -1,11 +1,5 @@
 {
   "image_compare": {
-    "session_type": "Comparar imagens",
-    "help": {
-      "hub": {
-        "desc": "Comparar dois imagens, lupa, exportação"
-      }
-    },
     "action": {
       "magnifier": "Alternar lupa",
       "swap": "Trocar imagens",
@@ -79,11 +73,12 @@
     "button": {
       "add_images_1": "Adicionar Imagem(ns) 1",
       "add_images_2": "Adicionar Imagem(ns) 2",
-      "save_result": "Salvar Resultado",
+      "hold_clear_entire_list": "Mantenha pressionado para limpar a lista",
       "pause": "Pausar",
       "play": "Reproduzir",
       "record": "Gravar",
       "redo": "Refazer",
+      "save_result": "Salvar Resultado",
       "select_images": "Selecionar Imagem(ns)",
       "stop": "Parar",
       "trim_to_selection": "Cortar para Seleção",
@@ -96,17 +91,10 @@
       },
       "warning": "Aviso"
     },
-    "ui": {
-      "drop_images_1_here": "Arraste Imagem(ns) 1 Aqui",
-      "drop_images_2_here": "Arraste Imagem(ns) 2 Aqui",
-      "choose_capture_ring_color": "Escolher Cor do Anel de Captura",
-      "choose_magnifier_base_color": "Escolher Cor Base para Elementos da Lupa",
-      "choose_magnifier_border_color": "Escolher Cor da Borda da Lupa",
-      "choose_magnifier_divider_line_color": "Escolher Cor da Linha Divisória da Lupa",
-      "choose_magnifier_guides_color": "Escolher Cor das Guias da Lupa",
-      "edit_current_image_1_name": "Editar Nome da Imagem Atual 1",
-      "edit_current_image_2_name": "Editar Nome da Imagem Atual 2",
-      "include_file_names_in_saved_image": "Incluir nomes de arq. na img salva"
+    "help": {
+      "hub": {
+        "desc": "Comparar dois imagens, lupa, exportação"
+      }
     },
     "label": {
       "border": "Borda",
@@ -122,6 +110,10 @@
       "output": "Saída",
       "video_codec": "Codec de Vídeo"
     },
+    "magnifier": {
+      "capture_ring": "Anel de captura",
+      "fit_mode_toggle": "Alternar modo de ajuste"
+    },
     "misc": {
       "name_length_limit_exceeded": "Limite de comprimento do nome ({limit}) excedido!",
       "select_an_image": "Selecione uma imagem"
@@ -129,30 +121,46 @@
     "msg": {
       "edge_comparison_done": "Comparação de bordas concluída",
       "edge_comparison_in_progress": "Comparação de bordas...",
+      "error_normalizing_path": "erro ao normalizar o caminho",
+      "error_processing_path": "erro ao processar o caminho",
+      "failed_to_quick_save_image": "Falha ao salvar a imagem rapidamente",
+      "failed_to_save_image": "Falha ao salvar a imagem",
       "grayscale_diff_done": "Diferença em escala de cinza concluída",
       "grayscale_diff_in_progress": "Diferença em escala de cinza...",
       "highlight_diff_done": "Destaque de diferenças concluído",
       "highlight_diff_in_progress": "Destaque de diferenças...",
       "invalid_data": "Dados Inválidos",
+      "invalid_item_type_or_empty_path": "tipo de item não suportado ou caminho vazio",
       "select_both_images_first": "Por favor, carregue e selecione imagens em ambos os slots primeiro.",
       "some_images_could_not_be_loaded": "Algumas imagens não puderam ser carregadas",
       "specify_output_directory_and_file_name": "Por favor, especifique o diretório de saída e o nome do arquivo.",
       "ssim_calculation_done": "SSIM concluído",
-      "ssim_calculation_in_progress": "Cálculo de SSIM...",
-      "ssim_calculation_failed": "Falha ao calcular SSIM"
+      "ssim_calculation_failed": "Falha ao calcular SSIM",
+      "ssim_calculation_in_progress": "Cálculo de SSIM..."
     },
+    "session_type": "Comparar imagens",
     "settings": {
       "recording_fps": "FPS de Gravação",
       "video_recording": "Gravação de Vídeo"
+    },
+    "ui": {
+      "choose_capture_ring_color": "Escolher Cor do Anel de Captura",
+      "choose_magnifier_base_color": "Escolher Cor Base para Elementos da Lupa",
+      "choose_magnifier_border_color": "Escolher Cor da Borda da Lupa",
+      "choose_magnifier_divider_line_color": "Escolher Cor da Linha Divisória da Lupa",
+      "choose_magnifier_guides_color": "Escolher Cor das Guias da Lupa",
+      "drop_images_1_here": "Arraste Imagem(ns) 1 Aqui",
+      "drop_images_2_here": "Arraste Imagem(ns) 2 Aqui",
+      "edit_current_image_1_name": "Editar Nome da Imagem Atual 1",
+      "edit_current_image_2_name": "Editar Nome da Imagem Atual 2",
+      "include_file_names_in_saved_image": "Incluir nomes de arq. na img salva",
+      "psnr": "PSNR",
+      "ssim": "SSIM"
     },
     "workspace": {
       "session_types": {
         "image_compare": "Comparar imagens"
       }
-    },
-    "magnifier": {
-      "capture_ring": "Anel de captura",
-      "fit_mode_toggle": "Alternar modo de ajuste"
     }
   }
 }
