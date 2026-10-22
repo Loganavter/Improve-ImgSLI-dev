@@ -266,6 +266,24 @@ class FakeControlServer:
         self._thread.start()
         return self
 
+    def die(self) -> None:
+        """Simulate a crashed app: stop accepting and remove the socket node.
+
+        A segfault does not run the app's teardown, so the socket node is left
+        behind only until the kernel closes the fds — from the client's side the
+        connection hits EOF *and* the node stops answering. Closing the listener
+        from the serving thread also makes ``accept`` fail, which ends the
+        accept loop; the current connection is closed by ``_serve`` when the
+        handler returns ``CLOSE``.
+        """
+        if self._server is not None:
+            try:
+                self._server.close()
+            except OSError:
+                pass
+            self._server = None
+        self.path.unlink(missing_ok=True)
+
     def stop(self, *, unlink: bool = True) -> None:
         self._stop.set()
         if self._thread is not None:
@@ -1715,17 +1733,32 @@ def test_backend_falls_back_when_the_socket_refuses(tmp_path, monkeypatch):
     assert calls == [None]
 
 
-def test_press_keys_transport_fault_errors_honestly(tmp_path, monkeypatch):
-    """A live instance that dies mid-call leaves ``press_keys`` an honest error."""
+def test_press_keys_mid_call_death_reports_the_signal_and_last_request(tmp_path, monkeypatch):
+    """A live instance that dies mid-call must report *the death*, not "no live instance".
+
+    The app's control socket closing under a request is the only witness a
+    sibling process has of a crash: the request was sent and the process is
+    gone. Pinned before this test: the backend answered "no live instance;
+    keyboard input needs a running app" — true of a missing app, a lie about a
+    dead one, and silent about the request that was on the wire.
+
+    The fake server drops the connection *and* removes its socket node (what a
+    crashed app leaves behind) and the pointer pid is unallocated, so the report
+    has a process to describe.
+    """
+    holder: dict = {}
 
     def handler(method, params):
         if method == "press_keys":
+            holder["server"].die()  # the crash: connection + socket node go
             return True, CLOSE  # hang up without answering
         return default_handler(method, params)
 
     directory = tmp_path / "run"
-    server = FakeControlServer(directory / CONTROL_SOCKET_NAME, handler).start()
-    _write_pointer(directory, pid=os.getpid(), socket_path=server.path)
+    server = holder["server"] = FakeControlServer(
+        directory / CONTROL_SOCKET_NAME, handler
+    ).start()
+    _write_pointer(directory, pid=_UNALLOCATED_PID, socket_path=server.path)
     monkeypatch.setenv(CONTROL_DIR_ENV, str(directory))
     monkeypatch.delenv(SOCKET_OVERRIDE_ENV, raising=False)
     backend = AppBackend(
@@ -1737,10 +1770,106 @@ def test_press_keys_transport_fault_errors_honestly(tmp_path, monkeypatch):
     protocol = MCPProtocol(backend)
     try:
         result = _call(protocol, "press_keys", {"keys": "ctrl+p"})
-        assert result["isError"] is True
-        assert "keyboard input needs a running app" in result["content"][0]["text"]
     finally:
         server.stop()
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    # The death itself, with the request that was in flight ...
+    assert "the app died" in text
+    assert "press_keys" in text
+    assert "keys='ctrl+p'" in text
+    # ... and what can honestly be said about the process: it is gone, and a
+    # sibling cannot reap its exit status/signal.
+    assert "is gone" in text
+    assert "not observable" in text
+    # The old, false half of the message must be gone.
+    assert "keyboard input needs a running app" not in text
+
+
+def test_press_keys_without_an_instance_repeats_the_recorded_death(
+    tmp_path, monkeypatch
+):
+    """A dead app is not a missing one: the app's own in-flight note survives it.
+
+    Nothing listens any more (the socket is gone with the process), so the
+    backend cannot see a mid-call EOF. The app recorded the request it was
+    handling in ``inflight.json``; that note is what turns a bare "no live
+    instance" into "it died while handling press_keys".
+    """
+    directory = tmp_path / "run"
+    directory.mkdir(parents=True)
+    _write_pointer(
+        directory, pid=_UNALLOCATED_PID, socket_path=directory / CONTROL_SOCKET_NAME
+    )
+    # Frozen on-disk name the app writes next to ``instance.json`` (its own
+    # control server owns it; imported as a constant once the client side lands).
+    (directory / "inflight.json").write_text(
+        json.dumps(
+            {
+                "method": "press_keys",
+                "summary": "keys='ctrl+p'",
+                "request_id": 7,
+                "pid": _UNALLOCATED_PID,
+                "at": "2026-10-21T18:22:03+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(CONTROL_DIR_ENV, str(directory))
+    monkeypatch.delenv(SOCKET_OVERRIDE_ENV, raising=False)
+    backend = AppBackend(
+        REPO_ROOT,
+        artifacts_dir=tmp_path / "artifacts",
+        data_dir=tmp_path / "data",
+        live_backend=LiveBackend(retry_cooldown_s=0.0),
+    )
+    protocol = MCPProtocol(backend)
+    result = _call(protocol, "press_keys", {"keys": "ctrl+p"})
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    # The old contract still holds — there is no app to type into ...
+    assert "no live instance" in text
+    assert "keyboard input needs a running app" in text
+    # ... but it now says *why*: the app died inside this request.
+    assert "the app died while handling request 'press_keys'" in text
+    assert "keys='ctrl+p'" in text
+    assert "2026-10-21T18:22:03+00:00" in text
+
+
+def test_death_report_names_the_request_without_echoing_secrets(tmp_path):
+    """The request digest must identify the call and never leak a secret value.
+
+    ``set_setting``/``run_action`` carry free-form values, so a token can sit in
+    the params of the very request that killed the app.
+    """
+    holder: dict = {}
+
+    def handler(method, params):
+        if method == "set_setting":
+            holder["server"].die()
+            return True, CLOSE
+        return default_handler(method, params)
+
+    server = holder["server"] = FakeControlServer(
+        tmp_path / CONTROL_SOCKET_NAME, handler
+    ).start()
+    client = LiveClient(server.path, timeout=0.5)
+    try:
+        with pytest.raises(LiveUnavailable) as excinfo:
+            client.call(
+                "set_setting",
+                {"key": "theme", "value": "sk-or-v1-di0dbeefdi0dbeef"},
+            )
+    finally:
+        client.close()
+        server.stop()
+    message = excinfo.value.message
+    assert server.calls == [("set_setting", {"key": "theme", "value": "sk-or-v1-di0dbeefdi0dbeef"})]
+    assert "set_setting" in message
+    assert "the app died" in message
+    assert "<redacted>" in message
+    assert "di0dbeef" not in message
+    assert "sk-or-v1" not in message
 
 
 def test_press_keys_live_app_error_keeps_the_apps_hint(tmp_path, monkeypatch):
