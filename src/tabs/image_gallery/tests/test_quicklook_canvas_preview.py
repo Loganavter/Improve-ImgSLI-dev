@@ -42,6 +42,57 @@ PREVIEW_CANVAS_NAME = "tabs.image_gallery.ui.quick_look.preview_canvas"
 # recorded a predecessor's file in ``uncapped_calls``. The RHI failure tests
 # are the other half of the same window — they start real decodes on the
 # process-wide pool and never wait for them.
+#
+# ``_own_staged_canvas_work`` (below) is the enforcement point.
+
+
+@pytest.fixture(autouse=True)
+def _own_staged_canvas_work():
+    """Retire staged canvas work at teardown; drain the process-wide pool.
+
+    Enforcement of the contract above, while the owning test is still the
+    current one: bump ``_ql_gen`` (the dwell timer's generation guard, so the
+    singleShot can no longer pre-warm or kick), drop the staged kick
+    (``_ql_tiled_pending``) and the demand source (``_ql_source_path``) on the
+    canvases created by this test. Then wait for the shared pool — the same
+    drain ``test_quicklook_canvas_seam.py::test_canvas_path_huge_source_no_full_frame``
+    performs before its spy window opens. Retiring is idempotent: a canvas the
+    release path already cleaned (``_ql_source_path`` None, no pending) is
+    skipped untouched.
+    """
+    from PySide6.QtCore import QThreadPool
+
+    app = QApplication.instance()
+    # Strong refs: compare identity across the test, like
+    # ``image_gallery/tests/conftest.py::_destroy_lingering_toplevels``.
+    before = list(QApplication.allWidgets()) if app is not None else []
+    yield
+    app = QApplication.instance()
+    if app is None:
+        return
+    for w in list(QApplication.allWidgets()):
+        if any(w is b for b in before):
+            continue
+        try:
+            if (
+                getattr(w, "_ql_source_path", None) is None
+                and getattr(w, "_ql_tiled_pending", None) is None
+            ):
+                continue
+            w._ql_gen = int(getattr(w, "_ql_gen", 0) or 0) + 1
+            w._ql_tiled_pending = None
+            w._ql_source_path = None
+        except (RuntimeError, AttributeError, TypeError):
+            continue
+    try:
+        QThreadPool.globalInstance().waitForDone(10000)
+    except Exception:
+        pass
+    for _ in range(3):
+        try:
+            QApplication.processEvents()
+        except Exception:
+            break
 
 
 def _real_png(tmp_path: Path, name: str, w: int = 800, h: int = 600) -> Path:
