@@ -1088,7 +1088,14 @@ _PROXY_CASES = [
         {"keys": "ctrl+shift+p"},
         "press_keys",
         {"keys": "ctrl+shift+p"},
-        {"pressed": ["ctrl+shift+p"], "count": 1, "target": "QMainWindow", "source": "live"},
+        {
+            "pressed": ["ctrl+shift+p"],
+            "count": 1,
+            "target": "QMainWindow",
+            "activated": True,
+            "focus_is_ours": True,
+            "source": "live",
+        },
     ),
     (
         "ui_elements",
