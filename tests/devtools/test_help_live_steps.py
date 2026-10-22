@@ -639,6 +639,7 @@ def test_the_dump_lists_in_window_overlays_with_screen_rects(qapp):
     # paints its targets (the paste picker) implements the same attribute.
     overlay.painted_target_rects = lambda: {"left": QRect(10, 20, 30, 40)}
     host.show()
+    overlay.show_overlay()
     qapp.processEvents()
     try:
         dump = dump_all_windows(SimpleNamespace(all_actions=lambda: []))
