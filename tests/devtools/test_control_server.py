@@ -406,6 +406,106 @@ def test_a_chord_that_opens_a_modal_dialog_is_answered_inside_its_loop(
         server.stop()
 
 
+def test_a_second_connection_is_served_inside_the_dialog_loop(tmp_path, monkeypatch):
+    """The dialog does not wedge the channel for a *new* peer.
+
+    Qt guards ``readyRead`` against re-entry, so a second line on the *same*
+    socket waits for the dialog (the early answer is why that peer is not left
+    hanging). A new connection is different: its ``readyRead`` fires inside the
+    modal loop and is served, so "is the app still there / read state" after a
+    dialog is open works — and the request that owns the in-flight note changes
+    under the parked one (see the note-ownership test below).
+    """
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setenv("IMGSLI_CONTROL_DIR", str(tmp_path / "ctrl"))
+    app = _qapp()
+    server = ControlServer(window=_store_window(), app=app)
+    assert server.start() is True
+    server._ack_budget_ms = 100
+    client = _Client(app, server.path)
+    second_client: _Client | None = None
+
+    class _DialogAndPingHandlers:
+        def handle(self, method, params):
+            if method == "ping":  # a read verb really is served nested
+                return {"pong": True, "pid": os.getpid()}
+            dialog = QFileDialog()
+            dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+            dialog.setModal(True)
+            QTimer.singleShot(900, dialog.reject)
+            self.dialogs.append(dialog)
+            dialog.exec()
+            return {"ran": True}
+
+        def __init__(self) -> None:
+            self.dialogs: list[QFileDialog] = []
+
+    handlers = _DialogAndPingHandlers()
+    server._handlers = handlers
+    try:
+        client.send({"id": 50, "method": "run_action", "params": {"action_id": "x"}})
+
+        def _connect_and_ping() -> None:
+            nonlocal second_client
+            second_client = _Client(app, server.path)
+            second_client.send({"id": 51, "method": "ping", "params": {}})
+
+        # Sent from inside the dialog's loop: only the nested loop can answer it.
+        QTimer.singleShot(300, _connect_and_ping)
+        first = client.wait_line(seconds=3.0)
+        assert first is not None and first["id"] == 50
+        assert first["result"]["answered_early"] is True
+        assert second_client is not None, "a peer connected while the dialog was up"
+        nested = second_client.wait_line(seconds=3.0)
+        assert nested is not None, "a new connection is served during the modal"
+        assert nested["id"] == 51
+        assert nested["ok"] is True and nested["result"]["pong"] is True
+        _pump(app, 0.4)
+        assert b"\n" not in client.buffer, "one frame for the parked request"
+    finally:
+        for dialog in handlers.dialogs:
+            try:
+                dialog.reject()
+            except Exception:
+                pass
+        if second_client is not None:
+            second_client.close()
+        client.close()
+        server.stop()
+
+
+def test_a_late_finisher_does_not_erase_a_newer_requests_inflight_note(
+    tmp_path, monkeypatch
+):
+    """A modal loop re-enters ``_handle_line``; the note is one slot.
+
+    The newer request's record is the only evidence left if the app dies in
+    *that* call, so the request that finishes late must not clear it.
+    """
+    from core.control.server import INFLIGHT_NOTE_NAME
+
+    monkeypatch.setenv("IMGSLI_CONTROL_DIR", str(tmp_path / "ctrl"))
+    server = ControlServer(window=_store_window(), app=_qapp())
+    assert server.start() is True
+    note = tmp_path / "ctrl" / INFLIGHT_NOTE_NAME
+    try:
+        first = server._note_inflight(
+            request_id=1, method="press_keys", params={"keys": "ctrl+shift+o"}
+        )
+        second = server._note_inflight(
+            request_id=2, method="ping", params={}
+        )
+        server._clear_inflight(first)  # the late finisher
+        assert note.is_file(), "the newer request still owns the record"
+        assert json.loads(note.read_text(encoding="utf-8"))["method"] == "ping"
+        server._clear_inflight(second)
+        assert not note.exists()
+    finally:
+        server.stop()
+
+
 def test_a_failed_handler_that_overran_answers_once_with_the_early_frame(
     tmp_path, monkeypatch
 ):
