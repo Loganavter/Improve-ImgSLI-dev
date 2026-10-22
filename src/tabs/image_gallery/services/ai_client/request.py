@@ -1,11 +1,10 @@
 """Chat-completion request payload for the AI client.
 
 ONE payload policy (defect B2: a size setting applied to one upload path only):
-:func:`build_request` reads the file and delegates to
-:func:`build_request_from_bytes`, which encodes the wire copy through
+:func:`build_request_from_bytes` encodes the wire copy through
 :func:`encode_wire_image` — the single ceiling + mime decision — so every
-producer (per-card analysis, the analysis-engine scorecard producer, the
-tie-break probe) ships the same bounded image.
+producer (per-card analysis, the engine's scorecard producer, the probe) ships
+the same bounded image.
 
 Why the ceiling and the gate (owner 2026-10-22: 40 wheel notches cost 6.6 s idle
 vs 21.4 s during an analysis, 288-514 ms GUI-loop gaps): each card built its
@@ -41,8 +40,7 @@ WIRE_ENCODE_SLOTS_ENV = "IMGSLI_GALLERY_WIRE_ENCODE_SLOTS"
 
 
 class WireImage(NamedTuple):
-    """One image as it goes on the wire; ``edge`` = longest edge of the ENCODED
-    copy (0 when unmeasurable) — the number the trace names, never a silent cap."""
+    """One wire copy; ``edge`` = longest edge of the ENCODED image, named in the trace."""
 
     mime: str
     data_b64: str
@@ -217,7 +215,7 @@ def _reencode_within_edge(
     try:
         import io
 
-        from PIL import Image
+        from PIL import Image, ImageOps
 
         with Image.open(io.BytesIO(raw)) as im:
             try:
@@ -227,7 +225,10 @@ def _reencode_within_edge(
             edge = max(width, height)
             if edge <= cap or edge <= 0:
                 return (None, mime, edge)
-            out = im.convert("RGB")
+            # EXIF first: a re-encode drops the orientation tag, so a rotated
+            # photo would reach the model sideways (the original bytes carried
+            # the tag, which the endpoint honors).
+            out = ImageOps.exif_transpose(im.convert("RGB"))
             out.thumbnail((cap, cap), Image.LANCZOS)
             fmt = "JPEG" if (mime == "jpeg" or prefer_jpeg) else "PNG"
             buf = io.BytesIO()
@@ -295,9 +296,7 @@ def encode_wire_image(
     )
 
 
-def encode_wire_path(
-    image_path, *, max_edge: int | None = None, prefer_jpeg: bool = True
-) -> WireImage:
+def encode_wire_path(image_path, *, max_edge=None, prefer_jpeg: bool = True) -> WireImage:
     """Read *image_path* once and encode its wire copy (:func:`encode_wire_image`)."""
     path = Path(image_path)
     return encode_wire_image(

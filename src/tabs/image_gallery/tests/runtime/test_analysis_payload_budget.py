@@ -154,6 +154,29 @@ def test_the_k_draws_encode_the_wire_image_once(tmp_path, monkeypatch) -> None:
     assert calls["encode"] == 1, calls
 
 
+def test_a_rotated_photo_is_sent_upright(tmp_path, monkeypatch) -> None:
+    """Downscaling must not drop the EXIF orientation (the model saw it before)."""
+    from tabs.image_gallery.services import vlm
+    from tabs.image_gallery.services.ai_client import request
+
+    monkeypatch.setattr(vlm, "get_vlm_max_edge", lambda: 256)
+    portrait = Image.frombytes(
+        "RGB", (2000, 1500), __import__("random").Random(3).randbytes(2000 * 1500 * 3)
+    )
+    exif = Image.Exif()
+    exif[274] = 6  # orientation: rotate 90 CW (a landscape file shown as portrait)
+    path = tmp_path / "rotated.jpg"
+    portrait.save(path, format="JPEG", exif=exif)
+
+    wire = request.encode_wire_path(path)
+
+    with Image.open(io.BytesIO(base64.b64decode(wire.data_b64))) as sent:
+        width, height = sent.size
+    assert wire.mime == "jpeg"
+    assert max(width, height) == 256, (width, height)
+    assert height > width, f"the EXIF rotation was dropped: {width}x{height}"
+
+
 # -- 2. the encode gate ----------------------------------------------------
 
 
