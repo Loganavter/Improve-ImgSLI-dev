@@ -28,6 +28,21 @@ from tabs.image_gallery.ui.quick_look import QuickLookOverlay
 
 PREVIEW_CANVAS_NAME = "tabs.image_gallery.ui.quick_look.preview_canvas"
 
+# Teardown contract for this file: every test owns its staged canvas work.
+#
+# Measured 2026-10-22 (combined gallery tier): a canvas populated through an
+# overlay that was never SHOWN keeps its 1200 ms dwell ``singleShot`` armed —
+# ``hide()`` on a non-visible widget delivers no ``hideEvent``, so the release
+# path (``preview_canvas_host.release_preview_canvas`` → ``clear_source`` →
+# ``_drop_ql_demand``) never bumps ``_ql_gen`` or drops ``_ql_tiled_pending``.
+# The timer then fires on a LATER test's event turn and dispatches
+# ``_decode_full_store_uncapped`` there (``preview_canvas_host/tiled_source.py``
+# resolves it through ``_host()`` at dispatch time), landing in that test's
+# decode spy: ``test_prefetch_fills_neighbor_memos_revisit_decodes_nothing``
+# recorded a predecessor's file in ``uncapped_calls``. The RHI failure tests
+# are the other half of the same window — they start real decodes on the
+# process-wide pool and never wait for them.
+
 
 def _real_png(tmp_path: Path, name: str, w: int = 800, h: int = 600) -> Path:
     pm = QPixmap(w, h)
