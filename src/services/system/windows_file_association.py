@@ -191,7 +191,12 @@ def register_project_file_association(
         _reg_set(key, None, command)
 
     _notify_shell_assoc_changed()
-    logger.info("Registered Windows file association for %s → %s", EXTENSION, resolved_exe)
+    logger.info(
+        "Registered Windows file associations for %s, %s → %s",
+        EXTENSION,
+        LEGACY_EXTENSION,
+        resolved_exe,
+    )
     return True
 
 
@@ -206,9 +211,9 @@ def ensure_windows_file_association() -> None:
     }:
         return
     try:
-        register_imgsli_file_association()
+        register_project_file_association()
     except Exception:
-        logger.debug("Windows .imgsli association failed", exc_info=True)
+        logger.debug("Windows project association failed", exc_info=True)
 
 
 def _notify_shell_assoc_changed() -> None:
