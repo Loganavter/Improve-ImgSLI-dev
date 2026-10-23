@@ -1,6 +1,6 @@
 """Windows shell registration for portable ``.blinktable`` project files.
 
-Registers a ProgID (``BlinkTable.Project``) under HKCU so Explorer shows a
+Registers a ProgID (BlinkTable.Project) under HKCU so Explorer shows a
 document-style icon and opens files with this app instead of treating them as
 generic ZIP archives. Pre-rename ``.imgsli`` projects are mapped to the same
 ProgID, so existing files keep opening after the format rename. Content
