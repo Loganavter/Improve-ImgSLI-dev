@@ -120,7 +120,7 @@ def collect_pixel_cache_sources(store: Any, tab_registry: Any) -> dict[str, tupl
 
 def _validate_project_container(project: dict[str, Any]) -> None:
     fmt = project.get("format")
-    if fmt not in _LEGACY_PROJECT_FORMATS:
+    if fmt not in _READABLE_PROJECT_FORMATS:
         raise ValueError(f"Not a BlinkTable project file (format={fmt!r})")
 
     version = project.get("version")
