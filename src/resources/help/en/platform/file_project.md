@@ -33,7 +33,7 @@ A project file (`.blinktable`) keeps a whole workspace in one portable file: the
 - **Save Project** — `Shift+S` writes the current file. When no file exists yet, **Save Project As…** opens instead. Saving also retargets the file name when the tab was renamed.
 - **Save Project As…** — `Ctrl+Shift+S` suggests the renamed tab name, otherwise **Untitled**.
 - **What the file contains** — a ZIP archive: `project.json` with the sessions, and a `media/` folder holding an embedded copy of each image.
-- **Older projects** — files saved as `.imgsli` before the rename open normally. A project keeps the extension it already has; **Save Project As…** starts the new `.blinktable` name.
+- **Older projects** — files saved as `.imgsli` before the rename open normally and keep their extension when saved; a new project is saved as `.blinktable`.
 - **If a source is missing** — when a listed path no longer exists, the project still saves; that image is left out and a warning names it.
 - **What is not saved** — the theme, language, and hotkeys stay in the application settings; they are not part of the project file.
 

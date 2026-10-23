@@ -33,7 +33,7 @@ Um arquivo de projeto (`.blinktable`) guarda um espaço de trabalho inteiro em u
 - **Salvar projeto** — `Shift+S` grava o arquivo atual. Quando ainda não existe arquivo, abre **Salvar projeto como…**. Ao salvar, o nome do arquivo também é atualizado se a aba foi renomeada.
 - **Salvar projeto como…** — `Ctrl+Shift+S` sugere o nome da aba renomeada; caso contrário, **Sem título**.
 - **O que o arquivo contém** — um arquivo ZIP: `project.json` com as sessões e uma pasta `media/` com uma cópia incorporada de cada imagem.
-- **Projetos antigos** — arquivos `.imgsli` salvos antes da renomeação abrem normalmente. O projeto mantém a extensão que já tem; **Salvar projeto como…** é que oferece o novo nome `.blinktable`.
+- **Projetos antigos** — arquivos `.imgsli` salvos antes da renomeação abrem normalmente e mantêm a extensão ao salvar; um projeto novo é salvo como `.blinktable`.
 - **Se um original estiver ausente** — quando um caminho da lista não existe mais, o projeto ainda é salvo; essa imagem é omitida e um aviso informa seu nome.
 - **O que não é salvo** — o tema, o idioma e os atalhos ficam nas configurações do aplicativo; não fazem parte do arquivo de projeto.
 

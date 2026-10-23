@@ -147,7 +147,7 @@ A project file (`.blinktable`) keeps a whole workspace in one portable file: the
 - **Save Project** — `Shift+S` writes the current file. When no file exists yet, **Save Project As…** opens instead. Saving also retargets the file name when the tab was renamed.
 - **Save Project As…** — `Ctrl+Shift+S` suggests the renamed tab name, otherwise **Untitled**.
 - **What the file contains** — a ZIP archive: `project.json` with the sessions, and a `media/` folder holding an embedded copy of each image.
-- **Older projects** — files saved as `.imgsli` before the rename open normally. A project keeps the extension it already has; **Save Project As…** starts the new `.blinktable` name.
+- **Older projects** — files saved as `.imgsli` before the rename open normally and keep their extension when saved; a new project is saved as `.blinktable`.
 - **If a source is missing** — when a listed path no longer exists, the project still saves; that image is left out and a warning names it.
 - **What is not saved** — the theme, language, and hotkeys stay in the application settings; they are not part of the project file.
 
@@ -356,9 +356,9 @@ Project save can optionally embed each live session's already-decoded `TiledPixe
 Path                                                                     |      Files |      Blank |      Comment |       Code
 ----------------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
-Improve-ImgSLI (total)                                                   |       2740 |      79473 |        69724 |     376965
+Improve-ImgSLI (total)                                                   |       2740 |      79473 |        69725 |     376965
 Improve-ImgSLI shaders (total)                                           |         33 |        187 |          367 |       1306
-Improve-ImgSLI (total)                                                   |        893 |      38092 |        23675 |     137968
+Improve-ImgSLI (total)                                                   |        893 |      38092 |        23676 |     137968
 sli-ui-toolkit (total)                                                   |        606 |      18124 |        15614 |      89205
 sli-ui-toolkit (total)                                                   |          2 |          7 |            6 |         19
 sli-ui-toolkit (total)                                                   |        206 |       7096 |         4480 |      27430
