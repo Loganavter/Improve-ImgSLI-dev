@@ -213,6 +213,53 @@ def _clear_profile_reject(owner) -> None:
         logger.debug("metric profile reject state clear failed", exc_info=True)
 
 
+def _phase_recheck(owner) -> None:
+    """Re-evaluate the analysis phase on *owner* (a tail-settle seam).
+
+    Module-level and duck-typed for the same reason as
+    ``_stamp_profile_consumed`` / ``_note_profile_reject``: the thin-owner tests
+    bind real controller methods onto ``SimpleNamespace`` doubles, which carry no
+    sibling methods — a phase re-check must therefore be optional, and its absence
+    must never break the tail it follows. Never raises.
+    """
+    fn = getattr(owner, "_maybe_announce_done", None)
+    if not callable(fn):
+        return
+    try:
+        fn()
+    except Exception:
+        logger.debug("analysis phase re-check failed", exc_info=True)
+
+
+def _announce_phase_done(owner) -> None:
+    """Ask *owner* to announce the metrics phase — through its phase gate.
+
+    The single call site (``proxy_pass._apply_triage_result``) must not stamp
+    "done" itself any more (2026-10-26, ``task-analysis-phase-state``): the owner
+    decides whether the AI tail is still ahead. Lives here, next to
+    ``_phase_recheck``, so the use-case module stays inside its file-size budget
+    and a legacy double (no ``_announce_metrics_done``) keeps the pre-change
+    behaviour. Never raises.
+    """
+    fn = getattr(owner, "_announce_metrics_done", None)
+    if callable(fn):
+        try:
+            fn()
+        except Exception:
+            logger.debug("metrics-done phase announce failed", exc_info=True)
+        return
+    done = getattr(getattr(owner, "widget", None), "set_triage_done", None) or getattr(
+        getattr(getattr(owner, "widget", None), "toolbar", None),
+        "set_triage_done",
+        None,
+    )
+    try:
+        if callable(done):
+            done()
+    except Exception:
+        logger.debug("toolbar.set_triage_done failed", exc_info=True)
+
+
 def _refresh_continue_action(owner) -> None:
     """Re-register the judge-run continue row from the live ceiling state.
 
@@ -283,6 +330,18 @@ class GalleryController:
         #: resolve before it starts the AI/Jev tails (P5). Consumed exactly
         #: once by ``_resume_settle_after_profile``.
         self._profile_settle_pending_gen: int | None = None
+        #: Analysis PHASE state (2026-10-26, ``task-analysis-phase-state``): a
+        #: folder's pipeline is not "done" when the local metrics settle — the AI
+        #: tail (profile / scorecards / rank) still runs after it. These three
+        #: markers are the FACTS the phase is derived from (never an intent flag),
+        #: so no announce site can claim completion for work that is still ahead:
+        #: ``_ai_tail_started_gen`` (the settle dispatched its AI tails),
+        #: ``_jev_inflight_gen`` (a rank batch is running) and
+        #: ``_done_held_gen`` (the metrics-done announcement was held for the AI
+        #: tail and must be re-announced when it settles).
+        self._ai_tail_started_gen: int = -1
+        self._jev_inflight_gen: int = -1
+        self._done_held_gen: int = -1
 
         # Folder generation whose METRICS pass has settled. The winner (★ BEST)
         # is only marked after settle — before that the fusion rank is
@@ -400,6 +459,11 @@ class GalleryController:
         self._folder_gen += 1
         # Fresh world: the winner marker is not settled for the new folder.
         self._metrics_settled_gen = -1
+        # Fresh world: the analysis-PHASE markers belong to the folder that left
+        # (a held "done" announcement from it must never fire for this one).
+        self._ai_tail_started_gen = -1
+        self._jev_inflight_gen = -1
+        self._done_held_gen = -1
         # Fresh world: the declared-stage ledger is invalidated — a completed
         # ``jev_rank`` fingerprint from the previous folder must never block the
         # new folder's pass (S2/J1).
@@ -962,6 +1026,10 @@ class GalleryController:
         except Exception:
             pending = None
         if pending is None:
+            # No deferred tail: the settle dispatched its own tails. Still a
+            # tail-settle seam for the phase announcement (a held "done" whose
+            # only pending fact was the selector's gate release).
+            _phase_recheck(self)
             return
         try:
             if int(pending) != int(gen):
@@ -986,6 +1054,9 @@ class GalleryController:
             _triage_run._run_jev_on_settle(self)
         except Exception:
             logger.debug("settle tail resume after profile failed", exc_info=True)
+        # The deferred tails just ran: re-evaluate the phase (the analyze/rank
+        # facts they set are what the held "done" waits for).
+        _phase_recheck(self)
 
     def _mark_profile_consumed(self) -> None:
         """Freeze this folder generation's profile once an AI call was built (P5).
@@ -1325,6 +1396,9 @@ class GalleryController:
             _vp.resort_after_rank_change(self)
         except Exception:
             logger.debug("resort after fusion ranks failed", exc_info=True)
+        # Phase checkpoint (2026-10-26): a re-rank is a tail-settle seam — the held
+        # "done" may land here (or stay held while a scorecard/rank is in flight).
+        _phase_recheck(self)
 
     def _refresh_ranks_visible(self) -> None:
         """Ranks/BEST render only once the ranking is FINAL for this folder.
@@ -1349,6 +1423,15 @@ class GalleryController:
                     break
         except Exception:
             pending = False
+        # An in-flight AI tail is the same fact at the RUN level (2026-10-26): a
+        # fusion rank produced before the profile/scorecards/rank settled is
+        # provisional, so the number must not be presented as final either.
+        try:
+            tail = getattr(self, "_ai_tail_pending", None)
+            if callable(tail) and tail():
+                pending = True
+        except Exception:
+            pass
         setter = getattr(getattr(self, "widget", None), "set_ranks_visible", None)
         if callable(setter):
             try:
@@ -1602,6 +1685,22 @@ class GalleryController:
         # payload (a visible run of pure cache HITs must not freeze the profile).
         # ``cache_only`` is the domain-switch path (no new request for metrics
         # the other backend already produced).
+        #
+        # Phase state (2026-10-26): this IS the settle's AI-tail dispatch, so it
+        # marks the generation's tail as STARTED. From here the phase reads the
+        # in-flight facts (scorecards / rank batch) instead of holding for a tail
+        # that is merely still ahead — an all-cache folder therefore reaches "done"
+        # as soon as the rank pass decides, not never.
+        try:
+            from tabs.image_gallery.use_cases.action_context import (
+                BACKEND_AI,
+                current_backend,
+            )
+
+            if current_backend(self) == BACKEND_AI:
+                self._ai_tail_started_gen = int(self._folder_gen)
+        except Exception:
+            logger.debug("AI tail start stamp failed", exc_info=True)
         return _ai_analysis._run_ai_for_visible(self, cache_only=cache_only)
 
     # -- AI domain ranker: Jev (TypeSafe System One) -----------------------
@@ -1626,12 +1725,27 @@ class GalleryController:
         """
         if str(getattr(self, "_judgment_domain", "algorithms") or "").strip().lower() != "ai":
             return
+
+        def _tail_decided() -> None:
+            """The rank tail has decided (scheduled or refused) for this generation.
+
+            Phase state (2026-10-26): the settle's AI tails are dispatched by the
+            time the ranker decides, so the held "done" may be re-evaluated —
+            scheduled ⇒ the batch keeps it held, refused ⇒ nothing is ahead.
+            """
+            try:
+                self._ai_tail_started_gen = int(self._folder_gen)
+            except Exception:
+                pass
+            _phase_recheck(self)
+
         try:
             groups = list(getattr(self.state, "series", None) or [])
         except Exception:
             groups = []
         if not groups:
             _ai_debug("jev ranks: no series — nothing to rank")
+            _tail_decided()
             return
         mode = getattr(self.state, "mode", None)
         try:
@@ -1686,6 +1800,7 @@ class GalleryController:
                 "jev ranks: series=%d scheduled=0 (too-small=%d not-visible=%d partial=%d)",
                 len(groups), small, hidden, partial,
             )
+            _tail_decided()
             return
         scope = self._folder_gen
         fingerprint = GalleryController._jev_series_fingerprint(ready, mode)
@@ -1702,12 +1817,14 @@ class GalleryController:
                 "trigger is remembered and re-run on finish) series=%d",
                 len(ready),
             )
+            _tail_decided()
             return
         _ai_debug(
             "jev ranks: series=%d scheduled=%d (too-small=%d not-visible=%d partial=%d)",
             len(groups), len(ready), small, hidden, partial,
         )
         GalleryController._launch_jev_batch(self, ready, scope)
+        _tail_decided()
 
     # -- Jev batch plumbing (S2/J1) -----------------------------------------
 
@@ -1788,9 +1905,22 @@ class GalleryController:
                 pending = gate.finished(_JEV_STAGE, scope, ok=not progress["fault"])
                 if pending:
                     GalleryController._rerun_jev_rank_pass(self, pending, scope)
+                else:
+                    # The batch (and any re-run) released the stage: this is the
+                    # rank tail settling, so the held phase announcement may land.
+                    try:
+                        if int(getattr(self, "_jev_inflight_gen", -1)) == int(scope):
+                            self._jev_inflight_gen = -1
+                    except Exception:
+                        pass
+                    _phase_recheck(self)
             except Exception:
                 logger.debug("jev gate finished failed", exc_info=True)
 
+        try:
+            self._jev_inflight_gen = int(scope)
+        except Exception:
+            pass
         for members, _vector in ready:
             try:
                 self._run_jev_rank_for_series(members, on_complete=_complete)
@@ -2206,8 +2336,26 @@ class GalleryController:
         Reads the ACTUAL ``rank_source`` of the ranked members — never the
         intended domain: an AI domain that degraded to the Algorithms rank must
         say "Algorithms", not "AI (Jev)". Falls back to the judgment domain when
-        nothing is ranked yet. Never raises.
+        nothing is ranked yet.
+
+        A PENDING AI tail wins over any of that (2026-10-26,
+        ``task-analysis-phase-state``): while a profile request, a scorecard or a
+        rank batch of this generation is still in flight, the fusion numbers on
+        screen are provisional, so the chip says "Analyzing" instead of presenting
+        ``fusion`` as the final ranker (the owner's card chip read "алг" and later
+        "ИИ" for the same run). Never raises.
         """
+        try:
+            if self._ai_tail_pending():
+                from tabs.image_gallery.ui.stats_strip import RANK_SOURCE_PENDING
+
+                self.widget.set_rank_provenance(
+                    RANK_SOURCE_PENDING,
+                    domain=str(getattr(self, "_judgment_domain", "algorithms")),
+                )
+                return
+        except Exception:
+            logger.debug("pending provenance check failed", exc_info=True)
         src = ""
         try:
             for entry in (getattr(self.state, "series", None) or ()):
@@ -2227,6 +2375,161 @@ class GalleryController:
         except Exception:
             logger.debug("rank provenance refresh failed", exc_info=True)
 
+    # -- analysis phase state (metrics settled != analysis finished) --------
+
+    def _ai_tail_reasons(self) -> tuple[str, ...]:
+        """Which AI tails of THIS folder generation are still pending (facts).
+
+        Derived, never a toggled intent flag — each entry is an observable fact
+        (``task-analysis-phase-state`` phase 2):
+
+        - ``profile`` — the VLM axis-set selection is in flight;
+        - ``analyze`` — a scorecard payload of this generation is in flight
+          (``analysis_batch``, the same ledger the terminal rank reads);
+        - ``rank`` — a Jev rank batch is running;
+        - ``ahead`` — the settle's AI tails have not been dispatched yet and the
+          folder still has cards without a scorecard (a warm, fully cached folder
+          is already answered, so it is not "ahead" of anything).
+
+        Empty off the AI domain and with AI unconfigured: the local/algorithmic
+        pipeline has no AI tail at all, so it is done when its metrics settle.
+        Never raises.
+        """
+        try:
+            # The DECLARED accessor (G2: one validated domain read), compared with
+            # the vocabulary constant (G10: no ad-hoc ``== "ai"`` gate).
+            from tabs.image_gallery.use_cases.action_context import (
+                BACKEND_AI,
+                current_backend,
+            )
+
+            if current_backend(self) != BACKEND_AI:
+                return ()
+            settings = self._ai_settings_store.load()
+        except Exception:
+            return ()
+        try:
+            from tabs.image_gallery.use_cases.profile_ai import ai_selector_available
+
+            if not ai_selector_available(settings):
+                return ()
+        except Exception:
+            return ()
+        try:
+            gen = int(getattr(self, "_folder_gen", 0) or 0)
+        except Exception:
+            return ()
+        reasons: list[str] = []
+        try:
+            pending_profile = getattr(self, "_profile_settle_pending_gen", None)
+            if pending_profile is not None and int(pending_profile) == gen:
+                reasons.append("profile")
+        except Exception:
+            pass
+        try:
+            from tabs.image_gallery.use_cases import analysis_batch
+
+            if int(analysis_batch.pending(self) or 0) > 0:
+                reasons.append("analyze")
+        except Exception:
+            pass
+        try:
+            if int(getattr(self, "_jev_inflight_gen", -1)) == gen:
+                reasons.append("rank")
+        except Exception:
+            pass
+        try:
+            started = int(getattr(self, "_ai_tail_started_gen", -1))
+        except Exception:
+            started = -1
+        if started != gen:
+            try:
+                items = list(getattr(self.state, "items", ()) or ())
+                if any(getattr(it, "analysis", None) is None for it in items):
+                    reasons.append("ahead")
+            except Exception:
+                pass
+        return tuple(reasons)
+
+    def _ai_tail_pending(self) -> bool:
+        """True while an AI tail of this folder generation still has work ahead."""
+        return bool(self._ai_tail_reasons())
+
+    def _announce_metrics_done(self) -> None:
+        """Announce the metrics pass finished — or hold it for the AI tail.
+
+        The measured defect (2026-10-26, ``task-analysis-phase-state``):
+        ``proxy_pass`` stamped "done" when the METRICS phase ended, so the app
+        announced a finished analysis and cleared its badge, and the AI tail then
+        restarted it — the card chip said "алг" and moments later "ИИ" for the
+        same run. The phase is therefore a STATE, not a moment: with an AI tail
+        pending the announcement is held (and said in the trace + shown as the
+        pending chip), and ``_maybe_announce_done`` announces it when the tail
+        actually settles. Never raises.
+        """
+        reasons = self._ai_tail_reasons()
+        if reasons:
+            try:
+                self._done_held_gen = int(getattr(self, "_folder_gen", 0) or 0)
+            except Exception:
+                self._done_held_gen = -1
+            try:
+                _ai_debug(
+                    "triage done held: metrics done, AI pending (%s) gen=%s",
+                    ",".join(reasons),
+                    getattr(self, "_folder_gen", "?"),
+                )
+            except Exception:
+                pass
+            try:
+                GalleryController._refresh_rank_provenance(self)
+            except Exception:
+                logger.debug("pending provenance refresh failed", exc_info=True)
+            return
+        self._stamp_triage_done()
+
+    def _stamp_triage_done(self) -> None:
+        """The ONE "done" announce: retire the local badge/spinner. Never raises."""
+        try:
+            if hasattr(self.widget, "set_triage_done"):
+                self.widget.set_triage_done()  # type: ignore[attr-defined]
+            elif hasattr(self.widget, "toolbar") and hasattr(
+                self.widget.toolbar, "set_triage_done"
+            ):
+                self.widget.toolbar.set_triage_done()  # type: ignore[attr-defined]
+        except Exception:
+            logger.debug("widget.set_triage_done failed", exc_info=True)
+
+    def _maybe_announce_done(self) -> None:
+        """Announce the held metrics-done once the AI tail is quiet. Never raises.
+
+        Called from every tail-settle seam (a scorecard delivered, the profile
+        resolved, a rank batch released, the settle's tails dispatched). A hold
+        that belongs to another generation is dropped, not announced: the new
+        folder owns its own phase.
+        """
+        try:
+            held = int(getattr(self, "_done_held_gen", -1))
+            gen = int(getattr(self, "_folder_gen", 0) or 0)
+        except Exception:
+            return
+        if held != gen:
+            return
+        if self._ai_tail_pending():
+            return
+        self._done_held_gen = -1
+        try:
+            _ai_debug(
+                "triage done: metrics and AI tail settled (gen=%s)", gen
+            )
+        except Exception:
+            pass
+        self._stamp_triage_done()
+        try:
+            GalleryController._refresh_rank_provenance(self)
+        except Exception:
+            logger.debug("post-tail provenance refresh failed", exc_info=True)
+
     def _begin_analysis(self, ctx, item: GalleryItem) -> None:
         from tabs.image_gallery.use_cases import ai_analysis as _ai_analysis
 
@@ -2240,7 +2543,13 @@ class GalleryController:
     def _on_analysis_ready(self, path: Path, mtime_ns: int, result, gen: int | None = None, epoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import ai_analysis as _ai_analysis
 
-        return _ai_analysis._on_analysis_ready(self, path, mtime_ns, result, gen, epoch=epoch)
+        outcome = _ai_analysis._on_analysis_ready(
+            self, path, mtime_ns, result, gen, epoch=epoch
+        )
+        # A scorecard of this generation settled: re-evaluate the analysis PHASE
+        # (the held "done" may land, or the terminal rank may still be ahead).
+        _phase_recheck(self)
+        return outcome
 
     def _refresh_open_quick_look(self) -> None:
         from tabs.image_gallery.use_cases import ai_analysis as _ai_analysis
@@ -2250,7 +2559,11 @@ class GalleryController:
     def _on_analysis_error(self, path: Path, error_info, gen: int | None = None, epoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import ai_analysis as _ai_analysis
 
-        return _ai_analysis._on_analysis_error(self, path, error_info, gen, epoch=epoch)
+        outcome = _ai_analysis._on_analysis_error(self, path, error_info, gen, epoch=epoch)
+        # A failed card ends its in-flight slot too — the phase must see it, or a
+        # held "done" would wait for work that will never arrive.
+        _phase_recheck(self)
+        return outcome
 
     # -- Ask AI (A3 entry points + A4 async/cache/generation guard) ------------
 
