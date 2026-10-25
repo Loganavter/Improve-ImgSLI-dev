@@ -31,6 +31,14 @@ module (through :mod:`core.startup_trace`) before its heavy imports, so
 Interpreter start-up before that import is not measurable portably and is
 excluded by construction.
 
+One combination inverts that order: a run that is **both** traced and has a
+disabled fault dump. The failure import (:func:`write_error_record`) happens at
+``enable_faulthandler()``, before ``src/__main__.py`` imports
+:mod:`core.startup_trace`, so the ``Fault dump disabled`` record is the file's
+first line and ``main.entry`` follows as a ~+1 ms line measured from that
+earlier import. The error is simply the earlier fact; the offsets stay honest
+relative to the module import that actually created the file.
+
 See ``docs/dev/LOGGING.md`` (Early sink section).
 """
 
@@ -58,6 +66,8 @@ _T0 = time.perf_counter()
 
 _lock = threading.RLock()
 _last_at: float | None = None
+#: Error record waiting for the traced run's first mark (see write_error_record).
+_pending_error: str | None = None
 _logging_ready = False
 
 
@@ -211,6 +221,7 @@ def write_mark(name: str, **fields: object) -> None:
         sink.write(f"{_stamp(total_ms, delta_ms)}  {name}{suffix}")
     except Exception:
         pass
+    _flush_pending_error()
 
 
 def write_record(text: str) -> bool:
@@ -228,9 +239,25 @@ def write_record(text: str) -> bool:
         record = f"{_stamp(total_ms, delta_ms)}  {lines[0]}"
         for line in lines[1:]:
             record += "\n" + line
-        return sink.write(record)
+        landed = sink.write(record)
     except Exception:
         return False
+    _flush_pending_error()
+    return landed
+
+
+def _flush_pending_error() -> None:
+    """Emit a queued error record right AFTER the current one.
+
+    ``_pending_error`` is only set by :func:`write_error_record` when a traced run
+    is about to write ``main.entry``: that mark must stay the first line (all
+    offsets are relative to ``_T0``), so the warning follows it instead.
+    """
+    global _pending_error
+    if _pending_error is None:
+        return
+    text, _pending_error = _pending_error, None
+    write_record(text)
 
 
 def write_error_record(text: str) -> bool:
@@ -242,8 +269,19 @@ def write_error_record(text: str) -> bool:
     windowed build, to ``os.devnull``. Creating the file for that single line is
     the whole reason it exists in such a run. Capped and never raises, like
     :func:`write_record`.
+
+    A traced run (``IMGSLI_STARTUP_TRACE`` / ``IMGSLI_STALL_WATCH``) has not
+    created the file yet at this point — the fault dump is armed before the trace
+    module is imported — and its first record is ``main.entry`` at this file's
+    own +0 ms. Writing now would put the warning in front of that anchor, so the
+    record is queued and flushed by the first mark instead.
     """
-    global _sink
+    global _pending_error, _sink
+    if debug_requested() and _last_at is None:
+        # Nothing has been written yet: the traced run's ``main.entry`` is still
+        # to come, and it must stay the first line. Flush after it instead.
+        _pending_error = text
+        return True
     if _sink is None:
         with _lock:
             if _sink is None:
@@ -286,9 +324,10 @@ def selftest_sleep() -> float:
 
 def _reload_for_tests() -> str | None:
     """Rebuild the sink from the CURRENT environment (tests only)."""
-    global _sink, _last_at, _logging_ready
+    global _sink, _last_at, _logging_ready, _pending_error
     with _lock:
         _sink = _EarlySink.create()
         _last_at = None
         _logging_ready = False
+        _pending_error = None
     return path()

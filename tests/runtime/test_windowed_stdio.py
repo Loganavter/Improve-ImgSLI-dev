@@ -141,17 +141,51 @@ def test_traced_run_keeps_the_warning_next_to_its_marks(
     monkeypatch: pytest.MonkeyPatch,
     fault_dump_cleanup,
 ) -> None:
-    """A sink that already exists must be appended to, never wiped by the report."""
+    """Traced + broken dump: the warning opens the file, later marks do not wipe it.
+
+    Production order matters -- ``enable_faulthandler()`` runs before
+    ``src/__main__.py`` imports ``core.startup_trace``, so the warning is the
+    first record in this one combination (documented in the module docstring).
+    """
     monkeypatch.setenv("IMGSLI_STARTUP_TRACE", "1")
     assert early._reload_for_tests() is not None
+
+    monkeypatch.setenv(FAULT_DUMP_ENV, "1")
+    monkeypatch.setenv(FAULT_DUMP_FILE_ENV, str(early_sink / "absent" / "dump.log"))
+    enable_faulthandler()
     early.write_mark("main.entry")
+
+    lines = Path(early.path()).read_text(encoding="utf-8").splitlines()
+    assert any("main.entry" in line for line in lines[:1]), lines
+    assert len([line for line in lines if WARNING_PREFIX in line]) == 1, lines
+    assert lines.index(next(line for line in lines if WARNING_PREFIX in line)) == 1, lines
+
+
+def test_traced_run_with_no_mark_yet_keeps_main_entry_first(
+    early_sink: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_dump_cleanup,
+) -> None:
+    """The real order: the dump is armed BEFORE ``main.entry`` is written.
+
+    ``src/__main__`` arms the fault dump at :31 and imports the trace module at
+    :40, so a traced run with a broken dump reaches the warning with an empty
+    file. The record must wait for the mark (every offset is relative to it) and
+    then appear exactly once, right after it.
+    """
+    monkeypatch.setenv("IMGSLI_STARTUP_TRACE", "1")
+    assert early._reload_for_tests() is not None
 
     monkeypatch.setenv(FAULT_DUMP_ENV, "1")
     monkeypatch.setenv(FAULT_DUMP_FILE_ENV, str(early_sink / "absent" / "dump.log"))
     enable_faulthandler()
 
+    assert _warning_lines(early.path()) == [], "the warning must not precede the mark"
+    early.write_mark("main.entry")
+
     lines = Path(early.path()).read_text(encoding="utf-8").splitlines()
-    assert "main.entry" in lines[0]
+    assert "main.entry" in lines[0], lines
+    assert len([line for line in lines if WARNING_PREFIX in line]) == 1, lines
     assert len([line for line in lines if WARNING_PREFIX in line]) == 1, lines
 
 
