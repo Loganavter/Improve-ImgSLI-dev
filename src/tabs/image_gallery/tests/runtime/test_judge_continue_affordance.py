@@ -20,7 +20,11 @@ Falsification stories (each assertion fails without the wiring):
     handler is a stub, if it re-analyzes a card the ceiling did not refuse, or
     if the row stays enabled after the run is over;
 (d) opening another folder drops the affordance — fails if a ceiling stop from
-    the closed folder leaves a runnable row behind.
+    the closed folder leaves a runnable row behind;
+(e) the stats strip carries the SAME affordance visibly (enabled + labelled
+    with the parked count, click ⇒ the registered handler, gone again when the
+    ledger empties or the folder changes) — fails if only Find Action can
+    continue a parked run.
 
 Runs offscreen; no network, no window: the controller double never starts a
 real worker (``_pool_start`` is a no-op) and the judge is scripted.
@@ -270,3 +274,135 @@ def test_new_folder_generation_drops_the_affordance() -> None:
     row = _row(registry)
     assert row.enabled is False, "a stop from the closed folder left a live action"
     assert owner.judge_run_continue_available is False
+
+
+# -- (e) the VISIBLE control in the stats strip ------------------------------
+# Same affordance family as Keep best / Clean rejected / Compare finalists: a
+# painter-pipeline ``Button`` in the strip. Falsification story: without it the
+# ceiling stop left the user with a stop *line* and no clickable way out — the
+# action existed only in Find Action.
+#
+# The strip holds NO copy of the flag: it pulls ``(available, parked)`` from the
+# controller through the widget's documented ``_owner_for_triage`` (every tick
+# while visible + on show + right after a click), and its click dispatches the
+# SAME registered handler Find Action runs (``gallery.continue-judge``).
+
+
+def _btn_text(btn) -> str:
+    try:
+        text = getattr(btn, "_text", "") or ""
+        if text:
+            return str(text)
+    except Exception:
+        pass
+    return ""
+
+
+def _widget(owner):
+    """The real gallery widget with the real controller attached (G2 seam)."""
+    from tabs.image_gallery.widget import ImageGalleryWidget
+
+    w = ImageGalleryWidget()
+    w.attach_controller(owner)
+    return w
+
+
+def test_the_strip_has_no_continue_control_before_anything_is_parked(qtbot) -> None:
+    owner = _owner([_item("a.png")], judge_run_call_ceiling=2)
+    w = _widget(owner)
+    qtbot.addWidget(w)
+
+    btn = w.stats_strip.continue_button
+    w.stats_strip.refresh_continue_state()
+    assert btn.isHidden() is True, "a dead continue button is armed before any stop"
+    assert btn.isEnabled() is False
+    assert btn.objectName() == "gallery_continue_judge"
+
+
+def test_visible_continue_control_names_the_parked_count_and_resumes_by_click(qtbot) -> None:
+    items = [_item(f"{i}.png") for i in range(5)]
+    owner = _owner(items, sample_count=1, judge_run_call_ceiling=2)
+    w = _widget(owner)
+    qtbot.addWidget(w)
+    btn = w.stats_strip.continue_button
+    assert btn.isHidden() is True
+
+    _run_to_ceiling(owner, items)
+    assert owner.judge_run_continue_available is True
+    # This is what the visible strip does (show/poll): PULL the ledger.
+    w.stats_strip.refresh_continue_state()
+
+    assert btn.isHidden() is False, "the parked run never reached the visible strip"
+    assert btn.isEnabled() is True
+    # Same translated key as the catalogue row, plus the count from the SAME
+    # ledger list (``judge_run_parked_count``).
+    assert "3" in _btn_text(btn), _btn_text(btn)
+
+    # A click is a dispatch of the registered action, not a private code path:
+    # the parked cards re-enter the ordinary analysis pass …
+    btn.click()
+    assert [it.analysis_status for it in items[2:4]] == [
+        AnalysisStatus.PENDING,
+        AnalysisStatus.PENDING,
+    ]
+    # … one card re-parks at the same ceiling, and the button follows it
+    # immediately (the click re-reads before returning, no waiting for a tick).
+    assert owner.judge_run_parked_count == 1
+    assert btn.isEnabled() is True
+    assert "1" in _btn_text(btn), _btn_text(btn)
+
+    # Nothing left to continue ⇒ the control goes away again.
+    btn.click()
+    assert owner.judge_run_continue_available is False
+    assert btn.isHidden() is True
+    assert btn.isEnabled() is False
+
+
+def test_a_folder_change_clears_the_visible_control(qtbot) -> None:
+    items = [_item(f"{i}.png") for i in range(4)]
+    owner = _owner(items, sample_count=1, judge_run_call_ceiling=1)
+    w = _widget(owner)
+    qtbot.addWidget(w)
+    _run_to_ceiling(owner, items)
+    w.stats_strip.refresh_continue_state()
+    assert w.stats_strip.continue_button.isHidden() is False
+
+    owner._next_folder_gen()
+    w.stats_strip.refresh_continue_state()
+
+    btn = w.stats_strip.continue_button
+    assert btn.isHidden() is True, "a stop from the closed folder left a live button"
+    assert btn.isEnabled() is False
+
+
+def test_the_visible_control_dispatches_the_registered_action_id(qtbot) -> None:
+    """The click target is the catalog handler — never a second implementation."""
+    items = [_item(f"{i}.png") for i in range(3)]
+    owner = _owner(items, sample_count=1, judge_run_call_ceiling=1)
+    w = _widget(owner)
+    qtbot.addWidget(w)
+    _run_to_ceiling(owner, items)
+    w.stats_strip.refresh_continue_state()
+    btn = w.stats_strip.continue_button
+    assert btn.isEnabled() is True
+
+    calls: list[str] = []
+    real = owner.continue_judge_run
+
+    def _spy(*args, **kwargs):
+        calls.append(CONTINUE_ACTION_ID)
+        return real(*args, **kwargs)
+
+    # ``run_action`` resolves the handler by id; the handler calls this method.
+    owner.continue_judge_run = _spy  # type: ignore[method-assign]
+    try:
+        btn.click()
+    finally:
+        try:
+            del owner.continue_judge_run
+        except Exception:
+            owner.continue_judge_run = real  # type: ignore[method-assign]
+
+    assert calls == [CONTINUE_ACTION_ID], (
+        "the strip button did not go through gallery.continue-judge"
+    )
