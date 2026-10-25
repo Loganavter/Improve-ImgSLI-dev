@@ -24,8 +24,8 @@ from ui.actions.keymap import (
     effective_shortcut,
     normalize_sequence,
     resolve_chord_winners,
-    verify_unique_or_log,
 )
+from ui.actions.keymap_uniqueness import verify_unique_or_log
 from ui.actions.registry import ActionRegistry, get_action_registry
 from core.log_names import APP_LOGGER_NAME
 

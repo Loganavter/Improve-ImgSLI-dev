@@ -56,9 +56,9 @@ CATALOG = {
 
 def _shipped_defaults() -> dict[str, tuple[str | None, str | None]]:
     """The real catalog as Settings sees it (metadata, no live widgets)."""
-    from plugins.settings.pages.keyboard import _collect_defaults
+    from plugins.settings.keymap_defaults import collect_keymap_defaults
 
-    registry = _collect_defaults()
+    registry = collect_keymap_defaults()
     return {
         entry.action_id: (entry.default_shortcut, entry.owner_tab)
         for entry in registry.all_entries()

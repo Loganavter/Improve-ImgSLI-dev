@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from plugins.settings.keymap_defaults import collect_keymap_defaults
 from plugins.settings.nav_rows import page_nav_builder, register_page_navigation
 from plugins.settings.pages.keyboard_metrics import (
     GROUP_BODY_MARGIN_V_PX,
@@ -30,12 +31,11 @@ from sli_ui_toolkit.managers import scaled_px
 from sli_ui_toolkit.ui.managers.ui_font import ui_font
 from sli_ui_toolkit.widgets import Button, CustomLineEdit
 from ui.actions.keymap import (
-    KeymapDefaultsRegistry,
     effective_shortcut_for_id,
     keymap_entry_rank,
     normalize_sequence,
-    verify_unique_or_log,
 )
+from ui.actions.keymap_uniqueness import verify_unique_or_log
 from ui.actions.search_index import PROP_GROUP
 from ui.icon_manager import AppIcon
 
@@ -54,33 +54,6 @@ SEARCH = SearchIndex.of(KEYBOARD, KEYBOARD_PLATFORM, KEYBOARD_IC, KEYBOARD_MC)
 def _tr(dialog, key: str, fallback: str) -> str:
     text = dialog._tr(key, dialog.current_language)
     return fallback if text == key else text
-
-
-def _collect_defaults() -> KeymapDefaultsRegistry:
-    registry = KeymapDefaultsRegistry()
-    from ui.actions.platform import contribute_platform_keymap_defaults
-
-    try:
-        from core.store import INITIAL_WORKSPACE_SESSION_TYPE
-        from tabs.registry import TabRegistry
-
-        tabs = TabRegistry()
-        tabs.discover()
-        new_session_types = [
-            tab.session_type
-            for tab in tabs.list_tabs()
-            if tab.session_type != INITIAL_WORKSPACE_SESSION_TYPE
-        ]
-        contribute_platform_keymap_defaults(registry, new_session_types)
-        tabs.notify_all("contribute_keymap_defaults", registry)
-    except Exception:
-        import logging
-
-        logging.getLogger(__name__).exception(
-            "Failed to collect tab keymap defaults for Settings → Keyboard"
-        )
-        contribute_platform_keymap_defaults(registry)
-    return registry
 
 
 class _ShortcutCaptureButton(Button):
@@ -184,7 +157,7 @@ def build(dialog, p):
 
     dialog.page_keyboard, layout = dialog._create_scrollable_page()
     builder = page_nav_builder(dialog, tag="settings-keyboard")
-    defaults = _collect_defaults()
+    defaults = collect_keymap_defaults()
     defaults_map = {
         entry.action_id: (entry.default_shortcut, entry.owner_tab)
         for entry in defaults.all_entries()

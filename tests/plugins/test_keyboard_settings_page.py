@@ -5,7 +5,8 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication, QWidget
 
 from core.actions.types import ActionDescriptor
-from plugins.settings.pages.keyboard import SECTION, _collect_defaults
+from plugins.settings.keymap_defaults import collect_keymap_defaults
+from plugins.settings.pages.keyboard import SECTION
 from plugins.settings.registry import SettingsRegistry
 from ui.actions.binder import ActionShortcutBinder
 from ui.actions.keymap import KeymapDefaultEntry, keymap_entry_rank, normalize_sequence
@@ -21,7 +22,7 @@ def test_keyboard_section_registers():
 
 
 def test_keymap_defaults_include_diff_mode_cycle():
-    defaults = {e.action_id: e for e in _collect_defaults().all_entries()}
+    defaults = {e.action_id: e for e in collect_keymap_defaults().all_entries()}
     assert "image_compare.diff_mode" in defaults
     entry = defaults["image_compare.diff_mode"]
     assert entry.default_shortcut == "H"
@@ -110,7 +111,7 @@ def test_page_initial_map_repairs_a_duplicate_profile():
 
     defaults = {
         entry.action_id: (entry.default_shortcut, entry.owner_tab)
-        for entry in _collect_defaults().all_entries()
+        for entry in collect_keymap_defaults().all_entries()
     }
     tab_actions = [
         aid for aid, (chord, owner) in defaults.items() if owner and chord

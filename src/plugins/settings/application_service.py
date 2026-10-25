@@ -350,11 +350,11 @@ class SettingsApplicationService(QObject):
         from ui.actions.keymap import (
             exclusive_overrides,
             repair_legacy_cross_tab_unbounds,
-            verify_unique_or_log,
         )
-        from plugins.settings.pages.keyboard import _collect_defaults
+        from ui.actions.keymap_uniqueness import verify_unique_or_log
+        from plugins.settings.keymap_defaults import collect_keymap_defaults
 
-        defaults = _collect_defaults()
+        defaults = collect_keymap_defaults()
         defaults_map = {
             entry.action_id: (entry.default_shortcut, entry.owner_tab)
             for entry in defaults.all_entries()
