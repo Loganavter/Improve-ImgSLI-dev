@@ -28,16 +28,18 @@ import pytest
 from core.log_names import APP_LOGGER_NAME
 from ui.actions import keymap
 from ui.actions.keymap import (
-    BindingCollisionError,
     KeymapDefaultEntry,
     KeymapDefaultsRegistry,
+    steal_chord_in_overrides,
+)
+from ui.actions.keymap_uniqueness import (
+    BindingCollisionError,
     assert_unique_bindings,
     assert_unique_bindings_all_scopes,
     binding_scopes,
     collisions_in_all_scopes,
     duplicate_bindings,
     scope_bindings,
-    steal_chord_in_overrides,
     verify_unique_or_log,
 )
 

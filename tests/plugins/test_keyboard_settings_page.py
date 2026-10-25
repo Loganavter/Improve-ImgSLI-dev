@@ -104,10 +104,10 @@ def test_page_initial_map_repairs_a_duplicate_profile():
     owns — the page must resolve it to one holder and pass the strict gate.
     """
     from ui.actions.keymap import (
-        assert_unique_bindings_all_scopes,
         exclusive_overrides,
         repair_legacy_cross_tab_unbounds,
     )
+    from ui.actions.keymap_uniqueness import assert_unique_bindings_all_scopes
 
     defaults = {
         entry.action_id: (entry.default_shortcut, entry.owner_tab)
