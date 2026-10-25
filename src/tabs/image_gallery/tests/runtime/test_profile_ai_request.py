@@ -236,7 +236,14 @@ def test_truncated_reply_is_retried_once_and_the_answer_is_pinned(tmp_path):
     assert cache.get(_key(items)) == profile, "the answered retry is pinned"
 
 
-def test_a_retry_that_still_starves_logs_a_warning_and_pins_nothing(tmp_path, caplog):
+def test_a_retry_that_still_starves_logs_a_warning_and_pins_the_offer(tmp_path, caplog):
+    """The fallback the run USED is pinned, with its own source — never "no axes".
+
+    Inverted on purpose (2026-10-26, ``task-profile-freeze-before-vlm-answer``):
+    the run resolved the series offer, so that is the folder's profile; a pin
+    holding a hollow ``vlm`` answer would serve "no axes" to the generation,
+    which is exactly what must stay impossible.
+    """
     cache = ProfileCache(tmp_path)
     items = _items()
     payloads: list = []
@@ -253,10 +260,12 @@ def test_a_retry_that_still_starves_logs_a_warning_and_pins_nothing(tmp_path, ca
     assert len(payloads) == 2, "exactly ONE retry — not a retry loop"
     assert profile.source == "series"
     assert profile == profile_select.derive_profile(items, mode="camera")
-    assert cache.get(_key(items)) is None, (
-        "a truncated reply must never be written to the pin: it would serve "
-        "'no axes' to the whole folder generation"
+    pinned = cache.get(_key(items))
+    assert pinned is not None, "the resolved offer IS the folder's profile"
+    assert pinned == profile and pinned.source == "series", (
+        "the pin holds the fallback WITH its source — never a hollow vlm answer"
     )
+    assert pinned.axis_ids, "a pinned profile always carries a usable axis set"
 
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert warnings, "the quality drop must be visible without IMGSLI_AI_DEBUG"
@@ -319,7 +328,10 @@ def test_a_non_length_failure_is_not_retried_but_still_warns(tmp_path, caplog):
         for r in caplog.records
         if r.levelno >= logging.WARNING
     ), "a junk reply is still a visible quality drop"
-    assert cache.get(_key(items)) is None
+    pinned = cache.get(_key(items))
+    assert pinned is not None and pinned.source != "vlm", (
+        "the resolved offer is pinned (2026-10-26), but never as a VLM answer"
+    )
 
 
 def test_the_pin_key_is_unchanged_by_the_budget_fix(tmp_path):

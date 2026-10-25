@@ -337,7 +337,14 @@ def test_choose_profile_sync_calls_once_then_pins(tmp_path):
     assert "sharpness" in first and "noise" in first
 
 
-def test_choose_profile_sync_malformed_reply_is_the_series_offer_and_not_pinned(tmp_path):
+def test_choose_profile_sync_malformed_reply_pins_the_offer_not_a_vlm_answer(tmp_path):
+    """A junk reply is not pinned AS the judge's answer — the OFFER is pinned.
+
+    Inverted on purpose (2026-10-26, ``task-profile-freeze-before-vlm-answer``):
+    one folder resolves one profile, so the fallback the run actually used is
+    pinned WITH its own source. What must never happen — and is asserted here —
+    is a pinned ``vlm`` profile the judge never answered.
+    """
     cache = ProfileCache(tmp_path)
     items = [_item("a.png", sharpness=0.0), _item("b.png", sharpness=400.0)]
     calls: list = []
@@ -354,10 +361,20 @@ def test_choose_profile_sync_malformed_reply_is_the_series_offer_and_not_pinned(
     key = profile_cache.profile_cache_key(
         items, mode="camera", model="m", base_url="http://x", reasoning_effort="auto"
     )
-    assert cache.get(key) is None
+    pinned = cache.get(key)
+    assert pinned is not None, "the resolved profile is pinned, fallback included"
+    assert pinned == profile and pinned.source == "series", (
+        "the pin records the SOURCE that resolved it — never a fabricated vlm answer"
+    )
 
-    choose_profile_sync(items, mode="camera", settings=_settings(), cache=cache, client_call=_client)
-    assert len(calls) == 2  # a malformed reply is deliberately not pinned
+    second = choose_profile_sync(
+        items, mode="camera", settings=_settings(), cache=cache, client_call=_client
+    )
+    assert second == profile
+    assert len(calls) == 1, (
+        "one folder resolves one profile: the second pass is served from the pin, "
+        "so only the first pass paid for the (unretryable) junk request"
+    )
 
 
 def test_choose_profile_sync_drops_ids_outside_the_pool(tmp_path):
@@ -371,17 +388,19 @@ def test_choose_profile_sync_drops_ids_outside_the_pool(tmp_path):
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client
     )
     assert profile.source == "heuristic"
-    assert (
-        cache.get(
-            profile_cache.profile_cache_key(
-                items,
-                mode="camera",
-                model="m",
-                base_url="http://x",
-                reasoning_effort="auto",
-            )
+    pinned = cache.get(
+        profile_cache.profile_cache_key(
+            items,
+            mode="camera",
+            model="m",
+            base_url="http://x",
+            reasoning_effort="auto",
         )
-        is None
+    )
+    assert pinned is not None, "the fallback this run used is the pinned answer"
+    assert pinned == profile, (
+        "the unusable pick must not leak into the pin — only the resolved "
+        "fallback is stored"
     )
 
 

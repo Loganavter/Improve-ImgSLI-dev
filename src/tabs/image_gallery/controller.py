@@ -674,6 +674,78 @@ class GalleryController:
 
     # -- VLM metric-profile selector (P2, plan-adaptive-metric-profiles) -----
 
+    def _folder_analysis_probe(self, items) -> dict:
+        """Ask the disk whether THIS identity already answers the whole folder.
+
+        The folder-level gate (2026-10-26, ``task-analysis-phase-state``): the
+        analysis identity names the backend, the mode, the sampling and the
+        prompt revision — NOT the profile — so "is this folder done" is
+        answerable before the selector, the analyze tail or the ranker spend
+        anything. Every hit is loaded through the ONE acceptance rule
+        (``ai_cache.folder_cache_probe``), so a "complete" verdict can never
+        disagree with the per-card read that follows it. Never raises: a failure
+        degrades to an empty probe (the caller behaves as before).
+        """
+        try:
+            from tabs.image_gallery.services import ai_cache
+            from tabs.image_gallery.use_cases.ai_analyze import analysis_identity_for
+
+            identity = analysis_identity_for(self)
+            return ai_cache.folder_cache_probe(items, identity)
+        except Exception:
+            logger.debug("folder analysis probe failed", exc_info=True)
+            return {"total": 0, "cached": 0, "complete": False, "missing": [], "results": {}}
+
+    def _hydrate_from_probe(self, probe) -> int:
+        """Fill items from a folder probe's hits — a HIT is a read, not a call.
+
+        The probe already loaded the scorecards, so this is the apply half: no
+        second disk read, no request. Returns how many cards were filled. Never
+        raises (a broken card is left for the normal per-item path).
+        """
+        results = {}
+        try:
+            results = dict((probe or {}).get("results") or {})
+        except Exception:
+            results = {}
+        if not results:
+            return 0
+        try:
+            items = list(getattr(self.state, "items", ()) or ())
+        except Exception:
+            items = []
+        filled = 0
+        touched = []
+        for item in items:
+            try:
+                if getattr(item, "analysis", None) is not None:
+                    continue
+                hit = results.get(str(getattr(item, "path", "")))
+            except Exception:
+                continue
+            if hit is None:
+                continue
+            try:
+                from tabs.image_gallery.models import AnalysisStatus
+
+                item.analysis = hit
+                item.analysis_status = AnalysisStatus.DONE
+                item.analysis_error = None
+                filled += 1
+                touched.append(item)
+            except Exception:
+                continue
+        if touched:
+            try:
+                self.widget.refresh_cards(touched)
+            except Exception:
+                for it in touched:
+                    try:
+                        self.widget.refresh_card(it)
+                    except Exception:
+                        pass
+        return filled
+
     def _run_profile_select_on_settle(self) -> None:
         """Kick the VLM metric-profile selector from the metrics-settled boundary.
 
@@ -724,23 +796,49 @@ class GalleryController:
         if len(items) < 2:
             _ai_debug("metric profile skip: %d item(s) (<2) — nothing to select", len(items))
             return
-        # Nothing to re-key: the profile is an ANALYSIS-CACHE IDENTITY, so when
-        # every item already carries a scorecard (a warm folder: hydrated from
-        # disk or analyzed under the current axis set) a selector answer cannot
-        # re-point a single call — it can only burn one probe image per open.
-        # Measured live 2026-10-22: every warm reopen of a fully analyzed folder
-        # emitted exactly one image POST that never applied. The AI tail is
-        # cache-first, so a warm matrix is a normal state, not a corner case.
-        try:
-            if all(getattr(it, "analysis", None) is not None for it in items):
-                _ai_debug(
-                    "metric profile skip: matrix already analyzed (items=%d) — "
-                    "a selector answer could not re-key any call",
-                    len(items),
-                )
-                return
-        except Exception:
-            pass
+        # Nothing to re-key: the profile is not an analysis-cache identity any
+        # more (2026-10-26), so the question is not "would a selector answer
+        # re-point a call" but "does every card already have an entry for THIS
+        # identity" — the folder-level probe. When it does, the run is DONE: no
+        # profile request, no analyze, no probe image. Measured before this: a
+        # warm reopen of a fully analyzed folder still emitted one image POST per
+        # open, and (with the profile in the key) re-analyzed the folder.
+        #
+        # A legacy double without the probe keeps the pre-change warm-matrix
+        # behaviour (every item already carries its analysis): the skip must not
+        # depend on the probe existing.
+        probe_fn = getattr(self, "_folder_analysis_probe", None)
+        probe = {"complete": False}
+        if callable(probe_fn):
+            try:
+                probe = probe_fn(items)
+            except Exception:
+                probe = {"complete": False}
+        else:
+            try:
+                probe = {
+                    "complete": bool(items)
+                    and all(getattr(it, "analysis", None) is not None for it in items)
+                }
+            except Exception:
+                probe = {"complete": False}
+        if probe.get("complete"):
+            hydrate = getattr(self, "_hydrate_from_probe", None)
+            filled = 0
+            if callable(hydrate):
+                try:
+                    filled = int(hydrate(probe))
+                except Exception:
+                    filled = 0
+            _ai_debug(
+                "analysis cache complete: %d/%d entries for this identity — no "
+                "profile request, no analyze (gen=%s, filled=%d)",
+                int(probe.get("cached", 0) or 0),
+                int(probe.get("total", 0) or 0),
+                self._folder_gen,
+                filled,
+            )
+            return
         # A profile already CONSUMED for this generation is frozen: P5 stamps it
         # once an AI payload was built, so a reply arriving now is rejected by
         # ``_apply_profile_outcome`` anyway — asking for it is pure cost.

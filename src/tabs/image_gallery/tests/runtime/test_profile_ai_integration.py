@@ -173,7 +173,14 @@ def test_unknown_ids_are_dropped_never_fabricated():
     assert profile.source == "vlm"
 
 
-def test_junk_reply_degrades_to_the_series_offer_and_is_not_pinned(tmp_path):
+def test_junk_reply_degrades_to_the_series_offer_and_pins_it(tmp_path):
+    """One folder resolves ONE profile (2026-10-26), fallback included.
+
+    The junk reply is not retried (a second identical request has no reason to
+    answer better) and is never pinned AS the judge's answer — what is pinned is
+    the series offer the run actually used, with its own source, so the next pass
+    does not re-ask.
+    """
     items = _scattered()
     cache = ProfileCache(tmp_path)
     transport = _Transport([_chat("I cannot help with that."), _chat("still prose")])
@@ -192,7 +199,11 @@ def test_junk_reply_degrades_to_the_series_offer_and_is_not_pinned(tmp_path):
     assert first == derive_profile(items, mode="camera")
     assert set(first.axis_ids) == {"sharpness", "noise"}
     assert "white_balance" not in first.axis_ids
-    assert len(transport.calls) == 2, "a malformed reply must not be pinned (it may retry)"
+    assert second == first
+    assert len(transport.calls) == 1, (
+        "the resolved offer is the folder's profile: the second pass is served "
+        "from the pin instead of paying for another (junk) request"
+    )
 
 
 def test_transport_failure_degrades_to_the_series_offer(tmp_path):

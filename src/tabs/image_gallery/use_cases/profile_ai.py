@@ -26,17 +26,21 @@ repeated inside the reply (``services/axis_choice.parse_axis_choices``).
 One call per unchanged folder-generation: the selection is pinned
 (``services/profile_cache``, keyed on member fingerprint + mode + model + pool),
 and a re-run over unchanged inputs is served from disk with no second HTTP
-call. A reply cut off at the token cap (``finish_reason=length``) is retried
-ONCE with a doubled budget (``profile_ai_request.retry_profile_budget``) before
-the selector gives up; a selection that still yields no axis is logged at
-WARNING with finish_reason/budget/model, so a quality drop is visible
-without ``IMGSLI_AI_DEBUG``. Every failure (AI off, no probe members, transport
-raise, junk reply) degrades to the series-derived offer
+call. EVERY resolved answer is pinned, including the series-derived offer
+(2026-10-26, ``task-profile-freeze-before-vlm-answer``): one folder resolves one
+profile, so the axis set the scorecards on disk were built with is the axis set
+the next pass reports — a policy change cannot silently re-roll it.
+``refresh=True`` is the ONE explicit invalidation seam (a pinned offer only
+becomes a paid judge answer through it / the gallery's "Reset metrics cache").
+A reply cut off at the token cap (``finish_reason=length``) is retried ONCE with
+a doubled budget (``profile_ai_request.retry_profile_budget``) before the
+selector gives up; a selection that still yields no usable axis is logged at
+WARNING with finish_reason/budget/model, so a quality drop is visible without
+``IMGSLI_AI_DEBUG``. Every failure (AI off, no probe members, transport raise,
+junk reply) degrades to the series-derived offer
 (``profile_select.derive_profile`` → ``metric_profile.profile_for_series``) —
 the control always yields a usable axis set. The judge's own choice, when it
-answers, WINS over that offer (P5 precedence). Malformed replies are
-deliberately not pinned (a later pass may retry), mirroring
-``services/jev_cache``.
+answers, WINS over that offer (P5 precedence).
 
 Reuse, not rebuild: the transport is the shared ``services.ai_client.call_sync``
 seam, the JSON envelope is forced with ``response_format={"type":
@@ -264,6 +268,7 @@ def choose_profile_sync(
     reference_path=None,
     cache=None,
     client_call=None,
+    refresh: bool = False,
 ):
     """The single entry the wiring lane calls → a usable ``MetricProfile``.
 
@@ -271,16 +276,25 @@ def choose_profile_sync(
 
     1. AI not configured → the series-derived offer
        (``profile_select.derive_profile`` → ``profile_for_series``) — **no** call;
-    2. a pin hit for this folder-generation → the pinned profile (source
-       ``vlm`` preserved) — **no** call;
+    2. a pin hit for this folder-generation → the pinned profile (its source
+       preserved) — **no** call;
     3. otherwise probe the K most-deviant members, build the free-form
        axis-naming request, call the transport, parse, pin and return.
 
+    EVERY answer is pinned, including the offer (2026-10-26,
+    ``task-profile-freeze-before-vlm-answer``): one folder resolves ONE profile,
+    so a later pass reads the axis set the entries on disk were built with instead
+    of re-deriving it and (with the axis set in the analysis identity) paying to
+    re-analyze the folder. ``refresh=True`` is the EXPLICIT invalidation seam —
+    it drops this folder's pin before resolving, which is the only way a pinned
+    offer becomes a paid judge answer. Nothing else invalidates it.
+
     Any failure — no probe members, no transport, a raising transport, a junk
-    reply — degrades to the series offer. Never raises. ``client_call``
-    defaults to ``ai_client.call_sync`` and is invoked as
-    client_call(base_url, api_key, payload). folder_key is accepted for
-    call-site symmetry; the pin identity is the member fingerprint.
+    reply, an axis count outside 3..8 after one retry — degrades to the series
+    offer (which is then pinned as such). Never raises. ``client_call`` defaults
+    to ``ai_client.call_sync`` and is invoked as client_call(base_url, api_key,
+    payload). folder_key is accepted for call-site symmetry; the pin identity is
+    the member fingerprint.
     """
     from tabs.image_gallery.use_cases import profile_select
 
@@ -294,10 +308,52 @@ def choose_profile_sync(
 
             return profile_for_mode(mode)
 
-    if not ai_selector_available(settings):
-        return _offer()
-
     from tabs.image_gallery.services import profile_cache
+
+    try:
+        key = profile_cache.profile_cache_key(
+            members,
+            mode=mode,
+            model=str(_attr(settings, "model", "") or ""),
+            base_url=str(_attr(settings, "base_url", "") or ""),
+            reasoning_effort=str(_attr(settings, "reasoning_effort", "auto") or "auto"),
+        )
+    except Exception:
+        key = ""
+
+    cache_obj = cache if cache is not None else profile_cache.default_cache()
+
+    def _pin(profile, *, why: str):
+        """Persist the resolved profile (whatever its source). Never raises."""
+        if profile is None or not key:
+            return profile
+        try:
+            cache_obj.put(key, profile)
+        except Exception:
+            logger.debug("profile pin write failed", exc_info=True)
+        try:
+            # Deferred: this module stays import-pure (no ai_client at import).
+            from tabs.image_gallery.services.ai_client import _ai_debug
+            from tabs.image_gallery.services.metric_profile import format_profile
+
+            _ai_debug(
+                "profile pin: %s — %s",
+                why,
+                format_profile(profile),
+            )
+        except Exception:
+            pass
+        return profile
+
+    if refresh and key:
+        try:
+            cache_obj.invalidate(key)
+        except Exception:
+            logger.debug("profile pin invalidate failed", exc_info=True)
+
+    if not ai_selector_available(settings):
+        return _pin(_offer(), why="resolved without an AI call (AI unavailable)")
+
     from tabs.image_gallery.use_cases import profile_probe
 
     model = str(_attr(settings, "model", "") or "")
@@ -305,24 +361,22 @@ def choose_profile_sync(
     api_key = str(_attr(settings, "api_key", "") or "")
     effort = str(_attr(settings, "reasoning_effort", "auto") or "auto")
 
-    try:
-        key = profile_cache.profile_cache_key(
-            members,
-            mode=mode,
-            model=model,
-            base_url=base_url,
-            reasoning_effort=effort,
-        )
-    except Exception:
-        key = ""
-
-    cache_obj = cache if cache is not None else profile_cache.default_cache()
     if key:
         try:
             hit = cache_obj.get(key)
         except Exception:
             hit = None
         if hit is not None:
+            try:
+                from tabs.image_gallery.services.ai_client import _ai_debug
+                from tabs.image_gallery.services.metric_profile import format_profile
+
+                _ai_debug(
+                    "profile pin hit: %s — no profile request",
+                    format_profile(hit),
+                )
+            except Exception:
+                pass
             return hit
 
     try:
@@ -330,7 +384,7 @@ def choose_profile_sync(
     except Exception:
         probes = ()
     if not probes:
-        return _offer()
+        return _pin(_offer(), why="resolved without an AI call (no probe members)")
 
     summary = salience if salience is not None else profile_probe.salience_summary(members)
     try:
@@ -342,26 +396,29 @@ def choose_profile_sync(
             base_url=base_url,
         )
     except Exception:
-        return _offer()
+        return _pin(_offer(), why="resolved without an AI call (request build failed)")
 
     call = client_call or _default_client_call()
     if call is None:
-        return _offer()
+        return _pin(_offer(), why="resolved without an AI call (no transport)")
+
     try:
         raw = call(base_url, api_key, payload)
     except Exception:
         logger.debug("profile select call failed", exc_info=True)
-        return _offer()
+        return _pin(_offer(), why="resolved after a transport failure")
 
     attempts = 1
     profile = parse_profile_reply(_reply_text(raw), mode=mode)
+    # ONE retry, and only when the reply argues for one: a completion cut off at
+    # the token cap (finish=length) was starved before its answer existed, so a
+    # bigger cap can rescue it. A junk reply with finish=stop is a different
+    # failure (a second identical request has no reason to answer better) and is
+    # not retried — the cost model stays one call per folder generation.
     if profile is None and _reply_finish(raw) == "length":
-        # finish=length with no axes means the completion was spent before the
-        # answer existed (measured 2026-10-26: 560-token budget, reasoning=560,
-        # content=0). The first request already asked to exclude the reasoning;
-        # a provider that ignores that can only be rescued by a bigger cap, so
-        # retry ONCE with the doubled budget instead of dropping to the offer.
+        # Measured 2026-10-26: 560-token budget, reasoning=560, content=0.
         retry_budget = retry_profile_budget(payload.get("max_tokens"))
+        retry_payload = None
         try:
             retry_payload = build_profile_request(
                 probes,
@@ -384,13 +441,13 @@ def choose_profile_sync(
                 profile = parse_profile_reply(_reply_text(raw), mode=mode)
 
     if profile is None:
-        # A WARN, not a DEBUG: the run silently loses its VLM axes and falls
-        # back to the series offer, which looks like a working profile. Without
+        # A WARN, not a DEBUG: the run loses its VLM axes and falls back to the
+        # series offer, which LOOKS like a working profile. Without
         # IMGSLI_AI_DEBUG the owner had no way to see this.
         logger.warning(
             "profile select: no usable axis — finish_reason=%s max_tokens=%s "
             "attempts=%d reasoning_chars=%d model=%s mode=%s; series offer "
-            "kept (this run has no VLM-named axes)",
+            "kept and pinned (this run has no VLM-named axes)",
             _reply_finish(raw) or "unknown",
             payload.get("max_tokens"),
             attempts,
@@ -398,13 +455,9 @@ def choose_profile_sync(
             model,
             mode,
         )
-        return _offer()
-    if key:
-        try:
-            cache_obj.put(key, profile)
-        except Exception:
-            pass
-    return profile
+        return _pin(_offer(), why="resolved after a reply with no usable axis")
+
+    return _pin(profile, why="resolved by the judge")
 
 
 __all__ = [

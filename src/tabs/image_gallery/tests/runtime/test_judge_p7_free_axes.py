@@ -380,7 +380,15 @@ def test_a_free_only_profile_is_pinned_and_served(tmp_path):
     assert [entry.name for entry in stored.axis_entries] == ["jpeg_noise"]
 
 
-def test_the_analyze_identity_covers_the_judge_axes():
+def test_the_analyze_identity_records_the_judge_axes_without_keying_them():
+    """Inverted on purpose by ``task-analysis-phase-state`` (2026-10-26).
+
+    The axis set used to be part of the KEY, so a re-rolled profile was a MISS for
+    every card (measured 3 HIT / 7 MISS on 10 images whose entries were all on
+    disk). The identity now names the backend/mode/sampling/prompt revision and
+    RECORDS the axis set under ``"profile"``: the record still distinguishes the
+    questions (a different axis, a redefined one), the key does not.
+    """
     baseline = analysis_cache_identity(
         None, mode="camera", profile=MetricProfile(axis_ids=("noise",), mode="camera")
     )
@@ -398,14 +406,29 @@ def test_the_analyze_identity_covers_the_judge_axes():
             ),
         ),
     )
+    key_fields = ("model", "base_url", "mode", "reasoning_effort", "k",
+                  "effective_k", "temperature", "seed", "prompt_schema_version")
+    assert {k: with_free[k] for k in key_fields} == {
+        k: baseline[k] for k in key_fields
+    }, (
+        "the axis set must not reach the KEY: that is what re-analyzed the folder "
+        "on every profile re-roll"
+    )
     assert with_free["profile"] != baseline["profile"], (
-        "the axis set is part of the identity: a different question cannot serve "
-        "the previous scorecard"
+        "the entry still RECORDS which question it answered (registry axes + the "
+        "judge's own names)"
     )
-    assert other_definition["profile"] != with_free["profile"], (
-        "the definition is part of the prompt, so it is part of the identity"
-    )
-    assert baseline["profile"] == "noise", "a registry-only identity is unchanged"
+    assert (
+        other_definition["profile"]["definitions"]
+        != with_free["profile"]["definitions"]
+    ), "the definition travels in the record, so a redefined axis is visible"
+    assert baseline["profile"] == {
+        "axes": ["noise"],
+        "judged": [],
+        "definitions": {},
+        "source": "heuristic",
+        "mode": "camera",
+    }, "a registry-only identity records exactly its axes"
 
 
 def test_active_profile_keeps_a_free_only_answer():
