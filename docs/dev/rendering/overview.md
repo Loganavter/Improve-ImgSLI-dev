@@ -74,6 +74,76 @@ Shader ownership:
   `shaders/qrhi/*.qsb` for a multi-shader feature like the magnifier), not in
   the generic canvas renderer.
 
+## Shader compilation
+
+Shaders are authored as GLSL (`*.vert` / `*.frag`) and baked into committed
+`*.qsb` packs by `src/devtools/compile_shaders.py`. Runtime never runs `qsb` —
+only Qt reads the packs — so **the bake host, not the app host, owns the
+toolchain requirement**.
+
+```bash
+python3 src/devtools/compile_shaders.py                   # (re)bake every .qsb
+python3 src/devtools/compile_shaders.py --check           # mtime freshness + variant audit
+python3 src/devtools/compile_shaders.py --verify-variants # per-file variant list
+```
+
+Every pack must contain a compiled `DxbcShader` v50 variant. The D3D11 backend
+looks up `{QShader::DxbcShader, 50}` first and only falls back to shipping HLSL
+source compiled on the fly with `D3DCompile`; an HLSL-only pack therefore pays a
+shader compile on every cold pipeline creation (measured ~4–4.5 s per canvas),
+while a baked pack just loads the bytecode. `compile_shaders.py` always passes
+qsb's `-c`/`--fxc` and refuses to keep a pack whose DXBC variant is missing —
+`--check` and `--verify-variants` both fail on it, so an HLSL-only pack cannot
+land silently.
+
+### Bake-host toolchain (fxc)
+
+qsb shells out to `fxc` (found on `PATH`) whenever `-c` is used, so the bake
+host needs Microsoft's HLSL compiler: **fxc.exe from the Windows SDK 8.1+ x64**
+(no, the app host does not need it — only the machine that regenerates packs).
+
+- **Windows**: install the SDK and put `…\Windows Kits\10\bin\<ver>\x64` on
+  `PATH`.
+- **Linux**: run that `fxc.exe` under wine behind a small shim named `fxc` on
+  `PATH`. Recipe used here:
+
+  ```bash
+  # 1) once: create the wine prefix (≈380 MB, ~10 s)
+  WINEPREFIX=$PWD/.agent/wine WINEDEBUG=-all winecfg -v >/dev/null 2>&1 || true
+
+  # 2) shim: qsb passes unix paths, fxc wants drive letters
+  mkdir -p .agent/tools/bin
+  cat > .agent/tools/bin/fxc <<'SH'
+  #!/bin/bash
+  out=()
+  for a in "$@"; do
+    case "$a" in
+      /nologo|/E|/T|/Fo|/Gfa|/Gfp|/O3) out+=("$a"); continue;;
+    esac
+    if [[ "$a" == /* ]]; then out+=("Z:$a"); else out+=("$a"); fi
+  done
+  WINEDEBUG=-all exec wine "$(dirname "$0")/../fxc.exe" "${out[@]}"
+  SH
+  chmod +x .agent/tools/bin/fxc
+
+  # 3) bake
+  WINEPREFIX=$PWD/.agent/wine WINEDEBUG=-all \
+    PATH=$PWD/.agent/tools/bin:$PATH \
+    python3 src/devtools/compile_shaders.py
+  ```
+
+Two failure modes worth knowing:
+
+- **No fxc on `PATH`** — the script exits with the toolchain requirement spelled
+  out; it never falls back to an HLSL-only bake.
+- **qsb's 30 s external-compiler timeout** — qsb kills the fxc child after 30 s
+  and, unhelpfully, still exits 0 with no DXBC variant in the pack. The script
+  re-reads every pack it just wrote and fails the run, naming the file, so the
+  symptom is a bake error, not a silent runtime regression.
+
+`.qsb` files are build products of this script: always regenerate them, never
+hand-edit them.
+
 ## Examples
 
 - `magnifier/` — largest: scene, state, store, mode, widget, geometry, workers

@@ -3,13 +3,28 @@
 
 Run from repo root:
 
-    python3 src/devtools/compile_shaders.py            # compile everything
-    python3 src/devtools/compile_shaders.py --check    # exit non-zero if any .qsb is stale
-    python3 src/devtools/compile_shaders.py --clean    # remove .qsb files and exit
+    python3 src/devtools/compile_shaders.py                   # compile everything
+    python3 src/devtools/compile_shaders.py --check           # exit non-zero if any .qsb is stale or lacks DXBC
+    python3 src/devtools/compile_shaders.py --verify-variants # audit committed .qsb variant lists only
+    python3 src/devtools/compile_shaders.py --clean           # remove .qsb files and exit
 
 Looks for *.vert / *.frag files under src/ and emits a sibling *.qsb file
 for each. The .qsb files are committed to the repo — that way runtime does
 not need qsb installed, only Qt itself.
+
+DXBC, not HLSL source
+----------------------
+Every .qsb is baked with qsb's ``-c`` (``--fxc``) flag, so the D3D11 variant
+is stored as compiled bytecode (``QShader::DxbcShader``) instead of HLSL
+source. qrhid3d11 looks up ``{QShader::DxbcShader, 50}`` first and only falls
+back to HLSL source + a ``D3DCompile`` call, so an HLSL-only .qsb makes every
+cold D3D11 pipeline creation pay a shader compile (~4 s per canvas, measured
+2026-10-25). Baking DXBC moves that cost to this script.
+
+That makes ``fxc.exe`` a build-host requirement (Windows SDK 8.1+ x64; on Linux
+run it under wine behind a ``fxc`` shim on PATH — see
+``docs/dev/rendering/overview.md`` § Shader compilation). The script refuses to
+bake when fxc is unavailable, rather than silently shipping an HLSL-only .qsb.
 
 Inline shader strings (those defined as Python triple-quoted strings inside
 gl_passes.py modules) are not in scope here. As the QRhi migration progresses,
@@ -41,6 +56,30 @@ DEFAULT_TARGETS = [
     "--msl", "12",
 ]
 
+# qsb's -c/--fxc: store DXBC bytecode for the --hlsl variant instead of HLSL
+# source. Keep this out of DEFAULT_TARGETS so `--help` text and the target list
+# stay readable; compile_one concatenates it.
+DXBC_FLAG = "-c"
+
+# The D3D11 backend's first lookup key (qrhid3d11.cpp): compiled SM 5.0
+# bytecode. A .qsb without it forces a runtime D3DCompile per pipeline create.
+DXBC_SOURCE_NAME = "DxbcShader"
+DXBC_VERSION = 50
+
+FXC_REQUIREMENT = """\
+DXBC baking requires fxc.exe (the HLSL compiler from the Windows SDK 8.1+ x64).
+
+  Windows: install the SDK (or the standalone DirectX Shader Compiler) and put
+           ...\\Windows Kits\\10\\bin\\<ver>\\x64 on PATH; qsb invokes `fxc`.
+  Linux:   run Microsoft's fxc.exe under wine behind an executable named `fxc`
+           on PATH, e.g.
+             WINEPREFIX=<prefix> WINEDEBUG=-all \\
+             PATH=<shim-dir>:$PATH python3 src/devtools/compile_shaders.py
+
+Refusing to bake an HLSL-only .qsb: D3D11 would then run D3DCompile at every
+pipeline creation instead of loading the baked DXBC (~4 s per canvas).\
+"""
+
 
 def find_qsb() -> str:
     candidates = [
@@ -58,12 +97,32 @@ def find_qsb() -> str:
     )
 
 
+def find_fxc() -> str | None:
+    """Locate the fxc front-end qsb shells out to (PATH lookup, like qsb)."""
+    for candidate in ("fxc", "fxc.exe"):
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return None
+
+
+def require_fxc() -> str:
+    fxc = find_fxc()
+    if not fxc:
+        raise SystemExit(FXC_REQUIREMENT)
+    return fxc
+
+
 def find_shader_sources() -> list[Path]:
     return sorted(
         path
         for path in SRC_ROOT.rglob("*")
         if path.suffix in {".vert", ".frag"} and path.is_file()
     )
+
+
+def find_committed_qsb() -> list[Path]:
+    return sorted(SRC_ROOT.rglob("*.qsb"))
 
 
 def out_path_for(src: Path) -> Path:
@@ -76,21 +135,103 @@ def is_stale(src: Path, dst: Path) -> bool:
     return src.stat().st_mtime > dst.stat().st_mtime
 
 
+def variant_list(path: Path) -> list[tuple[str, int]]:
+    """Return [(source-name, version), ...] for a serialized .qsb.
+
+    Requires PySide6 (a hard runtime dependency of the app), so this works with
+    both the venv interpreter and the system python3. Raises SystemExit on an
+    unreadable/invalid file — a corrupt .qsb is a failure, not a skip.
+    """
+    try:
+        from PySide6.QtGui import QShader
+    except ImportError as exc:  # pragma: no cover - environment guard
+        raise SystemExit(
+            f"PySide6 is required to inspect .qsb variants ({exc}). "
+            "Run this script with the app's interpreter."
+        ) from exc
+
+    shader = QShader.fromSerialized(path.read_bytes())
+    if not shader.isValid():
+        raise SystemExit(f"{path}: not a valid serialized QShader")
+    return [
+        (key.source().name, int(key.sourceVersion().version()))
+        for key in shader.availableShaders()
+    ]
+
+
+def has_dxbc(variants: list[tuple[str, int]]) -> bool:
+    return (DXBC_SOURCE_NAME, DXBC_VERSION) in variants
+
+
+def format_variants(variants: list[tuple[str, int]]) -> str:
+    return ", ".join(f"{name} v{version}" for name, version in variants)
+
+
+def verify_variants(*, verbose: bool = True) -> int:
+    """Audit every committed .qsb; return the number of files missing DXBC v50."""
+    files = find_committed_qsb()
+    if not files:
+        print(f"No .qsb files found under {SRC_ROOT.relative_to(REPO_ROOT)}/.", file=sys.stderr)
+        return 1
+
+    missing: list[Path] = []
+    for path in files:
+        variants = variant_list(path)
+        rel = path.relative_to(REPO_ROOT)
+        if verbose:
+            status = "ok" if has_dxbc(variants) else f"MISSING {DXBC_SOURCE_NAME} v{DXBC_VERSION}"
+            print(f"  {rel}: {format_variants(variants)}  [{status}]")
+        if not has_dxbc(variants):
+            missing.append(path)
+
+    if missing:
+        print(
+            f"\n{len(missing)} of {len(files)} .qsb file(s) lack {DXBC_SOURCE_NAME} "
+            f"v{DXBC_VERSION} (D3D11 would D3DCompile at runtime):",
+            file=sys.stderr,
+        )
+        for path in missing:
+            print(f"  {path.relative_to(REPO_ROOT)}", file=sys.stderr)
+        return len(missing)
+
+    print(f"All {len(files)} .qsb file(s) carry {DXBC_SOURCE_NAME} v{DXBC_VERSION}.")
+    return 0
+
+
 def compile_one(qsb: str, src: Path) -> int:
     dst = out_path_for(src)
-    cmd = [qsb, *DEFAULT_TARGETS, "-o", str(dst), str(src)]
+    cmd = [qsb, *DEFAULT_TARGETS, DXBC_FLAG, "-o", str(dst), str(src)]
     print(f"  qsb {src.relative_to(REPO_ROOT)} -> {dst.name}")
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout)
         sys.stderr.write(proc.stderr)
         return proc.returncode
+    # qsb can succeed while silently omitting the DXBC variant (e.g. fxc
+    # vanished between the preflight and the bake). Never leave such a file
+    # behind: it is the exact regression this script exists to prevent.
+    if not has_dxbc(variant_list(dst)):
+        sys.stderr.write(
+            f"  {dst.relative_to(REPO_ROOT)}: qsb produced no {DXBC_SOURCE_NAME} "
+            f"v{DXBC_VERSION} variant; refusing to keep an HLSL-only .qsb.\n"
+            f"{FXC_REQUIREMENT}\n"
+        )
+        return 1
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Exit non-zero if any .qsb is stale; do not write.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Exit non-zero if any .qsb is stale or lacks a DXBC v50 variant; do not write.",
+    )
+    parser.add_argument(
+        "--verify-variants",
+        action="store_true",
+        help="Print every committed .qsb with its variant list; exit non-zero if DXBC v50 is missing.",
+    )
     parser.add_argument("--clean", action="store_true", help="Remove all .qsb files under src/ and exit.")
     args = parser.parse_args()
 
@@ -101,6 +242,9 @@ def main() -> int:
             removed += 1
         print(f"Removed {removed} .qsb file(s).")
         return 0
+
+    if args.verify_variants:
+        return verify_variants()
 
     qsb = find_qsb()
     print(f"Using qsb: {qsb}")
@@ -117,9 +261,13 @@ def main() -> int:
                 print(f"  {s.relative_to(REPO_ROOT)}", file=sys.stderr)
             return 1
         print(f"All {len(sources)} shader(s) up to date.")
+        if verify_variants(verbose=False):
+            return 1
         return 0
 
-    print(f"Compiling {len(sources)} shader(s):")
+    fxc = require_fxc()
+    print(f"Using fxc: {fxc}")
+    print(f"Compiling {len(sources)} shader(s) with DXBC baking (-c):")
     failed = 0
     for src in sources:
         rc = compile_one(qsb, src)
