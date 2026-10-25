@@ -88,10 +88,6 @@ def _emit_dnd_overflow_summary(widget, overflow, *, reason: str = "queue_full") 
         )
 
 
-def has_internal_slot(mime) -> bool:
-    return mime.hasFormat(INTERNAL_SLOT_MIME)
-
-
 def _mime_url_count(mime) -> int:
     try:
         return len(mime.urls())
@@ -486,7 +482,7 @@ def drop_event(widget, event: QDropEvent) -> None:
         widget._dnd_preview_sig = None
         widget._dnd_gen = getattr(widget, "_dnd_gen", 0) + 1
         widget.store.dispatch(actions.set_drag_state(active=False))
-        if source_id is not None and side is not None:
+        if side is not None:
             apply_internal_drop(widget, source_id, tgt_path, side, swap_id)
         else:
             _dnd_log("drop internal ignored (source=%s side=%s)", source_id, side)
