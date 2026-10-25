@@ -17,7 +17,7 @@ DXBC, not HLSL source
 Every .qsb is baked with qsb's ``-c`` (``--fxc``) flag, so the D3D11 variant
 is stored as compiled bytecode (``QShader::DxbcShader``) instead of HLSL
 source. qrhid3d11 looks up ``{QShader::DxbcShader, 50}`` first and only falls
-back to HLSL source + a ``D3DCompile`` call, so an HLSL-only .qsb makes every
+back to HLSL source + a D3DCompile call, so an HLSL-only .qsb makes every
 cold D3D11 pipeline creation pay a shader compile (~4 s per canvas, measured
 2026-10-25). Baking DXBC moves that cost to this script.
 
@@ -35,6 +35,7 @@ script can compile them.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -65,6 +66,24 @@ DXBC_FLAG = "-c"
 # bytecode. A .qsb without it forces a runtime D3DCompile per pipeline create.
 DXBC_SOURCE_NAME = "DxbcShader"
 DXBC_VERSION = 50
+
+# Deliberate, visible exceptions to the DXBC requirement. Keyed by repo-relative
+# .qsb path; the value is (reason, content pin). Only a pack that genuinely
+# cannot be baked on any available bake host belongs here — an entry is a known
+# runtime D3DCompile cost plus a follow-up, never a convenience switch.
+#
+# The pin is "<byte size>:<sha256[:16]>" of the exempted pack (see
+# pack_fingerprint). A content change invalidates the entry so the reason is
+# re-verified rather than silently inherited; refresh it only after re-reading
+# the reason and re-baking on a host where the bake works.
+DXBC_EXEMPT: dict[str, tuple[str, str]] = {
+    "src/tabs/image_compare/canvas/features/magnifier/shaders/qrhi/mag.frag.qsb": (
+        "fxc 8.1 under wine needs >5 min on this HLSL; qsb's external compiler "
+        "timeout is 30 s (qsb still returns rc 0). Bake on a Windows host with "
+        "Windows SDK 10.x fxc.",
+        "23874:9fe33318b6a18cc9",
+    ),
+}
 
 FXC_REQUIREMENT = """\
 DXBC baking requires fxc.exe (the HLSL compiler from the Windows SDK 8.1+ x64).
@@ -167,22 +186,55 @@ def format_variants(variants: list[tuple[str, int]]) -> str:
     return ", ".join(f"{name} v{version}" for name, version in variants)
 
 
+def pack_fingerprint(path: Path) -> str:
+    """Content pin for an exempted pack: size + short sha256 (cheap, stable)."""
+    data = path.read_bytes()
+    return f"{len(data)}:{hashlib.sha256(data).hexdigest()[:16]}"
+
+
+def validate_exemptions(committed: list[Path]) -> list[str]:
+    """Check that DXBC_EXEMPT entries are live and still describe the same pack."""
+    present = {path.relative_to(REPO_ROOT).as_posix() for path in committed}
+    problems: list[str] = []
+    for rel, (reason, pin) in DXBC_EXEMPT.items():
+        if rel not in present:
+            problems.append(f"{rel}: listed in DXBC_EXEMPT but no such .qsb exists (drop the entry)")
+            continue
+        actual = pack_fingerprint(REPO_ROOT / rel)
+        if actual != pin:
+            problems.append(
+                f"{rel}: exempt pack changed (pinned {pin}, now {actual}); re-read the reason "
+                f"({reason}) and update DXBC_EXEMPT only if it still holds"
+            )
+    return problems
+
+
 def verify_variants(*, verbose: bool = True) -> int:
-    """Audit every committed .qsb; return the number of files missing DXBC v50."""
+    """Audit every committed .qsb; return the number of files that fail the DXBC rule."""
     files = find_committed_qsb()
     if not files:
         print(f"No .qsb files found under {SRC_ROOT.relative_to(REPO_ROOT)}/.", file=sys.stderr)
         return 1
 
     missing: list[Path] = []
+    exempted = 0
     for path in files:
         variants = variant_list(path)
-        rel = path.relative_to(REPO_ROOT)
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        exemption = DXBC_EXEMPT.get(rel)
+        if exemption is not None:
+            # Visible exception: printed with its reason, never counted missing.
+            exempted += 1
+            if verbose:
+                print(f"EXEMPT {rel} {exemption[0]} (variants: {format_variants(variants)})")
+            continue
         if verbose:
             status = "ok" if has_dxbc(variants) else f"MISSING {DXBC_SOURCE_NAME} v{DXBC_VERSION}"
             print(f"  {rel}: {format_variants(variants)}  [{status}]")
         if not has_dxbc(variants):
             missing.append(path)
+
+    problems = validate_exemptions(files)
 
     if missing:
         print(
@@ -191,10 +243,23 @@ def verify_variants(*, verbose: bool = True) -> int:
             file=sys.stderr,
         )
         for path in missing:
-            print(f"  {path.relative_to(REPO_ROOT)}", file=sys.stderr)
-        return len(missing)
+            print(f"  {path.relative_to(REPO_ROOT).as_posix()}", file=sys.stderr)
+    if problems:
+        print("\nDXBC_EXEMPT problem(s):", file=sys.stderr)
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+    if missing or problems:
+        return len(missing) + len(problems)
 
-    print(f"All {len(files)} .qsb file(s) carry {DXBC_SOURCE_NAME} v{DXBC_VERSION}.")
+    baked = len(files) - exempted
+    if exempted:
+        pins = ", ".join(pin for _rel, (_reason, pin) in DXBC_EXEMPT.items())
+        print(
+            f"{baked} regular pack(s) carry {DXBC_SOURCE_NAME} v{DXBC_VERSION}; "
+            f"{exempted} exempt (pinned {pins})."
+        )
+    else:
+        print(f"All {len(files)} .qsb file(s) carry {DXBC_SOURCE_NAME} v{DXBC_VERSION}.")
     return 0
 
 
@@ -269,14 +334,22 @@ def main() -> int:
     print(f"Using fxc: {fxc}")
     print(f"Compiling {len(sources)} shader(s) with DXBC baking (-c):")
     failed = 0
+    skipped = 0
     for src in sources:
+        rel = out_path_for(src).relative_to(REPO_ROOT).as_posix()
+        exemption = DXBC_EXEMPT.get(rel)
+        if exemption is not None:
+            print(f"  skip {rel} (DXBC_EXEMPT: {exemption[0]})")
+            skipped += 1
+            continue
         rc = compile_one(qsb, src)
         if rc != 0:
             failed += 1
     if failed:
         print(f"\n{failed} shader(s) failed to compile.", file=sys.stderr)
         return 1
-    print(f"\nAll {len(sources)} shader(s) compiled successfully.")
+    detail = f" ({skipped} exempt, not baked here)" if skipped else ""
+    print(f"\nAll {len(sources) - skipped} shader(s) compiled successfully{detail}.")
     return 0
 
 

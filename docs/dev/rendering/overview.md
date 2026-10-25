@@ -137,12 +137,47 @@ Two failure modes worth knowing:
 - **No fxc on `PATH`** — the script exits with the toolchain requirement spelled
   out; it never falls back to an HLSL-only bake.
 - **qsb's 30 s external-compiler timeout** — qsb kills the fxc child after 30 s
-  and, unhelpfully, still exits 0 with no DXBC variant in the pack. The script
-  re-reads every pack it just wrote and fails the run, naming the file, so the
-  symptom is a bake error, not a silent runtime regression.
+  and, unhelpfully, still exits **0** with no DXBC variant in the pack. Never
+  trust qsb's exit code: the script re-reads every pack it just wrote and fails
+  the run, naming the file, so the symptom is a bake error rather than a silent
+  runtime regression.
 
 `.qsb` files are build products of this script: always regenerate them, never
 hand-edit them.
+
+### Exemptions (pinned, visible)
+
+`DXBC_EXEMPT` in `compile_shaders.py` is the only way to accept a pack without a
+DXBC variant, and it is deliberately awkward: each entry needs a repo-relative
+path, a **reason** and a **content pin** (`<bytes>:<sha256[:16]>`). Then
+
+- `--verify-variants` prints `EXEMPT <path> <reason>` and does not count that
+  file as missing, while every unlisted pack still has to carry `DxbcShader`
+  v50;
+- `--check` fails when an exempted pack's bytes no longer match the pin — the
+  reason has to be re-read and re-justified instead of being silently inherited;
+- a full bake skips exempted packs and says so per file.
+
+The map is empty by default. An entry means "this one pack still pays a runtime
+`D3DCompile` until someone re-bakes it on a host where the bake works", so the
+reason must name the blocker and the host that can clear it — e.g. a shader that
+fxc cannot compile through qsb's 30 s child timeout can still be baked from a
+native Windows SDK shell with plain
+`python src/devtools/compile_shaders.py` (fxc already on `PATH`).
+
+The one entry currently in the map is
+`src/tabs/image_compare/canvas/features/magnifier/shaders/qrhi/mag.frag.qsb`
+(pinned `23874:9fe33318b6a18cc9`): fxc 8.1 under wine needs >5 min on that HLSL
+while qsb kills the compiler at 30 s, so **the magnifier's fragment pass keeps
+paying a runtime `D3DCompile` on D3D11 until it is re-baked** — the other 32
+packs (base canvas, overlay, magnifier's other passes, …) load bytecode. To
+clear it, on a Windows host with Windows SDK 10.x `fxc.exe` on `PATH`:
+
+```bash
+# 1) delete the mag.frag entry from DXBC_EXEMPT in src/devtools/compile_shaders.py
+python src/devtools/compile_shaders.py
+python src/devtools/compile_shaders.py --verify-variants   # rc 0, no EXEMPT line
+```
 
 ## Examples
 
