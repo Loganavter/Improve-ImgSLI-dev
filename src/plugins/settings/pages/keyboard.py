@@ -34,6 +34,7 @@ from ui.actions.keymap import (
     effective_shortcut_for_id,
     keymap_entry_rank,
     normalize_sequence,
+    verify_unique_or_log,
 )
 from ui.actions.search_index import PROP_GROUP
 from ui.icon_manager import AppIcon
@@ -198,6 +199,11 @@ def build(dialog, p):
             dict(getattr(p, "keyboard_overrides", None) or {}),
         ),
     )
+    # The page is the one surface where a user assigns chords, so its own
+    # starting state must already satisfy the invariant (a hand-edited
+    # profile is repaired by ``exclusive_overrides`` above; a duplicate the
+    # resolver could not fix is a defect and is named here).
+    verify_unique_or_log(defaults_map, overrides, source="settings keyboard build")
     dialog._keyboard_overrides = overrides
     dialog._keyboard_capture_rows = {}
     dialog._keyboard_action_labels = []
@@ -276,6 +282,19 @@ def build(dialog, p):
             )
             cap.set_chord(current)
 
+    def _verify(source: str) -> None:
+        """Invariant gate for every path that writes the page's override map.
+
+        A duplicate binding can only appear here through resolver damage
+        (``steal_chord_in_overrides`` / ``exclusive_overrides`` are supposed
+        to make it impossible), so the reaction is a loud ERROR plus the map
+        the resolver produced — the user's edit still applies, and the defect
+        is not hidden behind "the first chord wins".
+        """
+        verify_unique_or_log(
+            defaults_map, dialog._keyboard_overrides, source=f"settings keyboard {source}"
+        )
+
     def _set_override(action_id: str, default: str | None, chord: str) -> None:
         from ui.actions.keymap import steal_chord_in_overrides
 
@@ -285,6 +304,7 @@ def build(dialog, p):
             defaults=defaults_map,
             overrides=dialog._keyboard_overrides,
         )
+        _verify(f"capture {action_id}={chord or '<unbound>'}")
         _refresh_capture_labels()
 
     for owner, entries in by_owner.items():
@@ -351,6 +371,7 @@ def build(dialog, p):
                     defaults=defaults_map,
                     overrides=dialog._keyboard_overrides,
                 )
+                _verify(f"reset {aid}")
                 _refresh_capture_labels()
 
             reset.clicked.connect(_reset)
@@ -396,6 +417,7 @@ def build(dialog, p):
         # Re-apply exclusivity across defaults so two actions cannot keep the
         # same built-in chord after a full reset.
         dialog._keyboard_overrides = exclusive_overrides(defaults_map, {})
+        _verify("reset all")
         _refresh_capture_labels()
 
     reset_all.clicked.connect(_reset_all)

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from core.actions.types import ActionDescriptor
+from core.log_names import APP_LOGGER_NAME
 
 try:
     from PySide6.QtGui import QKeySequence
 except Exception:  # pragma: no cover - import-time without Qt in tiny unit tests
     QKeySequence = None  # type: ignore[misc, assignment]
+
+logger = logging.getLogger(APP_LOGGER_NAME)
 
 
 def normalize_sequence(sequence: str | None) -> str:
