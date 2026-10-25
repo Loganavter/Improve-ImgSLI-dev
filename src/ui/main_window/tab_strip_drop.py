@@ -46,8 +46,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from shared.drag_mime import WORKSPACE_TAB_PATHS_MIME
 from core.log_names import APP_LOGGER_NAME
+from shared.drag_mime import WORKSPACE_TAB_PATHS_MIME
 
 logger = logging.getLogger(APP_LOGGER_NAME)
 
