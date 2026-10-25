@@ -266,21 +266,16 @@ def test_a_stored_pairwise_flag_is_shown_on_open(
 
 
 def test_the_pairwise_switch_writes_through_save_field(dialog, save_calls):
-    switch = dialog.gallery_ai_pairwise
-    # Start from whatever the store holds (the default is ON, so "turn it on"
-    # would be a no-op with no signal at all).
-    before = switch.isChecked()
+    dialog.gallery_ai_pairwise.setChecked(True)
 
-    switch.setChecked(not before)
-
-    assert ("pairwise_enabled", not before) in save_calls
+    assert ("pairwise_enabled", True) in save_calls
     # The store, not the widget, is the answer: save_field owns the parse.
-    assert _persisted("pairwise_enabled") is (not before)
+    assert _persisted("pairwise_enabled") is True
 
-    switch.setChecked(before)
+    dialog.gallery_ai_pairwise.setChecked(False)
 
-    assert ("pairwise_enabled", before) in save_calls
-    assert _persisted("pairwise_enabled") is before
+    assert ("pairwise_enabled", False) in save_calls
+    assert _persisted("pairwise_enabled") is False
 
 
 def test_the_pairwise_switch_follows_the_master_ai_gate(dialog):

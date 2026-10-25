@@ -80,18 +80,6 @@ PAIRWISE_NEAR_TIE_THRESHOLD_MIN = 0.0
 PAIRWISE_NEAR_TIE_THRESHOLD_MAX = 100.0
 PAIRWISE_NEAR_TIE_THRESHOLD_DEFAULT = 10.0
 
-#: The pass is ON by default since the settings page gained its switch
-#: (``ui/settings_ai`` rows «Refine near-ties pairwise»). Single owner of the
-#: default: the dataclass field and ``AiSettingsStore.load``'s missing-key
-#: fallback both read this, so a virgin config and ``AiSettings()`` agree.
-#: Absent from a config = this default; an explicit falsy value (``false``/``0``)
-#: is what turns the pass off. The spend stays bounded and stated: the switch
-#: names the permission, the help page names the cost (up to
-#: ``top_n x (top_n-1)`` calls, 20 at the default 5), and the pass itself still
-#: skips a series whose pointwise spread already exceeds the near-tie threshold
-#: and reserves its whole bound against ``judge_run_call_ceiling``.
-PAIRWISE_ENABLED_DEFAULT = True
-
 
 def _parse_int(value, default: int = 0) -> int:
     try:
@@ -197,18 +185,22 @@ class AiSettings:
     #: whole card that fits and leaves a continue affordance instead of
     #: silently draining the budget.
     judge_run_call_ceiling: int = 0
-    #: Pairwise ordering of a near-tie top set (board 2026-10-25). ON by default
-    #: since the settings page exposes the switch (``ui/settings_ai``): the cost
-    #: of the pass is stated next to the other judge spend limits (up to
-    #: ``top_n x (top_n-1)`` calls, 20 at the default 5) and the user can turn it
-    #: off, so default-on is a declared, reachable spend rather than a silent
-    #: one. Persisted like every other knob (an explicit ``false`` in a config
-    #: turns it off); the pass is still gated twice before it costs anything:
-    #: only a series whose top-set spread is within
-    #: ``pairwise_near_tie_threshold`` is compared, and the whole bound is
-    #: reserved against ``judge_run_call_ceiling``. The pairwise order is added
-    #: next to the pointwise numbers; it never replaces them.
-    pairwise_enabled: bool = PAIRWISE_ENABLED_DEFAULT
+    #: Pairwise ordering of a near-tie top set (board 2026-10-25). OFF by
+    #: default even though the settings page now owns the switch
+    #: (``ui/settings_ai``, «Refine near-ties pairwise»): the user-facing cost
+    #: contract — the ``judge run start: up to X calls`` line from
+    #: ``use_cases/judge_budget`` — is stated BEFORE this pass and does not count
+    #: its ``top_n x (top_n-1)`` bound, so default-on would spend up to 20 calls
+    #: on a near-tie series OUTSIDE the number the user was shown (root
+    #: cost-contract decision, 2026-10-25; flipping it is a follow-up whose
+    #: acceptance is "the estimate counts the pairwise bound, verified on a live
+    #: run"). Persisted like every other knob (a config written with ``true``
+    #: keeps it on); the pass is still gated twice before it costs anything: only
+    #: a series whose top-set spread is within ``pairwise_near_tie_threshold`` is
+    #: compared, and the whole bound is reserved against
+    #: ``judge_run_call_ceiling``. The pairwise order is added next to the
+    #: pointwise numbers; it never replaces them.
+    pairwise_enabled: bool = False
     #: How many of the pointwise-best items take part (clamped
     #: [PAIRWISE_TOP_N_MIN, PAIRWISE_TOP_N_MAX], default 5 = at most 20 calls).
     pairwise_top_n: int = PAIRWISE_TOP_N_DEFAULT
@@ -284,10 +276,12 @@ class AiSettingsStore:
                 judge_run_call_ceiling=max(
                     0, _parse_int(settings.value("judge_run_call_ceiling", 0), 0)
                 ),
-                # Absent means the shipped default (ON, PAIRWISE_ENABLED_DEFAULT):
-                # only an explicit falsy value turns the pass off.
+                # Absent/anything else means OFF (the dataclass default): only
+                # an explicit truthy value turns the pass on. Default-on stays
+                # a follow-up until the run estimate counts the pairwise bound
+                # (root cost-contract decision, see the field's comment).
                 pairwise_enabled=str(
-                    settings.value("pairwise_enabled", PAIRWISE_ENABLED_DEFAULT)
+                    settings.value("pairwise_enabled", False)
                 ).lower()
                 in ("true", "1"),
                 pairwise_top_n=_clamp_int(

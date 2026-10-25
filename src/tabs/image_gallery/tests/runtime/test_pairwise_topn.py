@@ -329,12 +329,10 @@ def test_pairwise_settings_have_declared_defaults_and_clamps(monkeypatch) -> Non
 
     store = AiSettingsStore()
     row = store.load()
-    # ON by default since the settings page exposes the switch
-    # (task-gallery-pairwise-settings-row-2026-10-25): the cost is stated in the
-    # help page next to the other judge spend limits and the user can turn it
-    # off, so the default is a reachable, declared spend, not a silent one.
-    assert row.pairwise_enabled is True
-    assert AiSettings().pairwise_enabled is True
+    # OFF by default: this wave ships no settings row for the flag, so a
+    # default-on pass would be an unreachable, unstated spend.
+    assert row.pairwise_enabled is False
+    assert AiSettings().pairwise_enabled is False
     assert row.pairwise_top_n == 5
     assert row.pairwise_near_tie_threshold == 10.0
     assert AiSettings().pairwise_top_n == 5
