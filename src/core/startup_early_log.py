@@ -13,6 +13,12 @@ flag is on (``IMGSLI_STARTUP_TRACE`` or ``IMGSLI_STALL_WATCH``, or their
 ``BLINKTABLE_`` spellings). With both off no directory is touched, no file is
 created, and every function here is a no-op -- the default run is unchanged.
 
+The one exception is an error, not a diagnostic: :func:`write_error_record` is
+called when the opt-in fault dump (``IMGSLI_FAULT_DUMP``) was *disabled* by an
+unusable path. That warning fires from ``__main__`` before logging exists and a
+windowed build's ``stderr`` is ``os.devnull``, so this file is its only sink; it
+is created for that single record even with both diagnostics flags off.
+
 The file is opened ``w`` once per traced run (wiped), then appended one record
 at a time and closed again: no long-lived handle, no Qt object, no
 ``setup_logging`` dependency. Nothing here raises -- a read-only or unusable
@@ -136,9 +142,13 @@ class _EarlySink:
         self._capped = False
 
     @classmethod
-    def create(cls) -> _EarlySink | None:
-        """Build the sink from the environment; ``None`` when it is off/unusable."""
-        if not debug_requested():
+    def create(cls, *, force: bool = False) -> _EarlySink | None:
+        """Build the sink from the environment; ``None`` when it is off/unusable.
+
+        ``force`` is the error path of :func:`write_error_record`: the flags are
+        off, but the caller has one line that no other sink can show.
+        """
+        if not debug_requested() and not force:
             return None
         directory = _log_directory()
         if not directory:
@@ -146,7 +156,9 @@ class _EarlySink:
         path = os.path.join(directory, FILE_NAME)
         try:
             os.makedirs(directory, exist_ok=True)
-            # ``w``: every traced run starts from an empty file.
+            # ``w``: every run that owns the file starts from an empty one -- for
+            # the forced error path that also drops a stale line from a previous
+            # launch, which would otherwise read as this run's.
             with open(path, "w", encoding="utf-8", errors="replace"):
                 pass
         except Exception:
@@ -219,6 +231,24 @@ def write_record(text: str) -> bool:
         return sink.write(record)
     except Exception:
         return False
+
+
+def write_error_record(text: str) -> bool:
+    """Append one record from an error path that has no other visible sink.
+
+    The default run still touches nothing: the caller (:mod:`core.windowed_stdio`)
+    reaches here only after the opt-in fault dump was *disabled*, where its
+    ``logger.warning`` goes to a logger that has no handler yet and, in a
+    windowed build, to ``os.devnull``. Creating the file for that single line is
+    the whole reason it exists in such a run. Capped and never raises, like
+    :func:`write_record`.
+    """
+    global _sink
+    if _sink is None:
+        with _lock:
+            if _sink is None:
+                _sink = _EarlySink.create(force=True)
+    return write_record(text)
 
 
 def logging_ready() -> bool:
