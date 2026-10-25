@@ -305,3 +305,29 @@ def test_show_drain_does_not_run_the_deferred_block(
     assert loads == ["visual_ready", "show", "deferred"], (
         "the deferred block must be released on the first turn after show()"
     )
+
+
+def test_release_after_the_page_was_destroyed_is_a_no_op(qapp, tmp_path, monkeypatch):
+    """The first-frame queue outlives its page; a dead page must be forgotten.
+
+    Falsification (pre-fix tree): delete the page, then run the queued release —
+    ``verify_disk_now`` reaches ``_sync_opaque_fills`` and raises
+    ``RuntimeError: Internal C++ object (SessionPickerWidget) already deleted``.
+    This is exactly how a stale release crashed an unrelated later test in the
+    full suite (``tests/runtime/test_dialog_title_bar_nav.py``).
+    """
+    from shiboken6 import delete, isValid
+
+    _patch_recent_store(monkeypatch, _records(3, tmp_path))
+    widget = SessionPickerWidget(context=_FakeContext())
+    runtime = MainWindowStartupRuntime(widget)
+    widget.startup_runtime = runtime
+    widget.show()
+    assert widget._recent_panel is not None
+    assert widget._recent_panel._disk_verify_pending is True
+
+    delete(widget)
+    assert not isValid(widget), "the C++ object must really be gone for this test"
+
+    # Must return silently, not raise into the event loop.
+    widget._release_deferred_shelf_verify()

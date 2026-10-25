@@ -365,12 +365,26 @@ class SessionPickerWidget(ThemedWidget, QWidget):
         QTimer.singleShot(0, self._release_deferred_shelf_verify)
 
     def _release_deferred_shelf_verify(self) -> None:
+        # The first-frame queue lives on the window's runtime, so this callback
+        # can be released AFTER the page is gone (a test case that ends between
+        # arm and frame 1, a tab closed before the first paint). A destroyed C++
+        # object needs no disk pass: forget it instead of raising into the event
+        # loop — the same rule as ``core/control/live_verbs._is_alive``. Without
+        # this guard a stale release crashed an unrelated later test with
+        # "Internal C++ object (SessionPickerWidget) already deleted".
+        from shiboken6 import isValid
+
+        if not isValid(self):
+            return
         panel = self._recent_panel
-        if panel is None:
+        if panel is None or not isValid(panel):
             return
         from tabs.session_picker.recent.use_cases import refresh as refresh_use_cases
 
-        refresh_use_cases.verify_disk_if_pending(panel)
+        try:
+            refresh_use_cases.verify_disk_if_pending(panel)
+        except RuntimeError:
+            return
 
     def refresh(self) -> None:
         """Build create-cards once from a filesystem scan of tab packages.
