@@ -52,10 +52,9 @@ from core.log_names import APP_LOGGER_NAME
 logger = logging.getLogger(APP_LOGGER_NAME)
 
 #: Path-drag mime claimed on the strip (single definition in
-#: ``shared/drag_mime.py``; host code may not import the tab-side alias
-#: ``tabs.image_gallery.ui.card.GALLERY_PATHS_MIME``). Producers: gallery
-#: cards and Multi Compare slots — the strip cannot tell them apart, and does
-#: not need to: the payload is paths.
+#: ``shared/drag_mime.py``; host code may not import the tab-side aliases).
+#: Producers: gallery cards and multi-compare canvas slots — the strip cannot
+#: tell them apart, and does not need to: the payload is paths.
 TAB_PATHS_MIME = WORKSPACE_TAB_PATHS_MIME
 
 

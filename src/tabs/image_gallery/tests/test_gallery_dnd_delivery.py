@@ -543,8 +543,10 @@ def test_strip_drag_move_mirrors_hover_from_event():
 
     class _MoveEv:
         def mimeData(self):
+            from shared.drag_mime import WORKSPACE_TAB_PATHS_MIME
+
             mime = QMimeData()
-            mime.setData("application/x-imgsli-gallery-paths", b"file:///x/a.png")
+            mime.setData(WORKSPACE_TAB_PATHS_MIME, b"file:///x/a.png")
             return mime
 
         def position(self):
@@ -613,8 +615,10 @@ def _dwell_move_ev(x=225, y=15):
 
     class _MoveEv:
         def mimeData(self):
+            from shared.drag_mime import WORKSPACE_TAB_PATHS_MIME
+
             mime = QMimeData()
-            mime.setData("application/x-imgsli-gallery-paths", b"file:///x/a.png")
+            mime.setData(WORKSPACE_TAB_PATHS_MIME, b"file:///x/a.png")
             return mime
 
         def position(self):

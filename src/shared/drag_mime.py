@@ -3,11 +3,9 @@
 One definition, three consumers:
 
 * producers — tab content surfaces that start a path-carrying ``QDrag``
-  (gallery cards: ``tabs/image_gallery/ui/grid_view/drag_source.py``; Multi
-  Compare slots: ``tabs/multi_compare/canvas/interaction.py``);
+  (the gallery's card drag source; the multi-compare canvas slot drag);
 * consumer — the host strip router (``ui/main_window/tab_strip_drop.py``),
-  which may not import a tab module (platform isolation, contracts
-  ``test_platform_isolation`` / ``test_ui_tab_sandbox``).
+  which may not import a tab module (platform isolation contracts).
 
 ``WORKSPACE_TAB_PATHS_MIME`` payload = newline-separated ``file://`` URLs,
 mirrored into ``QMimeData.setUrls()`` so a drop target that only reads URLs
