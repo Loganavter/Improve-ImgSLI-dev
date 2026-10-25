@@ -894,3 +894,48 @@ def test_terminal_rank_keeps_the_settle_gate_before_the_pass(monkeypatch) -> Non
     analysis_batch.end(owner)  # the last analysis reports -> the matrix settled
     assert analysis_batch.dispatch_terminal_rank(owner) is True
     assert len(owner.launched) == 1, "the settled batch starts the one pass"
+
+
+def test_terminal_rank_refuses_in_the_ai_domain_and_runs_after_a_switch(
+    monkeypatch,
+) -> None:
+    """The AI domain owns the displayed order — the pass must not spend there.
+
+    The pass refines the POINTWISE (fusion) order. Under ``ai`` the rank on
+    screen is Jev's (``rank_source="jev"`` items are locked in
+    ``_apply_fusion_ranks``), so refining the fusion order would spend up to
+    N x (N-1) judge calls on an order the user cannot see. This fails if the
+    ``_epoch_is_current(..., domain="algorithms")`` gate is dropped from
+    ``dispatch_pairwise_refinement`` — the absence assertion alone would pass
+    for any reason, the switch pair is what pins the gate.
+    """
+    items = _near_tie_items()
+    owner = _wired_owner(items, pairwise_enabled=True, pairwise_top_n=2)
+    owner._apply_fusion_ranks(owner.state.series)
+    before = _ranks(items)
+    owner._judgment_domain = "ai"
+
+    built: list = []
+    judge = _ScriptedJudge(_b_wins)
+    from tabs.image_gallery.use_cases import pairwise_rank
+
+    monkeypatch.setattr(
+        pairwise_rank,
+        "build_client_judge",
+        lambda row, **_kwargs: (built.append(row), judge)[1],
+    )
+
+    assert analysis_batch.dispatch_terminal_rank(owner) is True
+    assert built == [], "the AI domain must not even build a judge client"
+    assert owner.launched == [], "no pass may start while Jev owns the order"
+    assert judge.calls == 0, "no call spent on an order nobody sees"
+    assert _ranks(items) == before, "the pointwise order is left untouched"
+
+    # Back in the Algorithms domain the SAME settled generation does refine:
+    # the pair of assertions proves the domain gate, not a missing trigger.
+    owner._judgment_domain = "algorithms"
+    assert analysis_batch.dispatch_terminal_rank(owner) is True
+    assert len(owner.launched) == 1, "one pass once the pointwise order owns the view"
+    owner.launched[0].run()
+    assert judge.calls == 2, "one unordered pair, asked in both orders"
+    assert (items[1].rank, items[0].rank) == (1, 2), "the pairwise order applied"
