@@ -185,13 +185,18 @@ class AiSettings:
     #: whole card that fits and leaves a continue affordance instead of
     #: silently draining the budget.
     judge_run_call_ceiling: int = 0
-    #: Pairwise ordering of a near-tie top set (board 2026-10-25). ``True`` by
-    #: default, but the pass is gated twice before it costs anything: only a
+    #: Pairwise ordering of a near-tie top set (board 2026-10-25). ``False`` by
+    #: default: this wave ships no settings UI row for it, so a default-on pass
+    #: would spend up to ``top_n x (top_n-1)`` judge calls on a near-tie series
+    #: with no way for the user to turn it off, and the run estimate (stated
+    #: before the pointwise pass) does not name that cost — a silent spend.
+    #: Persisted like every other knob (a config written with ``true`` keeps it
+    #: on); the pass is still gated twice before it costs anything: only a
     #: series whose top-set spread is within ``pairwise_near_tie_threshold`` is
-    #: compared, and the whole bound (``top_n x (top_n-1)`` calls) is reserved
-    #: against ``judge_run_call_ceiling``. The pairwise order is added next to
-    #: the pointwise numbers; it never replaces them.
-    pairwise_enabled: bool = True
+    #: compared, and the whole bound is reserved against
+    #: ``judge_run_call_ceiling``. The pairwise order is added next to the
+    #: pointwise numbers; it never replaces them.
+    pairwise_enabled: bool = False
     #: How many of the pointwise-best items take part (clamped
     #: [PAIRWISE_TOP_N_MIN, PAIRWISE_TOP_N_MAX], default 5 = at most 20 calls).
     pairwise_top_n: int = PAIRWISE_TOP_N_DEFAULT
@@ -267,8 +272,10 @@ class AiSettingsStore:
                 judge_run_call_ceiling=max(
                     0, _parse_int(settings.value("judge_run_call_ceiling", 0), 0)
                 ),
+                # Absent/anything else means OFF (the dataclass default): only
+                # an explicit truthy value re-enables the pass.
                 pairwise_enabled=str(
-                    settings.value("pairwise_enabled", True)
+                    settings.value("pairwise_enabled", False)
                 ).lower()
                 in ("true", "1"),
                 pairwise_top_n=_clamp_int(

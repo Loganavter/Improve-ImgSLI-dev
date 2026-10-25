@@ -31,10 +31,16 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from core.log_names import APP_LOGGER_NAME
+from tabs.image_gallery.controller import GalleryController
+from tabs.image_gallery.models import Series
 from tabs.image_gallery.services import ai_settings_store as store_module
 from tabs.image_gallery.services.ai_settings_store import AiSettings, AiSettingsStore
 from tabs.image_gallery.services.rank_fusion import item_quality, rank_series
+from tabs.image_gallery.use_cases import ai_analysis
+from tabs.image_gallery.use_cases import judge_budget
 from tabs.image_gallery.use_cases.pairwise_rank import (
     ANSWER_FIRST,
     PairwiseVerdictCache,
@@ -46,6 +52,17 @@ from tabs.image_gallery.use_cases.pairwise_rank import (
 
 
 # -- doubles ------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _fresh_verdict_cache():
+    """The live path uses the PROCESS-WIDE cache; tests must not inherit it."""
+    from tabs.image_gallery.use_cases import pairwise_rank
+
+    pairwise_rank.DEFAULT_CACHE.clear()
+    yield
+    pairwise_rank.DEFAULT_CACHE.clear()
+
 
 
 def _item(name: str, quality: float):
@@ -312,7 +329,10 @@ def test_pairwise_settings_have_declared_defaults_and_clamps(monkeypatch) -> Non
 
     store = AiSettingsStore()
     row = store.load()
-    assert row.pairwise_enabled is True
+    # OFF by default: this wave ships no settings row for the flag, so a
+    # default-on pass would be an unreachable, unstated spend.
+    assert row.pairwise_enabled is False
+    assert AiSettings().pairwise_enabled is False
     assert row.pairwise_top_n == 5
     assert row.pairwise_near_tie_threshold == 10.0
     assert AiSettings().pairwise_top_n == 5
@@ -323,7 +343,11 @@ def test_pairwise_settings_have_declared_defaults_and_clamps(monkeypatch) -> Non
     row = store.load()
     assert row.pairwise_top_n == store_module.PAIRWISE_TOP_N_MAX == 8
     assert row.pairwise_near_tie_threshold == store_module.PAIRWISE_NEAR_TIE_THRESHOLD_MAX
+    # An explicit opt-in is persisted (not clamped away)...
     assert row.pairwise_enabled is True
+    # ...and turning it back off persists too.
+    store.save_field("pairwise_enabled", False)
+    assert store.load().pairwise_enabled is False
 
     store.save_field("pairwise_top_n", 0)
     store.save_field("pairwise_near_tie_threshold", -4)
@@ -357,3 +381,279 @@ def test_generated_pairwise_prompt_is_a_separate_variant() -> None:
     assert parse_pairwise_verdict("I think A looks sharper") is None
     assert parse_pairwise_verdict("") is None
     assert parse_pairwise_verdict(None) is None
+
+
+# -- the WIRING: the pass is reachable, off the GUI thread, fail-open --------
+#
+# Falsification stories (each assertion fails without the wiring):
+# (f) flag OFF (the shipped default): no worker is scheduled and no judge call
+#     is attempted — fails if the pass runs, or if the trace is emitted per
+#     series instead of once per run;
+# (g) flag ON + a near-tie series: the APPLIED ranks come from the pairwise
+#     order (the view is re-ordered through ``_apply_fusion_ranks``), and the
+#     pointwise numbers are still readable — fails if the result is computed and
+#     dropped, or if the numbers are replaced by the order;
+# (h) a ceiling refusal admits zero pairwise calls and keeps the pointwise
+#     order — fails if the reservation is bypassed or the pass partially spends;
+# (i) a judge that raises keeps the pointwise order and marks no card failed —
+#     fails if a pairwise failure leaks into the analysis results;
+# (j) the run's ONE call counter counts pointwise + admitted pairwise calls —
+#     fails if the pass opens a second counter or double-counts.
+
+
+class _WiringWidget:
+    """Bare widget surface the rank primitive touches."""
+
+    def __init__(self) -> None:
+        self.refreshed: list = []
+        self.ranks_visible: list = []
+
+    def refresh_card(self, item) -> None:
+        self.refreshed.append(item)
+
+    def refresh_cards(self, items) -> None:
+        self.refreshed.extend(items)
+
+    def set_ranks_visible(self, flag) -> None:
+        self.ranks_visible.append(flag)
+
+    def set_rank_provenance(self, _src, **_kwargs) -> None:
+        pass
+
+
+def _wired_owner(items, **settings_overrides):
+    """Controller double with the REAL rank primitive and no real pool.
+
+    ``_pool_start`` only records the worker, so a test drives the pass itself
+    (``worker.run()``) — the GUI thread is never blocked in the test, exactly
+    as in the app.
+    """
+    ctl = GalleryController.__new__(GalleryController)
+    ctl.state = SimpleNamespace(
+        items=list(items),
+        series=[Series(id="s0", members=list(items))],
+        mode="camera",
+        metric_profile=None,
+    )
+    ctl.widget = _WiringWidget()
+    ctl._folder_gen = 0
+    ctl._judgment_domain = "algorithms"
+    ctl._domain_epoch = 0
+    ctl._metrics_settled_gen = 0
+    ctl._tr = lambda key, default: default
+    row = _settings(**settings_overrides)
+    ctl._ai_settings_store = SimpleNamespace(load=lambda: row)
+    ctl._settings_row = row
+    ctl.launched: list = []
+    ctl._pool_start = lambda worker, priority: ctl.launched.append(worker)
+    ctl._tracked = lambda fn: fn
+    ctl._sched_lock = None
+    ctl._sched_pending = 0
+    ctl._sched_active = 0
+    ctl._sched_peak = 0
+    ctl._AI_VISIBLE_CAP = 4
+    return ctl
+
+
+def _ranks(items) -> dict:
+    return {str(it.path): (it.rank, it.rank_source) for it in items}
+
+
+def _boom(*_args, **_kwargs):
+    raise AssertionError("the pairwise judge must not be called")
+
+
+def _trace_lines(caplog) -> list[str]:
+    return [record.getMessage() for record in caplog.records]
+
+
+def test_wiring_with_flag_off_makes_zero_calls_and_keeps_the_pointwise_ranks(
+    monkeypatch, caplog
+) -> None:
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    items = [_item(f"{name}.png", q) for name, q in zip("abcde", (80, 79, 78, 77, 76))]
+    owner = _wired_owner(items, pairwise_enabled=False)
+    owner._apply_fusion_ranks(owner.state.series)
+    before = _ranks(items)
+
+    judge = _ScriptedJudge(_boom)
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        assert ai_analysis.start_pairwise_refinement(owner, judge=judge) is False
+        # A second call in the SAME run must not repeat the line.
+        assert ai_analysis.start_pairwise_refinement(owner, judge=judge) is False
+
+    assert owner.launched == [], "the off flag must not schedule a worker"
+    assert judge.calls == 0, "the off flag must not spend a judge call"
+    assert _ranks(items) == before, "the pointwise ranks must be untouched"
+    disabled = [
+        line for line in _trace_lines(caplog) if "judge_pairwise.skip reason=disabled" in line
+    ]
+    assert len(disabled) == 1, disabled
+
+
+def test_wiring_flag_on_near_tie_applies_the_pairwise_order(monkeypatch, caplog) -> None:
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    items = [_item(f"{name}.png", q) for name, q in zip("abcde", (80, 79, 78, 77, 76))]
+    owner = _wired_owner(items, pairwise_enabled=True, pairwise_top_n=2)
+    owner._apply_fusion_ranks(owner.state.series)
+    pointwise = _ranks(items)
+    assert (items[0].rank, items[1].rank) == (1, 2), pointwise
+
+    # b.png wins whichever side it is shown on: both presentations agree, so
+    # the pair resolves and the pairwise order puts b before a.
+    judge = _ScriptedJudge(
+        lambda a, b: "A" if Path(a.path).name == "b.png" else "B"
+    )
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        assert ai_analysis.start_pairwise_refinement(owner, judge=judge) is True
+        assert len(owner.launched) == 1, "one pass per series"
+        owner.launched[0].run()  # the pool would run this off the GUI thread
+
+    assert judge.calls == 2, "one unordered pair, asked in both orders"
+    assert items[1].rank == 1, "the pairwise order must decide the top set"
+    assert items[0].rank == 2
+    assert [items[2].rank, items[3].rank, items[4].rank] == [3, 4, 5]
+    assert all(it.rank_source == "fusion" for it in items)
+    # Ranks only: the pointwise NUMBERS stay readable next to the order.
+    assert [item_quality(it) for it in items] == [80, 79, 78, 77, 76]
+    lines = _trace_lines(caplog)
+    assert any("judge_pairwise.apply" in line for line in lines), lines
+
+
+def test_wiring_ceiling_refusal_spends_nothing_and_keeps_the_pointwise_order(
+    monkeypatch, caplog
+) -> None:
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    items = [_item(f"{name}.png", q) for name, q in zip("abcde", (80, 79, 78, 77, 76))]
+    # The pass needs 2 calls (top_n=2); the run may spend 1.
+    owner = _wired_owner(
+        items, pairwise_enabled=True, pairwise_top_n=2, judge_run_call_ceiling=1
+    )
+    owner._apply_fusion_ranks(owner.state.series)
+    before = _ranks(items)
+
+    judge = _ScriptedJudge("A")
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        assert ai_analysis.start_pairwise_refinement(owner, judge=judge) is True
+        owner.launched[0].run()
+
+    assert judge.calls == 0, "a refused reservation must admit zero calls"
+    assert owner._judge_run.calls == 0, "a refusal must not consume the ceiling"
+    assert _ranks(items) == before
+    budget = [
+        line for line in _trace_lines(caplog) if "judge_pairwise.skip reason=budget" in line
+    ]
+    assert budget, "the refusal must be traced with reason=budget"
+
+
+def test_wiring_error_path_keeps_pointwise_and_marks_no_card_failed(
+    monkeypatch, caplog
+) -> None:
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    items = [_item(f"{name}.png", q) for name, q in zip("abcde", (80, 79, 78, 77, 76))]
+    owner = _wired_owner(items, pairwise_enabled=True, pairwise_top_n=2)
+    owner._apply_fusion_ranks(owner.state.series)
+    before = _ranks(items)
+
+    judge = _ScriptedJudge(_boom)  # every presentation raises
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        assert ai_analysis.start_pairwise_refinement(owner, judge=judge) is True
+        owner.launched[0].run()
+
+    assert judge.calls == 2, "the failure reached the judge, it was not skipped"
+    assert _ranks(items) == before, "a pairwise failure keeps the pointwise order"
+    assert not any(hasattr(it, "analysis_error") for it in items), "no card error"
+    assert not any(hasattr(it, "analysis_status") for it in items), "no card mutation"
+    lines = _trace_lines(caplog)
+    errors = [line for line in lines if "judge_pairwise.skip reason=error" in line]
+    assert errors, lines
+    assert "exc=" in errors[0]
+
+
+def test_wiring_counts_pointwise_and_pairwise_calls_in_the_one_ledger(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    items = [_item(f"{name}.png", q) for name, q in zip("abcde", (80, 79, 78, 77, 76))]
+    owner = _wired_owner(
+        items,
+        pairwise_enabled=True,
+        pairwise_top_n=2,
+        judge_run_call_ceiling=100,
+        sample_count=1,
+    )
+    row = owner._settings_row
+    # The pointwise pass: one call per card, reserved on the GUI thread.
+    judge_budget.begin_judge_run(owner, len(items), settings=row)
+    for it in items:
+        assert judge_budget._reserve_judge_call(owner, it, settings=row) is True
+    pointwise_calls = owner._judge_run.calls
+    assert pointwise_calls == 5
+
+    owner._apply_fusion_ranks(owner.state.series)
+    judge = _ScriptedJudge(lambda a, b: "A" if Path(a.path).name == "b.png" else "B")
+    assert ai_analysis.start_pairwise_refinement(owner, judge=judge) is True
+    owner.launched[0].run()
+
+    admitted = judge.calls
+    assert admitted == 2, "top_n=2 is ONE pair in both orders"
+    # ONE counter: pointwise reservations + admitted pairwise calls, no second
+    # ledger and no double count.
+    assert owner._judge_run.calls == pointwise_calls + admitted == 7
+
+
+def test_wiring_free_gates_decide_before_a_worker_exists(monkeypatch, caplog) -> None:
+    """A decided / too-small series spends nothing and never occupies a slot."""
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    judge = _ScriptedJudge(_boom)
+
+    decided_items = [
+        _item(f"d{name}.png", q) for name, q in zip("abcde", (95, 70, 50, 30, 10))
+    ]
+    decided = _wired_owner(decided_items, pairwise_enabled=True)
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        assert ai_analysis.start_pairwise_refinement(decided, judge=judge) is False
+    assert decided.launched == [], "a decided series must not schedule a worker"
+    assert judge.calls == 0
+    assert any(
+        "judge_pairwise.skip reason=decided" in line for line in _trace_lines(caplog)
+    )
+
+    caplog.clear()
+    solo = _wired_owner([_item("solo.png", 80)], pairwise_enabled=True)
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        assert ai_analysis.start_pairwise_refinement(solo, judge=judge) is False
+    assert solo.launched == [], "a one-member series must not schedule a worker"
+    assert any(
+        "judge_pairwise.skip reason=too_small" in line for line in _trace_lines(caplog)
+    )
+
+
+def test_wiring_keeps_each_series_pairwise_order_across_applies(monkeypatch) -> None:
+    """Two near-tie series: the second apply must not drop the first's order."""
+    monkeypatch.setenv("IMGSLI_AI_DEBUG", "1")
+    items = [_item(f"{name}.png", q) for name, q in zip("abcd", (80, 79, 78, 77))]
+    owner = _wired_owner(items, pairwise_enabled=True, pairwise_top_n=2)
+    owner.state.series = [
+        Series(id="s0", members=items[:2]),
+        Series(id="s1", members=items[2:]),
+    ]
+    owner._apply_fusion_ranks(owner.state.series)
+    assert [it.rank for it in items] == [1, 2, 1, 2]
+
+    def judge(a, b):
+        pair = {Path(a.path).name, Path(b.path).name}
+        # Each series' SECOND-by-pointwise item wins, so the pairwise order is
+        # the opposite of the pointwise one in both groups.
+        if pair & {"a.png", "b.png"}:
+            return "A" if Path(a.path).name == "b.png" else "B"
+        return "A" if Path(a.path).name == "d.png" else "B"
+
+    assert ai_analysis.start_pairwise_refinement(
+        owner, judge=_ScriptedJudge(judge)
+    ) is True
+    assert len(owner.launched) == 2, "one pass per near-tie series"
+    for worker in owner.launched:
+        worker.run()
+
+    assert [it.rank for it in items] == [2, 1, 2, 1], "both series keep their order"

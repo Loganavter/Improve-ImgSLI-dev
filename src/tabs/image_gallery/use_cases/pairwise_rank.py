@@ -14,6 +14,11 @@ Shape of the pass:
 * a DECIDED series spends zero calls — when the pointwise spread across the top
   set already exceeds ``AiSettings.pairwise_near_tie_threshold`` the pass is
   skipped entirely (item 3);
+* the FREE gates (flag off / fewer than two measured members / undecided
+  spread / decided) live in ONE function (:func:`precheck`), which the
+  GUI-thread wiring asks before it schedules a worker: "start a thread or not"
+  and the pass itself can never disagree about who may spend (the skip reason
+  tokens are disabled, too_small, unmeasured and decided);
 * the whole pass is one atomic ceiling reservation through
   ``judge_budget.reserve_pairwise_calls`` (the SAME run counter and ceiling as
   the pointwise cards) — a partial comparison set never produces an order;
@@ -351,6 +356,23 @@ class PairwiseOrder:
         return sum(1 for verdict in self.verdicts if verdict.winner is None)
 
 
+@dataclass(frozen=True)
+class _PassPlan:
+    """Gates resolved before a single call: who is compared, and why not.
+
+    ``skip`` is a finished :class:`PairwiseOrder` when the pass may not spend
+    anything (already traced by ``_skip``); ``None`` means it may — the caller
+    then builds the judge and reserves the bound.
+    """
+
+    row: object
+    members: tuple[PairMember, ...]
+    top_n: int
+    threshold: float
+    spread: float | None
+    skip: PairwiseOrder | None
+
+
 def _settings_row(owner, settings=None):
     """The ``AiSettings`` row for the pairwise knobs (None for a storeless double)."""
     if settings is not None:
@@ -556,6 +578,94 @@ class PairwiseClientJudge:
         return parse_pairwise_response(raw)
 
 
+def _plan_pass(
+    owner,
+    items,
+    *,
+    pointwise_ranks: Mapping[str, int],
+    settings=None,
+    top_n: int | None = None,
+    threshold: float | None = None,
+    mode=None,
+    profile=None,
+) -> _PassPlan:
+    """Resolve every gate that costs NOTHING: no judge, no reservation, no call.
+
+    ONE place decides the order the gates run in, so the wiring (which asks
+    "start a worker or not" on the GUI thread) and the pass itself can never
+    disagree:
+
+    1. ``pairwise_enabled`` off → skip reason disabled (no thread, no call);
+    2. fewer than two MEASURED members in the top set → skip reason too_small;
+    3. a member with no pointwise number → skip reason unmeasured (no defined
+       spread);
+    4. a spread above the declared threshold → skip reason decided (the
+       pointwise order already separates them, so a comparison could only spend
+       calls).
+    """
+    row = _settings_row(owner, settings)
+    n = _resolve_top_n(row, top_n)
+    near_tie = _resolve_threshold(row, threshold)
+    members = tuple(_select_top(items, pointwise_ranks, n, mode=mode, profile=profile))
+    measured = [member for member in members if member.quality is not None]
+
+    if not bool(getattr(row, "pairwise_enabled", False)):
+        skip = _skip("disabled", members, top_n=n)
+        return _PassPlan(row, members, n, near_tie, None, skip)
+    if len(measured) < 2:
+        skip = _skip(
+            "too_small", members, top_n=n, detail=f"measured={len(measured)}"
+        )
+        return _PassPlan(row, members, n, near_tie, None, skip)
+    if len(measured) < len(members):
+        skip = _skip("unmeasured", members, top_n=n, detail="pointwise spread unknown")
+        return _PassPlan(row, members, n, near_tie, None, skip)
+    spread = max(member.quality for member in measured) - min(
+        member.quality for member in measured
+    )
+    if spread > near_tie:
+        skip = _skip(
+            "decided",
+            members,
+            top_n=n,
+            detail=f"spread={spread:.2f} threshold={near_tie:g} calls=0",
+        )
+        return _PassPlan(row, members, n, near_tie, spread, skip)
+    return _PassPlan(row, members, n, near_tie, spread, None)
+
+
+def precheck(
+    owner,
+    items,
+    *,
+    pointwise_ranks: Mapping[str, int],
+    settings=None,
+    mode=None,
+    profile=None,
+    top_n: int | None = None,
+    threshold: float | None = None,
+) -> PairwiseOrder | None:
+    """Would the pass spend anything? The FREE gates, on the caller's thread.
+
+    Returns a skip outcome (already traced with ``judge_pairwise.skip
+    reason=...``) when the pass must not start, or ``None`` when it may.
+    :func:`run_pairwise_pass` asks the same question through the same
+    :func:`_plan_pass`, so a caller can decide "schedule a worker or not"
+    without a second copy of the rules — and without touching the network or
+    the run's call ceiling from the GUI thread.
+    """
+    return _plan_pass(
+        owner,
+        items,
+        pointwise_ranks=pointwise_ranks,
+        settings=settings,
+        top_n=top_n,
+        threshold=threshold,
+        mode=mode,
+        profile=profile,
+    ).skip
+
+
 def run_pairwise_pass(
     owner,
     items,
@@ -587,31 +697,23 @@ def run_pairwise_pass(
     judge all leave the pointwise order intact and state why in the trace.
     ``judge=None`` builds :class:`PairwiseClientJudge` from the settings row.
     """
-    row = _settings_row(owner, settings)
-    n = _resolve_top_n(row, top_n)
-    near_tie = _resolve_threshold(row, threshold)
-    members = _select_top(items, pointwise_ranks, n, mode=mode, profile=profile)
-    if len(members) < 2:
-        return _skip("too-few", members, top_n=n)
-
-    if not bool(getattr(row, "pairwise_enabled", True)):
-        return _skip("disabled", members, top_n=n)
-
-    qualities = [member.quality for member in members]
-    spread: float | None
-    if any(quality is None for quality in qualities):
-        spread = None
-    else:
-        spread = max(qualities) - min(qualities)  # type: ignore[arg-type]
-    if spread is None:
-        return _skip("unmeasured", members, top_n=n, detail="pointwise spread unknown")
-    if spread > near_tie:
-        return _skip(
-            "decided",
-            members,
-            top_n=n,
-            detail=f"spread={spread:.2f} threshold={near_tie:g} calls=0",
-        )
+    plan = _plan_pass(
+        owner,
+        items,
+        pointwise_ranks=pointwise_ranks,
+        settings=settings,
+        top_n=top_n,
+        threshold=threshold,
+        mode=mode,
+        profile=profile,
+    )
+    if plan.skip is not None:
+        return plan.skip
+    row = plan.row
+    members = plan.members
+    n = plan.top_n
+    near_tie = plan.threshold
+    spread = plan.spread
 
     if judge is None:
         judge = build_client_judge(row, mode=mode, profile=profile)
@@ -797,5 +899,6 @@ __all__ = [
     "normalize_answer",
     "pair_key",
     "pairwise_calls_bound",
+    "precheck",
     "run_pairwise_pass",
 ]

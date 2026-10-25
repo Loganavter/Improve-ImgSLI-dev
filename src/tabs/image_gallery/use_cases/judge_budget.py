@@ -366,7 +366,8 @@ def reserve_pairwise_calls(owner, calls, *, settings=None) -> bool:
         run.calls += cost
         return True
     _ai_debug(
-        "judge_pairwise.ceiling ceiling=%d calls=%d need=%d order_kept=pointwise",
+        "judge_pairwise.skip reason=budget ceiling=%d calls=%d need=%d "
+        "order_kept=pointwise",
         run.ceiling,
         run.calls,
         cost,
