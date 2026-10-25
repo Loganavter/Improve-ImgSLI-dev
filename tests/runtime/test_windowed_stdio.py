@@ -141,11 +141,12 @@ def test_traced_run_keeps_the_warning_next_to_its_marks(
     monkeypatch: pytest.MonkeyPatch,
     fault_dump_cleanup,
 ) -> None:
-    """Traced + broken dump: the warning opens the file, later marks do not wipe it.
+    """Traced + broken dump, sink already created: the mark stays first.
 
     Production order matters -- ``enable_faulthandler()`` runs before
-    ``src/__main__.py`` imports ``core.startup_trace``, so the warning is the
-    first record in this one combination (documented in the module docstring).
+    ``src/__main__.py`` imports ``core.startup_trace``, so the disabled-dump
+    record is queued and flushed right after ``main.entry`` (see the module
+    docstring); a later mark must not duplicate or wipe it.
     """
     monkeypatch.setenv("IMGSLI_STARTUP_TRACE", "1")
     assert early._reload_for_tests() is not None

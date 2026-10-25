@@ -31,13 +31,15 @@ module (through :mod:`core.startup_trace`) before its heavy imports, so
 Interpreter start-up before that import is not measurable portably and is
 excluded by construction.
 
-One combination inverts that order: a run that is **both** traced and has a
-disabled fault dump. The failure import (:func:`write_error_record`) happens at
+One combination reaches this module early: a run that is **both** traced and has
+a disabled fault dump. :func:`write_error_record` is called from
 ``enable_faulthandler()``, before ``src/__main__.py`` imports
-:mod:`core.startup_trace`, so the ``Fault dump disabled`` record is the file's
-first line and ``main.entry`` follows as a ~+1 ms line measured from that
-earlier import. The error is simply the earlier fact; the offsets stay honest
-relative to the module import that actually created the file.
+:mod:`core.startup_trace`, so the sink already exists (and ``_T0`` is already
+the import at that earlier point) when the first mark is written. The record is
+therefore **queued** and flushed right after the first record: ``main.entry``
+stays the file's first line and the ``Fault dump disabled`` warning follows it,
+exactly once. Only a run with both diagnostics flags *off* writes the warning
+immediately, and such a run has no marks to precede.
 
 See ``docs/dev/LOGGING.md`` (Early sink section).
 """

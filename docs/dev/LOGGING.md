@@ -299,7 +299,7 @@ start-up before that is excluded by construction):
 
 | Mark | Emitted from |
 |---|---|
-| `main.entry` | module scope of `src/__main__.py`, before the heavy imports (+0 ms — after the `Fault dump disabled` record when that error created the file) |
+| `main.entry` | module scope of `src/__main__.py`, before the heavy imports (+0 ms; a queued `Fault dump disabled` record follows it when that error armed the dump first) |
 | `main.imports_done` | end of that import block (the previously invisible import cost) |
 | `main.qapp_ready` | right after `QApplication(argv)` |
 | `rhi.probe.start` / `rhi.probe.end` | around `resolve_rhi_backend_with_fallback` |
@@ -318,12 +318,12 @@ continues; that line is the only trace a `--noconsole` build can leave, since
 its stderr is `os.devnull`. The default run (no `IMGSLI_FAULT_DUMP`) still
 creates nothing.
 
-That record is written at `enable_faulthandler()`, i.e. **before**
-`src/__main__.py` imports `core.startup_trace`, so in a run that is both traced
-and has a broken dump path the warning is the file's **first** line and
-`main.entry` follows it (a ~+1 ms line, offsets measured from that earlier
-import) instead of being the +0 ms first line. Every other traced run is
-unchanged.
+That record is armed at `enable_faulthandler()`, i.e. **before**
+`src/__main__.py` imports `core.startup_trace`. In a run that is both traced and
+has a broken dump path the sink therefore already exists when the first mark is
+written, so the record is **queued** and flushed right after it: `main.entry`
+stays the file's first line and the warning follows as the second record,
+exactly once. Every other traced run is unchanged.
 
 ```bash
 IMGSLI_STARTUP_TRACE=1 IMGSLI_STALL_WATCH=1 python src/__main__.py
