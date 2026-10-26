@@ -96,6 +96,89 @@ class InterpolationFlyoutController:
             return "unpaired"
         return f"after={int((time.monotonic() - started) * 1000)}ms"
 
+    def _instrument_hide(self, flyout) -> None:
+        """Journal who *asks* for the hide, not only where ``hideEvent`` lands.
+
+        The flyout fades out: ``hide()`` starts the animation and
+        ``hideEvent``/``closed`` arrive a frame later from
+        ``animation.on_hide_fade_finished``. The stack at ``closed`` therefore
+        ends in the fade completion and the real caller is already gone —
+        measured 2026-10-27, a 198 ms lifetime whose recorded origin was
+        ``on_closed <- hideEvent <- on_hide_fade_finished``, i.e. no cause at
+        all. Wrapping ``hide`` at entry keeps the causal stack. Diagnostic
+        only, and only with the journal flag on (a production close does no
+        stack work).
+        """
+        if not self._debug_enabled():
+            return
+        if getattr(flyout, "_interp_journal_wrapped", False):
+            return
+        original_hide = flyout.hide
+
+        def _hide_with_origin(*args, **kwargs):
+            self._note("hide:requested", f"origin={self._close_origin()}")
+            return original_hide(*args, **kwargs)
+
+        flyout.hide = _hide_with_origin
+        flyout._interp_journal_wrapped = True
+
+    def _debug_enabled(self) -> bool:
+        """Mirror of ``flyout_timer_service._timer_debug_enabled`` (journal gate)."""
+        return any(
+            os.environ.get(var, "").strip().lower()
+            not in ("", "0", "false", "no", "off")
+            for var in ("SLI_FLYOUT_DEBUG", "IMGSLI_FLYOUT_DEBUG", "FLYOUT_DEBUG")
+        )
+
+    def _close_origin(self) -> str:
+        """App/toolkit frames that actually hid the flyout (innermost last).
+
+        ``closed`` is emitted synchronously from ``SimpleOptionsFlyout.hideEvent``,
+        so the live stack still carries the *cause*: a row pick
+        (``_SimpleRow._on_row_clicked``), a ``FlyoutManager`` dismiss, a
+        ``BaseFlyout`` focus/outside handler, or a host call. Without it a
+        self-closing dropdown can only be blamed by correlating unrelated log
+        lines after the fact (measured 2026-10-27: 177 ms lifetime, cursor
+        stationary on the same pixel, no dispatch — cause unknown).
+        Gated on the journal's own env flags; keep the names in sync with
+        ``flyout_timer_service._timer_debug_enabled``.
+        """
+        if not self._debug_enabled():
+            return ""
+        frames: list[str] = []
+        for frame in traceback.extract_stack()[:-1]:
+            filename = frame.filename
+            if "/sli_ui_toolkit/" in filename:
+                frames.append(
+                    f"toolkit:{os.path.basename(filename)}:{frame.lineno}:{frame.name}"
+                )
+            elif "/Improve-ImgSLI/src/" in filename:
+                frames.append(
+                    f"app:{os.path.basename(filename)}:{frame.lineno}:{frame.name}"
+                )
+        return " <- ".join(reversed(frames[-6:]))
+
+    def _close_context(self) -> str:
+        parts: list[str] = []
+        try:
+            focused = QApplication.focusWidget()
+            parts.append(
+                f"focus={type(focused).__name__ if focused is not None else 'None'}"
+            )
+        except Exception:
+            pass
+        try:
+            under = QApplication.widgetAt(QCursor.pos())
+            parts.append(
+                f"under={type(under).__name__ if under is not None else 'None'}"
+            )
+        except Exception:
+            pass
+        origin = self._close_origin()
+        if origin:
+            parts.append(f"origin={origin}")
+        return " ".join(parts)
+
     def toggle(self):
         host = self.manager.host
         if host._interp_popup_open:
@@ -120,6 +203,7 @@ class InterpolationFlyoutController:
             host._interp_flyout = SimpleOptionsFlyout(host.parent_widget)
             host._interp_flyout.closed.connect(self.on_closed)
             host._interp_flyout.item_chosen.connect(self.apply_choice)
+            self._instrument_hide(host._interp_flyout)
             # combo_interpolation lives inside magnifier_settings_flyout's
             # own content -- link them so AnchoredFlyoutAutoHide (see its
             # MagnifierSettingsHoverController) treats the cursor moving
@@ -322,8 +406,9 @@ class InterpolationFlyoutController:
         self._cancel_settings_auto_hide()
         # ``closed`` fires from ``SimpleOptionsFlyout.hideEvent`` on EVERY close
         # path (item picked, outside click, Escape, host teardown), so this one
-        # line brackets the dropdown's whole visible lifetime.
-        self._note("closed", self._elapsed_detail())
+        # line brackets the dropdown's whole visible lifetime and names the
+        # caller that ended it (``origin=``, when the journal flag is on).
+        self._note("closed", f"{self._elapsed_detail()} {self._close_context()}".strip())
 
     def _cancel_settings_auto_hide(self) -> None:
         """Drop any pending hover-leave auto-hide on magnifier_settings_flyout.
@@ -354,6 +439,34 @@ class InterpolationFlyoutController:
                 if parent is anchor:
                     return True
                 parent = parent.parent()
+        # Focus moving *within the loupe unit* is not "focus left the dropdown".
+        # ``closing.on_app_focus_changed`` sweeps transient UI through the
+        # focus-aware owners registered here, and the magnifier button takes
+        # focus on its own hover/lens cycle every ~150-200 ms (measured
+        # 2026-10-27). With only combo+flyout known, that focus move read as a
+        # departure and the sweep closed the just-opened list 10 ms after it
+        # appeared:
+        # ``hide:requested <- closing.py:_hide_transient_same_window_ui_now
+        # <- transient_interpolation.close``, which is why the resampling list
+        # lived ~180 ms (10 ms + the 160 ms fade) and could not be used.
+        # Dismissal stays with the normal paths: outside press, Escape, row
+        # pick, panel hide.
+        unit_roots = tuple(
+            root
+            for root in (
+                getattr(self.widget, "magnifier_group_container", None),
+                getattr(self.widget, "magnifier_settings_panel", None),
+                getattr(self.widget, "magnifier_settings_flyout", None),
+                getattr(self.widget, "checkbox_widget", None),
+            )
+            if root is not None
+        )
+        for root in unit_roots:
+            try:
+                if new_widget is root or root.isAncestorOf(new_widget):
+                    return True
+            except RuntimeError:
+                continue
         return False
 
     def ensure_panel_visible(self) -> None:
