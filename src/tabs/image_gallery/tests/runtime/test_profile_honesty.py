@@ -317,15 +317,14 @@ def test_settle_does_not_start_ai_under_a_profile_that_is_replaced_after_the_cal
     assert ctrl.jev_starts == [vlm]
 
 
-def test_late_vlm_reply_is_dropped_once_analysis_started(
+def test_late_vlm_reply_is_applied_once_analysis_started(
     monkeypatch, fake_workers, caplog
 ) -> None:
-    """A reply landing after an AI call began may not rewrite that generation.
+    """A reply landing after an AI call began IS applied (owner rule 2026-10-26).
 
-    Falsification: without the freeze the state profile changes mid-flight;
-    the scorecards already requested cannot be re-keyed, so the replacement
-    is a silent miss on every later visit (the state then claims axes the
-    cached scorecards do not carry).
+    Falsification of the OLD contract: dropping it left the folder with no axis
+    set at all, and the run continued on the mode mapping (measured live 08:15:
+    "profile=None" in the fusion trace, jev "not ranked").
     """
     a, b = _item("a.png", ssim=0.9), _item("b.png", ssim=0.4)
     ctrl = _ProfileCtrl([a, b])
@@ -344,7 +343,7 @@ def test_late_vlm_reply_is_dropped_once_analysis_started(
     with caplog.at_level(logging.DEBUG, logger=APP_LOGGER_NAME):
         ctrl.launched[0].run()  # ...and only then the vlm reply lands
 
-    assert ctrl.state.metric_profile == heuristic, "a late reply must not be applied"
+    assert ctrl.state.metric_profile != heuristic, "a late reply IS applied now"
     assert any(
         "late" in rec.getMessage().lower() and "profile" in rec.getMessage().lower()
         for rec in caplog.records

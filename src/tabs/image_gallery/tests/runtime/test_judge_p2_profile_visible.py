@@ -155,10 +155,17 @@ def test_cache_only_analyze_keeps_the_generation_open_and_applies_the_answer(
     ], "an applied profile must not be logged as a rejection"
 
 
-def test_reply_after_a_built_request_is_rejected_with_a_visible_reason(
+def test_reply_after_a_built_request_is_applied_and_re_analysed(
     monkeypatch, caplog
 ) -> None:
-    """(b) a built request still freezes the generation — and says why."""
+    """(b) a reply landing after a built request is APPLIED, not dropped.
+
+    Owner rule 2026-10-26 (measured live 08:15): dropping it left the folder with
+    no profile at all (`fusion ranks … profile=None`) and the run on camera axes.
+    The cache key no longer depends on the profile, and a scorecard answering
+    another vocabulary is a MISS by the axis check, so applying the answer is
+    self-healing — the cards are re-analysed under the judge's set.
+    """
     paths = (Path("/gallery/miss_1.png"), Path("/gallery/miss_2.png"))
     owner = _Owner(paths)
     heuristic = owner.state.metric_profile
@@ -175,17 +182,16 @@ def test_reply_after_a_built_request_is_rejected_with_a_visible_reason(
     with caplog.at_level(logging.DEBUG, logger=APP_LOGGER_NAME):
         owner._apply_profile_outcome(VLM_PROFILE, owner._folder_gen)
 
-    assert owner.state.metric_profile is heuristic, (
-        "a reply landing after a request was built may not re-key that "
-        "generation's scorecards"
+    assert owner.state.metric_profile is not heuristic, (
+        "the judge's answer replaces the previous axis set"
     )
-    assert owner.state.profile_reject_reason == PROFILE_REJECT_CALLS_BUILT, (
-        "a dropped axis-set answer is a LOSS the UI must be able to show, with "
-        f"its cause encoded (got {owner.state.profile_reject_reason!r})"
+    assert str(getattr(owner.state.metric_profile, "source", "")) == "vlm"
+    assert owner.state.profile_reject_reason != PROFILE_REJECT_CALLS_BUILT, (
+        "a late answer is no longer a rejection"
     )
     assert any(
-        "rejected" in rec.getMessage().lower()
-        and "already built" in rec.getMessage().lower()
+        "applied late" in rec.getMessage().lower()
+        or "profile applied late" in rec.getMessage().lower()
         for rec in caplog.records
     ), "the drop must say WHY in the trace, not only that it happened"
 
