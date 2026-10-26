@@ -674,7 +674,18 @@ class GalleryController:
             # placeholder (it showed up in the log and, on a bad day, won). The
             # slot stays EMPTY until the model answers; the analysis waits for it
             # (``_profile_settle_pending_gen``).
-            if str(getattr(self, "_judgment_domain", "algorithms") or "").strip().lower() == "ai":
+            from tabs.image_gallery.use_cases.ai_analysis import (
+                _epoch_is_current as _in_ai_domain,
+            )
+
+            # NOTE: ``_epoch_is_current`` answers True for a LEGACY double that
+            # never owned the domain attribute (it must not fail those), so the
+            # AI branch additionally requires the attribute to exist — otherwise
+            # a test/legacy owner would be treated as the AI domain and lose its
+            # series offer.
+            if getattr(self, "_judgment_domain", None) is not None and _in_ai_domain(
+                self, None
+            ):
                 from tabs.image_gallery.services.metric_profile import (
                     PROFILE_SOURCE_VLM as _VLM,
                 )
@@ -772,6 +783,16 @@ class GalleryController:
                 previous = None
             self.state.metric_profile = None
             if previous is not None:
+                import traceback
+
+                caller = " <- ".join(
+                    f"{fr.name}" for fr in traceback.extract_stack()[-4:-1]
+                )
+                logger.debug(
+                    "[gallery] metric profile CLEARED (previous=%s) caller=%s",
+                    str(getattr(previous, "source", "") or "-"),
+                    caller,
+                )
                 logger.debug("[gallery] metric profile: %s", describe(self.state))
         except Exception:
             logger.debug("metric profile clear failed", exc_info=True)
@@ -1257,19 +1278,20 @@ class GalleryController:
             consumed = getattr(self, "_profile_consumed_gen", None)
         except Exception:
             consumed = None
-        if consumed is not None:
-            try:
-                if int(consumed) == int(gen):
-                    _note_profile_reject(
-                        self,
-                        PROFILE_REJECT_CALLS_BUILT,
-                        f"late vlm reply dropped — profile frozen for gen {gen}: "
-                        "an AI request was already built under the previous axis set",
-                        gen,
-                    )
-                    return
-            except Exception:
-                pass
+        # A reply that lands AFTER a request of this generation was built is
+        # APPLIED, not dropped (owner rule 2026-10-26, measured live 08:15): the
+        # judge's answer is the only source of axes, and dropping it left the
+        # folder with no profile at all ("fusion ranks … profile=None"). The old
+        # freeze existed to protect a cache key that no longer depends on the
+        # profile; a scorecard answering another vocabulary is now a MISS by the
+        # axis check, so applying the answer is self-healing — the cards that
+        # cannot answer the new axes are re-analysed below.
+        late = False
+        try:
+            if consumed is not None and int(consumed) == int(gen):
+                late = True
+        except Exception:
+            late = False
         try:
             usable = bool(profile) and bool(
                 tuple(getattr(profile, "axis_ids", None) or ())
@@ -1326,6 +1348,26 @@ class GalleryController:
                     self.widget.refresh_card(it)
                 except Exception:
                     pass
+        if late:
+            # The scorecards built before this answer cannot answer these axes:
+            # re-run the tail so they are re-analysed under the judge's set. The
+            # per-card cache MISSes exactly on those (axis check), and cards that
+            # already answer them stay HITs.
+            _ai_debug(
+                "profile applied late: re-analysing the cards that answer other "
+                "axes (gen=%s)",
+                gen,
+            )
+            try:
+                self._profile_consumed_gen = None
+            except Exception:
+                pass
+            try:
+                runner = getattr(self, "_run_ai_for_visible", None)
+                if callable(runner):
+                    runner(cache_only=False)
+            except Exception:
+                logger.debug("late-profile re-analysis failed", exc_info=True)
 
     def _mark_ai_profile_error(self, reason: str) -> None:
         """Paint the AI-domain ERROR on every card of this folder.

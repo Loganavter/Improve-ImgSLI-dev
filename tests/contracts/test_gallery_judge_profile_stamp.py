@@ -128,7 +128,7 @@ def test_a_cache_only_analyze_run_does_not_freeze_the_profile(monkeypatch) -> No
     # The identity machinery is not what this gate is about: pin the seam so the
     # run is driven by ONE fact — every card is a HIT.
     monkeypatch.setattr(
-        ai_analyze, "load_cached_analysis", lambda path, mtime, identity: cached
+        ai_analyze, "load_cached_analysis", lambda path, mtime, identity, **_kw: cached
     )
     monkeypatch.setattr(
         ai_analyze, "analysis_identity_for", lambda owner, ctx=None: {"model": "m"}

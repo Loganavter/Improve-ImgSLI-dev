@@ -209,17 +209,10 @@ def _with_axis_profile(owner, ctx: ActionContext, items):
             return dataclasses.replace(ctx, profile=resolved), None
         except Exception:
             return ctx, None
-    # No judge answer pinned yet: ask for one, and let the settle tail run the
-    # analysis under it. The action still proceeds (the caller may be a display
-    # refresh with nothing to spend) — the per-card cache will MISS on any
-    # scorecard that does not answer the axes, so nothing is served under the
-    # wrong vocabulary.
-    kick = getattr(owner, "_run_profile_select_on_settle", None)
-    if callable(kick):
-        try:
-            kick()
-        except Exception:
-            logger.debug("profile kick from the analyze action failed", exc_info=True)
+    # No judge answer pinned yet: the settle's profile stage owns asking for it
+    # (a cache-only run must not freeze/stamp anything), and the per-card cache
+    # MISSes on any scorecard that does not answer the axes — so nothing is
+    # served under the wrong vocabulary while we wait.
     return ctx, None
 
 
