@@ -1361,28 +1361,28 @@ class GalleryController:
                     self.widget.refresh_card(it)
                 except Exception:
                     pass
-        if late:
-            # The scorecards built before this answer cannot answer these axes:
-            # re-run the tail so they are re-analysed under the judge's set. The
-            # per-card cache MISSes exactly on those (axis check), and cards that
-            # already answer them stay HITs.
-            # INFO, not the AI-debug channel: a paid answer arriving after the
-            # batch started is a real event in a normal run.
-            logger.info(
-                "[gallery] profile applied late: re-analysing the cards that "
-                "answer other axes (gen=%s)",
-                gen,
-            )
-            try:
-                self._profile_consumed_gen = None
-            except Exception:
-                pass
-            try:
-                runner = getattr(self, "_run_ai_for_visible", None)
-                if callable(runner):
-                    runner(cache_only=False)
-            except Exception:
-                logger.debug("late-profile re-analysis failed", exc_info=True)
+        # ALWAYS re-run the analysis tail after an applied axis set (owner
+        # report 2026-10-26: the judge answered, and nothing re-analysed the
+        # cards that answer another vocabulary — jev then reported "0/7
+        # scored — series not ranked", so the folder showed no numbers until
+        # a manual reset). Cards that already answer these axes are HITs; only
+        # the mismatched ones spend a call.
+        logger.info(
+            "[gallery] profile applied%s: re-analysing the cards that answer "
+            "other axes (gen=%s)",
+            " late" if late else "",
+            gen,
+        )
+        try:
+            self._profile_consumed_gen = None
+        except Exception:
+            pass
+        try:
+            runner = getattr(self, "_run_ai_for_visible", None)
+            if callable(runner):
+                runner(cache_only=False)
+        except Exception:
+            logger.debug("late-profile re-analysis failed", exc_info=True)
 
     def _mark_ai_profile_error(self, reason: str) -> None:
         """Paint the AI-domain ERROR on every card of this folder.
