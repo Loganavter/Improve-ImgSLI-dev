@@ -158,7 +158,18 @@ def _start_proxy_analysis(owner, items: list[GalleryItem], source_path: Path | N
     want_artifacts = not _artifacts_disabled()
     want_fidelity = not _fidelity_disabled() and source_path is not None
     try:
-        want_camera = not _camera_disabled() and mode == Mode.CAMERA
+        # The CAMERA (local detector) pass does not boot in the AI backend (owner
+        # rule 2026-10-26: "должен мимо пролетать подъём бэкенда камеры"). Those
+        # numbers are not a substitute for the model's read, and computing them
+        # meant the cards kept camera metrics no matter what the judge named.
+        _ai_domain = False
+        if getattr(owner, "_judgment_domain", None) is not None:
+            from tabs.image_gallery.use_cases.ai_analysis import (
+                _epoch_is_current as _in_ai,
+            )
+
+            _ai_domain = bool(_in_ai(owner, None))
+        want_camera = not _camera_disabled() and mode == Mode.CAMERA and not _ai_domain
     except Exception:
         want_camera = False
     if not (want_artifacts or want_fidelity or want_camera):
