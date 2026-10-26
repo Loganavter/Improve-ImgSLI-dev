@@ -122,7 +122,9 @@ def test_fingerprint_changes_with_every_identity_component():
 
     assert profile_fingerprint([_item("a.png", mtime=2), b], mode="camera", model="m") != key
     assert profile_fingerprint([a, b, _item("c.png")], mode="camera", model="m") != key
-    assert profile_fingerprint([a, b], mode="fidelity", model="m") != key
+    # Owner rule 2026-10-26: the gallery mode is NOT part of the pin identity —
+    # the same folder under another mode asks the same question in the AI backend.
+    assert profile_fingerprint([a, b], mode="fidelity", model="m") == key
     assert profile_fingerprint([a, b], mode="camera", model="other") != key
     assert profile_fingerprint([a, b], mode="camera", model="m", pool=("sharpness",)) != key
     # The endpoint and the reasoning effort change the ANSWER, so they are part

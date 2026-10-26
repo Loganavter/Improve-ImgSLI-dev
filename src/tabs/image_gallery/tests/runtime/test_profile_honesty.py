@@ -332,9 +332,12 @@ def test_late_vlm_reply_is_dropped_once_analysis_started(
     monkeypatch.setattr(
         controller_mod, "_profile_selector", lambda: _selector_returning(_vlm_profile())
     )
-    ctrl.refresh_metric_profile()
-    heuristic = ctrl.state.metric_profile
-    assert heuristic.source == "heuristic"
+    # A profile is already in force (the AI backend derives no local offer, so the
+    # test states the previous one explicitly).
+    from tabs.image_gallery.services.metric_profile import MetricProfile
+
+    heuristic = MetricProfile(axis_ids=("sharpness",), mode="camera", source="vlm")
+    ctrl.state.metric_profile = heuristic
 
     ctrl._run_profile_select_on_settle()  # in flight
     ctrl._run_ai_for_visible()  # an analysis of this generation begins now

@@ -243,7 +243,7 @@ def test_folder_change_invalidates_the_profile_stage(monkeypatch, fake_workers) 
 # --------------------------------------------------------------------------
 
 
-def test_settle_kicks_profile_once_with_the_heuristic_already_stored(
+def test_settle_kicks_profile_once_with_no_local_offer(
     monkeypatch, fake_workers
 ) -> None:
     a, b = _item("a.png", ssim=0.9), _item("b.png", ssim=0.4)
@@ -255,11 +255,10 @@ def test_settle_kicks_profile_once_with_the_heuristic_already_stored(
     triage_run._settle_metrics_pass(ctrl, [a, b])
     assert ctrl.profile_kicks == 1, "the settle is the ONE trigger of the selector"
     assert len(ctrl.launched) == 1
-    # The heuristic profile is stored synchronously, BEFORE the async selector.
-    stored = ctrl.state.metric_profile
-    assert stored is not None and stored.source == "heuristic"
-    ctrl.launched[0].run()  # None reply -> finished only -> no-op apply
-    assert ctrl.state.metric_profile.source == "heuristic"
+    # Owner rule 2026-10-26: nothing local is stored while the judge is asked.
+    assert ctrl.state.metric_profile is None
+    ctrl.launched[0].run()  # None reply -> the profile stays unresolved
+    assert ctrl.state.metric_profile is None
 
 
 def test_second_settle_over_the_same_folder_is_a_noop(monkeypatch, fake_workers) -> None:
@@ -367,7 +366,7 @@ def test_selector_fault_keeps_the_heuristic_and_stays_retryable(
     ctrl.refresh_metric_profile()
     ctrl._run_profile_select_on_settle()
     ctrl.launched[0].run()  # error signal
-    assert ctrl.state.metric_profile.source == "heuristic"
+    assert ctrl.state.metric_profile is None, "a fault must not leave camera axes"
     # A fault passes ok=False, so the same fingerprint stays retryable.
     ctrl._run_profile_select_on_settle()
     assert len(ctrl.launched) == 2
@@ -398,10 +397,11 @@ def test_fewer_than_two_items_launches_no_worker(monkeypatch, fake_workers) -> N
     ctrl.refresh_metric_profile()
     ctrl._run_profile_select_on_settle()
     assert ctrl.launched == []
-    assert ctrl.state.metric_profile.source == "heuristic"
+    # Owner rule 2026-10-26: the AI backend derives NO local offer at all.
+    assert ctrl.state.metric_profile is None
 
 
-def test_launch_failure_keeps_the_heuristic_and_stays_retryable(
+def test_launch_failure_keeps_no_local_axes_and_stays_retryable(
     monkeypatch, fake_workers
 ) -> None:
     a, b = _item("a.png", ssim=0.9), _item("b.png", ssim=0.4)
@@ -416,7 +416,7 @@ def test_launch_failure_keeps_the_heuristic_and_stays_retryable(
     monkeypatch.setattr(ctrl, "_pool_start", _boom)
     ctrl.refresh_metric_profile()
     ctrl._run_profile_select_on_settle()  # must not raise
-    assert ctrl.state.metric_profile.source == "heuristic"
+    assert ctrl.state.metric_profile is None, "no local axes to fall back to"
     # The gate is released ok=False, so a later kick retries the same folder.
     relaunched: list = []
     monkeypatch.setattr(ctrl, "_pool_start", lambda w, p: relaunched.append(w))
@@ -438,7 +438,7 @@ def test_missing_or_raising_selector_indirection_is_a_noop(
     ctrl.refresh_metric_profile()
     ctrl._run_profile_select_on_settle()
     assert ctrl.launched == []
-    assert ctrl.state.metric_profile.source == "heuristic"
+    assert ctrl.state.metric_profile is None
 
 
 def test_instance_level_selector_override_is_used(monkeypatch, fake_workers) -> None:
