@@ -47,7 +47,7 @@ def _tps(size: tuple[int, int], tmp_path, color=(90, 90, 90)) -> TiledPixelStore
     return TiledPixelStore.from_pil(Image.new("RGB", size, color), tmp_dir=str(tmp_path))
 
 
-def _store(tmp_path, *, both_unified: bool = True):
+def _store(tmp_path, *, both_unified: bool = True, with_pixel_cache: bool = True):
     """Store stand: image_state holds the UNIFIED pair (as after unify_pair),
     the pipeline cache still holds each side's ORIGINAL pixel tier by path."""
     left_unified = _tps(LEFT, tmp_path, (200, 40, 40))
@@ -60,10 +60,14 @@ def _store(tmp_path, *, both_unified: bool = True):
     paths = ("/gallery/left_big.png", "/gallery/right_small.png")
     document = SimpleNamespace(image1_path=paths[0], image2_path=paths[1])
     pipeline = SimpleNamespace(
-        pixel={
-            _pixel_key(paths[0], None, None): left_original,
-            _pixel_key(paths[1], None, None): right_original,
-        },
+        pixel=(
+            {
+                _pixel_key(paths[0], None, None): left_original,
+                _pixel_key(paths[1], None, None): right_original,
+            }
+            if with_pixel_cache
+            else {}
+        ),
         preview={},
         unify={},
     )
@@ -85,19 +89,6 @@ def _store(tmp_path, *, both_unified: bool = True):
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "KNOWN GAP (measured live 2026-10-26, IMGSLI_TILE_DUMP=1): the"
-        " presentation resolves the side's own pixel tier correctly, but the"
-        " tile grid the loupe samples is still registered at the UNIFIED canvas"
-        " size (source_1 = 2816x2304 for a 768x576 image), so the loupe magnifies"
-        " an upscaled copy. Second seam, above this one: whoever registers/"
-        " rekeys the source_* grid in the residency path (realize_tile_plan /"
-        " _stash.rekey_or_restore / resolve_lod_texture_keys) must key it per"
-        " side. Remove this xfail when that lands."
-    ),
-)
 def test_source_role_is_the_side_own_pixels_not_the_unified_canvas(tmp_path):
     store, parts = _store(tmp_path)
     presentation = build_live_store_presentation(store)
@@ -117,3 +108,21 @@ def test_display_role_keeps_the_unified_pick(tmp_path):
     presentation = build_live_store_presentation(store)
     assert presentation.display_image2 is not None
     assert tuple(getattr(presentation.display_image2, "size", ())) == LEFT
+
+
+def test_source_role_image_prefers_own_pixels_and_ignores_previews(tmp_path):
+    """The resolver the plan default and the presentation share.
+
+    ``build_canvas_plan`` cannot be unit-called (it builds the whole live scene
+    graph); its default is one call into this resolver, so the resolver IS the
+    contract — the integration half is checked live: with the fix,
+    ``realize.size`` reports ``src_w=768`` for ``source_1`` (was 2816) and
+    ``magnifier.grid_dims`` reports 768x576.
+    """
+    from tabs.image_compare.canvas.presentation.source_tier import source_role_image
+
+    store, parts = _store(tmp_path)
+    assert source_role_image(store, 2, parts["right_unified"]) is parts["right_original"]
+    # no cache entry -> the display image is the honest fallback
+    empty, _ = _store(tmp_path, with_pixel_cache=False)
+    assert source_role_image(empty, 2, parts["right_unified"]) is parts["right_unified"]
