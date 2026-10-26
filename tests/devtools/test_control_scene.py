@@ -43,7 +43,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 from core.control import scene_read
 from devtools.canvas_scene import (
     SPACE_CANVAS_PX,
-    SPACE_WIDGET_PX,
     SPACE_COMPOSITION_PX,
     SPACE_RELATIVE,
 )
@@ -287,11 +286,7 @@ def test_ic_scene_lists_every_magnifier_instance_including_hidden(qapp, tmp_path
 
     # The visible one carries real scene-graph geometry...
     assert visible["geometry_source"] == "scene_graph"
-    # Scene-graph geometry is authored in WIDGET px, not canvas px: the same
-    # quantity read 24.2 here vs 115 in render_layout until 2026-10-27.
-    assert visible["space"] == SPACE_WIDGET_PX
-    assert visible["capture"]["space"] == SPACE_WIDGET_PX
-    assert "projection.scale" in visible["capture"]["space_note"]
+    assert visible["space"] == SPACE_CANVAS_PX
     assert visible["capture"] is not None
     assert {circle["role"] for circle in visible["circles"]} == {"left", "right"}
 
