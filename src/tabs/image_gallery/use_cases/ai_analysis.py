@@ -915,6 +915,20 @@ def _run_ai_for_visible(owner, *, cache_only: bool = False) -> None:
     live analysis belongs to the folder's settle / an explicit analyze, not to
     flipping a switch.
     """
+    # Owner rule 2026-10-26: no analysis while the axis set is PENDING. A pending
+    # profile carries no axes, so a payload built now asks the model nothing and
+    # the card comes back with no numbers — worse than waiting. The settle's
+    # profile stage releases this tail as soon as the judge answers.
+    try:
+        profile = getattr(getattr(owner, "state", None), "metric_profile", None)
+        if profile is not None and str(getattr(profile, "source", "")) == "pending":
+            _ai_debug(
+                "ai analysis withheld: the axis set is pending (the judge has not "
+                "answered yet)"
+            )
+            return
+    except Exception:
+        pass
     try:
         vis = getattr(owner.widget, "visible_paths", None)
         paths = vis() if callable(vis) else None
