@@ -378,10 +378,25 @@ def per_series_profile(
         offer = None
     seed_entries = tuple(getattr(seed, "axis_entries", ()) or ())
     seed_ids = tuple(getattr(seed, "axis_ids", ()) or ())
-    if offer is not None and str(getattr(offer, "source", "")) == PROFILE_SOURCE_SERIES:
+    judge_seed = str(getattr(seed, "source", "")) == PROFILE_SOURCE_VLM
+    if judge_seed:
+        # A JUDGE seed OWNS the axis set: its registry half is exactly what it
+        # carries (usually nothing — the model named free-form axes), narrowed to
+        # the ids that actually move inside this series. Taking the series OFFER
+        # here re-inserted the camera registry set into an AI-mode run (owner
+        # report 2026-10-26: "снова везде метрики старые от камеры"), and those
+        # axes were then painted from the local detectors.
+        if offer is not None and str(getattr(offer, "source", "")) == PROFILE_SOURCE_SERIES:
+            allowed = set(offer.axis_ids)
+            axis_ids = tuple(a for a in seed_ids if a in allowed)
+        else:
+            axis_ids = seed_ids
+        salient = ()
+        source = PROFILE_SOURCE_VLM
+    elif offer is not None and str(getattr(offer, "source", "")) == PROFILE_SOURCE_SERIES:
         axis_ids = tuple(offer.axis_ids)
         salient = tuple(offer.salient_axes)
-        source = PROFILE_SOURCE_VLM if seed_entries else str(offer.source)
+        source = str(offer.source)
     else:
         # Nothing separates this series locally: the folder answer is the seed.
         axis_ids = seed_ids or (tuple(offer.axis_ids) if offer is not None else ())
