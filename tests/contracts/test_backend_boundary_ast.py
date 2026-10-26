@@ -87,25 +87,17 @@ _CORE_ALLOWED_BACKEND_MODULES: tuple[str, ...] = (
 #: * an entry whose imports are gone must be PRUNED (a stale entry fails), and
 #:   the ceiling :data:`_MAX_ALLOWLISTED_CORE_MODULES` may only be lowered.
 #:
-#: ``services/series_priority.py`` is the A3 decision that the cross-series
-#: attention payload carries the JUDGE's own aggregate: ``series_priority``
-#: aggregates ``backends.ai.measure.series_quality`` so a detector number can
-#: never travel into an AI-endpoint payload (``ANALYSIS_BACKENDS.md`` §5, "the
-#: cross-series priority payload is the judge's own number"). It is a core
-#: module reading one function of one concrete backend — the seam a future wave
-#: can shrink by asking ``composition.backend("ai")`` for a declared call.
-CORE_CONCRETE_BACKEND_IMPORTS: dict[str, tuple[tuple[str, ...], str]] = {
-    "services/series_priority.py": (
-        (f"{_BACKENDS}.ai.measure",),
-        "the cross-series priority payload is the judge's OWN per-item aggregate "
-        "(ADR 009 A3 / ANALYSIS_BACKENDS.md §5) — the local fusion aggregate must "
-        "not travel into an AI-endpoint payload",
-    ),
-}
+#: **EMPTY, and it stays empty.** A core module that needs a backend's OWN number
+#: asks the adapter through ``backends.composition.backend(id)`` — the seam
+#: exists for exactly that (``AIBackend.series_quality`` is the declared call the
+#: cross-series payload uses, ADR 009 §2 as amended). Re-adding an entry means
+#: the core went around the composition seam; raise it with the owner, never to
+#: make a new import pass.
+CORE_CONCRETE_BACKEND_IMPORTS: dict[str, tuple[tuple[str, ...], str]] = {}
 
 #: Hard ceiling on the allowlist above. Lower it when you prune an entry; raise
 #: it only with an ADR amendment, never to make a new import pass.
-_MAX_ALLOWLISTED_CORE_MODULES = 1
+_MAX_ALLOWLISTED_CORE_MODULES = 0
 
 #: AI-only surface the Algorithms package must not touch: every entry spends (or
 #: is fed by) a model call, which is the other backend's instrument.

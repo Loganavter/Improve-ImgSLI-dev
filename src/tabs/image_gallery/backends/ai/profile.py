@@ -330,6 +330,19 @@ class AIBackend:
         """The live work generation (advanced by every :meth:`reset`)."""
         return int(self._generation)
 
+    def series_quality(self, item, *, profile) -> float | None:
+        """One member's judge-only quality — the cross-series payload's number.
+
+        Declared on the adapter so the core asks for it through
+        ``backends.composition.backend("ai")`` instead of importing
+        ``backends.ai.measure`` directly (ADR 009 §2 as amended). The import is
+        lazy: ``measure`` pulls the quality read, which must not be imported
+        while this package is still initialising.
+        """
+        from .measure import series_quality as _member_quality
+
+        return _member_quality(item, profile=profile)
+
     def lease(self) -> WorkGeneration:
         """The lease a worker snapshots when it starts working for this backend."""
         return WorkGeneration(

@@ -116,17 +116,22 @@ def _signal_entry(alias: str, members: list, *, profile) -> dict:
     """Aggregate the AI backend's own measured signals for one series.
 
     One number per member: the judge's mean over *profile*'s axes
-    (``backends.ai.measure.series_quality``). No paths, no images — and no
+    (``AIBackend.series_quality``). No paths, no images — and no
     LOCAL aggregate: ``rank_fusion.item_quality(mode=…)`` without a profile is
     the Algorithms fusion's number and must never enter this payload (ADR 009
     A3). ``NoProfileYet`` when *profile* carries no axis (the caller reports
     :data:`PRIORITY_REASON_NO_PROFILE` before spending).
     """
-    from tabs.image_gallery.backends.ai.measure import series_quality
+    from tabs.image_gallery.backends.composition import backend as _gallery_backend
+    from tabs.image_gallery.services.metric_profile import DOMAIN_AI
+
+    ai_backend = _gallery_backend(DOMAIN_AI)
 
     quals = [
         quality
-        for quality in (series_quality(m, profile=profile) for m in members)
+        for quality in (
+            ai_backend.series_quality(m, profile=profile) for m in members
+        )
         if quality is not None
     ]
     entry: dict[str, Any] = {"alias": alias, "members": len(members)}
