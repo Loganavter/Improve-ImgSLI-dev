@@ -244,7 +244,10 @@ def test_mode_and_source_are_normalized():
     assert MetricProfile(source="VLM").source == "vlm"
     for bad in ("", "telepathy", None, 3):
         assert MetricProfile(source=bad).source == "heuristic"
-    assert set(PROFILE_SOURCES) == {"series", "vlm", "heuristic"}
+    # ``pending`` is the AI backend's explicit EMPTY state (owner rule 2026-10-26):
+    # an absent profile is what used to fall back to the mode mapping everywhere.
+    assert set(PROFILE_SOURCES) == {"series", "vlm", "pending", "heuristic"}
+    assert MetricProfile(source="pending").source == "pending"
 
 
 def test_salient_axes_are_a_subset_of_axis_ids_in_registry_order():

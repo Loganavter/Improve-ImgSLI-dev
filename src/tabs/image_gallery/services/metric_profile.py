@@ -96,9 +96,13 @@ MODES: tuple[str, ...] = ("fidelity", "camera", "batch_synthetic")
 PROFILE_SOURCE_SERIES = "series"
 PROFILE_SOURCE_VLM = "vlm"
 PROFILE_SOURCE_FALLBACK = "heuristic"
+#: The AI backend's axis set is not resolved yet: an explicit EMPTY profile, so
+#: no consumer can fall back to the mode mapping (owner rule 2026-10-26).
+PROFILE_SOURCE_PENDING = "pending"
 PROFILE_SOURCES: tuple[str, ...] = (
     PROFILE_SOURCE_SERIES,
     PROFILE_SOURCE_VLM,
+    PROFILE_SOURCE_PENDING,
     PROFILE_SOURCE_FALLBACK,
 )
 
@@ -395,6 +399,8 @@ def profile_source_label(profile) -> str:
         source = str(getattr(profile, "source", "") or "").strip().lower()
     except Exception:
         source = ""
+    if source == PROFILE_SOURCE_PENDING:
+        return "judge-pending (no axes yet)"
     if source == PROFILE_SOURCE_VLM:
         return "judge-vlm"
     if source == PROFILE_SOURCE_SERIES:

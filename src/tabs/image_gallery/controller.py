@@ -704,14 +704,27 @@ class GalleryController:
                         pass
                     return previous
                 try:
-                    self.state.metric_profile = None
+                    from tabs.image_gallery.services.metric_profile import (
+                        MetricProfile as _MP,
+                        PROFILE_SOURCE_PENDING as _PENDING,
+                    )
+
+                    # NEVER "no profile": an absent profile is what fell back to the
+                    # mode mapping everywhere. An explicit EMPTY profile is the
+                    # pending state — no dots, no rows, no rank, and nothing local
+                    # to mistake for an answer (owner rule 2026-10-26).
+                    self.state.metric_profile = _MP(
+                        axis_ids=(),
+                        mode=str(getattr(self.state, "mode", "") or ""),
+                        source=_PENDING,
+                    )
                 except Exception:
-                    pass
+                    logger.debug("pending profile store failed", exc_info=True)
                 _ai_debug(
                     "profile pending: the AI backend takes its axes from the judge — "
                     "no local offer is derived"
                 )
-                return None
+                return getattr(self.state, "metric_profile", None)
             profile = derive_for_state(self.state)
             try:
                 previous = getattr(self.state, "metric_profile", None)
