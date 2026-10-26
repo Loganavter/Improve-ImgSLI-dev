@@ -47,6 +47,15 @@ class _Owner:
         )
         self._last_analysis_fingerprint: object = ("stale",)
         self.cleared = 0
+        self._profile_consumed_gen = 3
+        self._profile_settle_pending_gen = 3
+        self.gate_invalidations = 0
+
+        class _Gate:
+            def invalidate(self_inner) -> None:
+                self.gate_invalidations += 1
+
+        self._stage_gate = _Gate()
 
     def clear_metric_profile(self) -> None:
         self.cleared += 1
@@ -297,3 +306,28 @@ def test_menu_entry_and_registry_descriptor(monkeypatch) -> None:
     assert desc.topic == "cache"
     assert desc.help_page == "workspace.image_gallery.triage"
     desc.run()  # ctrl is None -> guarded no-op, never raises
+
+
+def test_a_reset_reopens_the_profile_stage(tmp_path, caches) -> None:
+    """Measured live 2026-10-26 07:21: the judge's 4 axes were dropped and never
+    re-asked.
+
+    Sequence: the selector answered (4 free axes) → a metrics reset cleared the
+    profile → the stage gate still held ``(PROFILE_STAGE, gen, fingerprint)`` as
+    done, so the settle's profile stage skipped and the rebuild analysed the
+    folder on the heuristic-camera set. Red-before: nothing re-opened the gate.
+    """
+    from tabs.image_gallery.use_cases import cache_reset
+
+    img = tmp_path / "a.jpg"
+    img.write_bytes(b"\x00")
+    owner = _Owner([GalleryItem(path=img, mtime_ns=1)])
+
+    summary = cache_reset.reset_metrics_caches(owner)
+
+    assert summary["requeued"] is False
+    assert owner.gate_invalidations == 1, (
+        "the profile stage must be re-openable or the judge is never asked again"
+    )
+    assert owner._profile_consumed_gen is None
+    assert owner._profile_settle_pending_gen is None

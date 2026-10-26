@@ -332,6 +332,19 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
         owner._last_analysis_fingerprint = None
     except Exception:
         logger.debug("metrics reset: fingerprint clear failed", exc_info=True)
+    # The stage gate is what actually kept the selector silent (measured live
+    # 2026-10-26 07:21: after the judge answered with 4 free axes, a reset dropped
+    # the profile, the gate still held `(PROFILE_STAGE, gen, fingerprint)` as done,
+    # and the rebuild analysed the folder on the heuristic-camera set without ever
+    # asking again). Clearing the consumed marker alone is not enough: the gate
+    # must be re-opened too, so the settle's profile stage runs and re-applies the
+    # judge's (pinned) answer before any analysis is built.
+    try:
+        gate = getattr(owner, "_stage_gate", None)
+        if gate is not None and callable(getattr(gate, "invalidate", None)):
+            gate.invalidate()
+    except Exception:
+        logger.debug("metrics reset: stage gate invalidate failed", exc_info=True)
 
     # Visible reset LAST: the profile is already dropped, so the refreshed
     # dots use the fresh (mode-derived) axis set, and the cards show the
