@@ -281,7 +281,8 @@ def read_axes(
     for axis in requested:
         value = values.get(axis)
         if value is None:
-            # A gap carries no producer, so its token is the "who CAN" answer.
+            # No measured value means no producer to attribute: keep the
+            # "who CAN" answer for the axis in this profile.
             records.append(
                 AxisValue(
                     axis=axis,

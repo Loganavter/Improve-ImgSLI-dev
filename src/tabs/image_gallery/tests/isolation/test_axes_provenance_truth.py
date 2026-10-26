@@ -48,6 +48,7 @@ Falsification story (all three were RED at ``583e499ff`` — see ``DONE.md``):
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -287,3 +288,61 @@ def test_a_local_profile_still_reads_the_detectors():
     assert profile_axis_numbers(item, mode="camera", profile=local_profile) == {
         "sharpness": 55.0
     }
+
+
+# -- the production door: the pairwise refinement -----------------------------
+
+
+class _NoProfileOwner:
+    """The AI-domain owner with an EMPTY AI slot and a near-tie local series.
+
+    This is the live shape the recon measured (``ai_analysis.py`` pairwise
+    block): the domain says AI, the state has no judge profile, and the members
+    still carry detector numbers a profile-free pass could compare.
+    """
+
+    _judgment_domain = "ai"
+    _folder_gen = 0
+    _domain_epoch = 0
+    _AI_VISIBLE_CAP = 4
+
+    def __init__(self, items) -> None:
+        settings = SimpleNamespace(
+            enabled=True,
+            api_key="k",
+            model="model-x",
+            base_url="http://provider.invalid",
+            pairwise_enabled=True,
+            pairwise_top_n=2,
+            pairwise_near_tie_threshold=10.0,
+            judge_run_call_ceiling=0,
+        )
+        series = SimpleNamespace(id="s0", members=list(items))
+        self.state = SimpleNamespace(
+            mode="camera", ai_profile=None, items=list(items), series=[series]
+        )
+        self._ai_settings_store = SimpleNamespace(load=lambda: settings)
+        self.launched: list = []
+        self._pool_start = lambda worker, priority: self.launched.append(worker)
+        self._tracked = lambda fn: fn
+
+
+def test_the_pairwise_pass_is_not_scheduled_without_an_ai_profile():
+    """The AI refinement never compares detector numbers (the no-profile door)."""
+    from tabs.image_gallery.use_cases import ai_analysis
+
+    # Raw 320/300 -> 80/75: a near-tie the DETECTOR could compare, so a
+    # profile-free pass would have spent judge calls on local numbers.
+    items = [
+        _item("a.png", sharpness=320.0),
+        _item("b.png", sharpness=300.0),
+    ]
+    owner = _NoProfileOwner(items)
+
+    scheduled = ai_analysis.start_pairwise_refinement(owner, judge=lambda a, b: None)
+
+    assert scheduled is False
+    assert owner.launched == [], (
+        "the pairwise pass was scheduled without an AI profile — it would have "
+        "ranked the judge's work on the local mode axes"
+    )
