@@ -10,8 +10,7 @@ registry (``spec_for`` / ``raw_for`` / ``score_for``); it never re-derives
 thresholds and never fabricates a value for a missing axis. When an item
 carries engine records (``item.analysis_records``, engine-on only — the
 default since P9a), those already-scored 0–100 values are the answer and the
-registry is consulted only on the legacy branch (``_record_scores``); the
-judge's records in the same tuple are filtered out (``_records_of``).
+registry is consulted only on the legacy branch (``_record_scores``).
 
 Which axes are "applicable" is NOT decided here: it is the **metric profile**
 (``services/metric_profile``) — the mode base plus the salience-derived subset
@@ -19,17 +18,15 @@ that ``use_cases/profile_select`` stores on the state (plan P1). This module
 delegates (``measured_axes_for``) so ranking, the AI scorecard, the card dots
 and the Jev vector read ONE axis set.
 
-**Two backends, one axis list** (owner invariant I1, backend isolation
-2026-10-26): a profile still carries registry ids AND the axes the judge named in
-free form, and ``measured_axes_for`` still returns both — but the Algorithms
-aggregate reads the LOCAL instrument ONLY. A judge-named axis has no local
-producer, so in ``rank_series``/``item_quality`` it is simply ABSENT: never read
-from the scorecard (``item.analysis``), never fabricated, and the gap stays
-visible. The scorecard's numbers rank the AI domain, not this order. For the same
-reason ``_records_of`` drops a record whose producer is the judge
-(``read.AI_PRODUCER``): a foreign record is omitted, never converted, so a VLM
-engine run cannot move an Algorithms rank. There is no reconciliation with the
-registry and no fabricated id.
+**Two instruments, one axis list** (owner design, 2026-10-26
+``task-profile-granularity-and-axis-reporting``): a profile carries registry ids
+AND the axes the judge named in free form. Both are first-class and both rank —
+a judge-named axis has no local producer, so its number comes from the scorecard
+(``_judge_scores``) and its spread is compared against the STOCHASTIC noise floor
+(``AXIS_NOISE_FLOOR``), while a registry axis keeps its LOCAL number
+(``_record_scores`` / ``metrics``) and the detector floor. There is no
+reconciliation with the registry and no fabricated id: an axis whose value is a
+gap stays out of the weights (never 0) and the gap stays visible.
 
 Design rules (see ``plan-gallery-rank-backends-2026-10-15`` §Seam):
 
@@ -46,22 +43,21 @@ Design rules (see ``plan-gallery-rank-backends-2026-10-15`` §Seam):
   only on axes that *separate* it. ``axis_salience`` measures each axis' spread
   across the series' vectors and marks it ``inside-noise`` when the spread sits
   within the producing instrument's own noise floor (``DETECTOR_NOISE_FLOOR`` for
-  the deterministic detectors this module aggregates; the Jev vector passes
-  ``AXIS_NOISE_FLOOR`` for a stochastic judge); such an axis carries no weight
-  here and no score in the Jev vector. One rule for both paths
-  (``_inside_noise_axes``), never a second axis list — the axis set still comes
-  from ``measured_axes_for``.
+  the deterministic detectors this module aggregates, ``AXIS_NOISE_FLOOR`` for a
+  stochastic judge); such an axis carries no weight here and no score in the Jev
+  vector. One rule for both paths (``_inside_noise_axes``), never a second axis
+  list — the axis set still comes from ``measured_axes_for``.
 - Deterministic: no timestamps, no dict-iteration order, no arrival order;
   ties break by ``str(item.path)``, idempotent under input permutation.
 
-Audit-Meta: pattern=compound-module size=exempt reason="one rank contract: the profile axis resolver (registry ids + the judge's own names), the one LOCAL record reader, the salience rule and the weighted fusion compute ONE order — splitting them lets the rank read a different axis set than the dots/prompt, which was exactly the 2026-10-26 defect (a profile of sharpness + three judged axes ranked on sharpness alone); the judge's numbers stay in the AI domain and never enter this aggregate (owner invariant I1)"
+Audit-Meta: pattern=compound-module size=exempt reason="one rank contract: the profile axis resolver (registry ids + the judge's own names), the two instrument readers (local detector / scorecard), the salience rule and the weighted fusion compute ONE order — splitting them lets the rank read a different axis set than the dots/prompt, which was exactly the 2026-10-26 defect (a profile of sharpness + three judged axes ranked on sharpness alone)"
 """
 
 from __future__ import annotations
 
-from tabs.image_gallery.analysis.read import AI_PRODUCER
 from tabs.image_gallery.services.metric_profile import (
     EXCLUDED_AXES,
+    judged_axis_entries,
     mode_id,
     profile_for_mode,
 )
@@ -73,10 +69,7 @@ from tabs.image_gallery.services.metric_scores import (
 
 #: Bump when the fusion semantics change (consumers may pin a cached rank).
 #: v1 = the plain mean of applicable measured axes; v2 adds the worst-axis cap;
-#: v3 drops the axes whose series spread is inside the detectors' noise floor.
-#: The backend-isolation change (the Algorithms rank is local-only, owner
-#: invariant I1) removes a foreign INPUT — judge records and the scorecard — but
-#: not the formula, so the version stays: mean → worst-axis cap → salience.
+#: v3 drops the axes whose series spread is inside the judge's noise floor.
 RANK_FUSION_VERSION = 3
 
 #: Axis ids that must NEVER contribute to a rank (grouping artefacts, not
@@ -143,12 +136,9 @@ def measured_axes_for(mode=None, *, profile=None) -> tuple[str, ...]:
     So this resolver returns ``profile.axis_ids`` (registry half, pool-filtered
     and ordered by ``metric_profile``) followed by the axes the judge NAMED
     (``profile.axis_entries``), de-duplicated, in profile order. A local detector
-    is OPTIONAL enrichment for a registry axis and never a gate: a judge-named
-    axis has no local producer by construction, so in the Algorithms aggregate
-    (``rank_series`` / ``item_quality``) it is simply a gap — omitted, never
-    filled from the scorecard (owner invariant I1, backend isolation). The axis
-    itself stays in the SET because the dots, the rows and the AI domain's Jev
-    vector are all about the same profile.
+    is OPTIONAL enrichment for a registry axis and never a gate — a judge-named
+    axis has no local producer by construction, and it still ranks
+    (:func:`_axis_vector` reads its number from the scorecard).
 
     ``profile`` (any object with ``.axis_ids`` / ``.axis_entries``, canonically
     ``metric_profile.MetricProfile``) wins when given. Without one — or with one
@@ -160,8 +150,7 @@ def measured_axes_for(mode=None, *, profile=None) -> tuple[str, ...]:
     The measured defect this closes (2026-10-26): the resolver used to return
     ``axis_ids`` only, so a profile of ``axes=sharpness`` +
     ``judged=contrast,color_saturation,grain`` ranked on sharpness ALONE while
-    three paid axes only labelled cards. That is fixed in the SET, not by feeding
-    the judge's numbers into the Algorithms aggregate.
+    three paid axes only labelled cards.
     """
     if profile is not None:
         out: list[str] = []
@@ -311,17 +300,73 @@ def _inside_noise_axes(verdicts) -> frozenset[str]:
     return frozenset(inside)
 
 
+def _judge_scores(item, axes) -> dict[str, float]:
+    """``{axis: 0..100}`` the JUDGE read for the judge-named axes of *axes*.
+
+    The second instrument (owner design 2026-10-26): a judge-named axis has no
+    local producer, so the scorecard IS its measurement — excluding it would rank
+    on the registry half alone while the paid axes only labelled cards. Only axes
+    with NO registry spec are read here: a registry axis keeps its LOCAL number
+    even when a scorecard also answered it (one axis, one instrument — mixing
+    them would make the Algorithms order silently depend on the VLM).
+    Numbers come from the item's scorecard (``models.ai_scored_axes`` over
+    ``analysis.axes``), with the per-image proposals as the fallback for a name
+    the ``axes`` map dropped. Never fabricates: a missing number stays a gap.
+    """
+    wanted = judge_axes_of(axes)
+    if not wanted:
+        return {}
+    try:
+        analysis = getattr(item, "analysis", None)
+    except Exception:
+        analysis = None
+    if analysis is None:
+        return {}
+    values: dict[str, int] = {}
+    try:
+        from tabs.image_gallery.models import ai_scored_axes
+
+        values = dict(ai_scored_axes(analysis))
+    except Exception:
+        values = {}
+    out: dict[str, float] = {}
+    for axis in wanted:
+        try:
+            if axis in values:
+                out[axis] = float(values[axis])
+        except (TypeError, ValueError):
+            continue
+    try:
+        proposals = tuple(getattr(analysis, "axis_proposals", ()) or ())
+    except Exception:
+        proposals = ()
+    for proposal in proposals:
+        try:
+            name = str(getattr(proposal, "name", "") or "")
+        except Exception:
+            continue
+        if not name or name not in wanted or name in out:
+            continue
+        try:
+            score = int(getattr(proposal, "score", -1))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= score <= 100:
+            out[name] = float(score)
+    return out
+
+
 def _axis_vector(item, axes) -> dict[str, float]:
-    """``{axis: 0..100}`` the item actually carries LOCALLY for *axes*.
+    """``{axis: 0..100}`` the item actually carries for *axes* (never fabricated).
 
     The item's engine record answers for the axes it covers (``status="ok"``,
     ``_record_scores``); when it covers none, the legacy raw ``item.metrics``
     path answers. Both are the LOCAL instrument, so only axes with a registry
     spec take part in them. The axioms the fusion needs (never a fabricated 0,
-    never a blended instrument) are unchanged, and a judge-named axis — which has
-    no local producer by construction — stays a gap here: the AI backend's
-    scorecard (``item.analysis``) is not this aggregate's input (owner invariant
-    I1), so it stays out of the vector and out of the weights.
+    never a blended instrument) are unchanged; the judge-named axes are added
+    from the scorecard when the local pass has nothing for them
+    (:func:`_judge_scores`) — an axis whose value is a gap stays out of the
+    vector, so it stays out of the weights.
     """
     vector: dict[str, float] = {}
     records = _record_scores(item)
@@ -341,37 +386,22 @@ def _axis_vector(item, axes) -> dict[str, float]:
                     continue
                 _key, raw = got
                 vector[axis_id] = float(score_for(spec, raw))
+    for axis_id, value in _judge_scores(item, axes).items():
+        if axis_id not in vector:
+            vector[axis_id] = float(value)
     return vector
 
 
 def _records_of(item) -> tuple:
-    """The item's LOCAL engine records (``()`` when it has none).
-
-    ``item.analysis_records`` carries every producer's answer, so this module
-    cannot treat the whole tuple as its own input: a record whose producer is the
-    JUDGE (``analysis.read.AI_PRODUCER``) belongs to the AI backend and is dropped
-    here — before BOTH readers — so it can neither contribute a number
-    (``_record_scores``) nor let a foreign record shadow/suppress a local one
-    (``_record_axes``, which the series spread and profile evidence read). A
-    foreign record is ignored, never converted (owner invariant I1).
-    """
+    """The item's engine records as a tuple (``()`` when it has none)."""
     try:
-        records = tuple(getattr(item, "analysis_records", ()) or ())
+        return tuple(getattr(item, "analysis_records", ()) or ())
     except Exception:
         return ()
-    return tuple(
-        record
-        for record in records
-        if str(getattr(record, "producer", "")) != AI_PRODUCER
-    )
 
 
 def _record_axes(item) -> frozenset[str]:
-    """Axis ids the item has a LOCAL record for, whatever its status (gap included).
-
-    ``analysis_records`` also carries the judge's records; ``_records_of`` drops
-    them first, so a foreign answer can never make an axis look "recorded and
-    empty" (which would suppress the local ``item.metrics`` value for that axis).
+    """Axis ids the item has a record for, whatever its status (``gap`` included).
 
     ``axis_spreads`` needs "a record exists and says no number" to be different
     from "no record at all": the first excludes the item from that axis' spread,
@@ -387,7 +417,7 @@ def _record_axes(item) -> frozenset[str]:
 
 
 def _record_scores(item) -> dict[str, float]:
-    """``{axis: 0..100 score}`` from the item's LOCAL engine records (``{}`` if none).
+    """``{axis: 0..100 score}`` from the item's engine records (``{}`` if none).
 
     Only ``status="ok"`` records contribute: a ``gap``/``error`` is "no number"
     (``AxisValue`` forbids a value there), and ``echo``/``stale`` are not an
@@ -397,14 +427,6 @@ def _record_scores(item) -> dict[str, float]:
     appends producers in plan order, so an earlier producer's answer must not be
     overwritten by a later one. Values are already scored by the producer, so no
     registry lookup happens here (``spec_for`` is legacy-only).
-
-    A record produced by the JUDGE (``analysis.read.AI_PRODUCER``) never reaches
-    this reader at all: ``_records_of`` drops it before the per-axis "first
-    record wins" bookkeeping, so it can neither contribute a number nor shadow
-    the local record for the same axis (owner invariant I1, backend isolation).
-    The producer id is the read path's own vocabulary (``analysis/read.py``
-    ``_engine_records_for_domain``: ``vlm`` answers the AI domain, every other
-    producer answers Algorithms) — a foreign record is ignored, never converted.
     """
     out: dict[str, float] = {}
     seen: set[str] = set()
@@ -439,13 +461,10 @@ def item_quality(item, *, mode=None, profile=None, excluded_axes=()) -> float | 
     Records win for the axes they cover and only for those: when at least one
     applicable axis has an ``ok`` record, the records are the answer and an axis
     without a record is *excluded* — never 0 and never the legacy raw value
-    (the engine ran and had nothing, which is a different fact). Only LOCAL
-    records count (``_record_scores`` drops the judge's producer): the AI
-    backend's scorecard is not an input here, so it cannot raise this number or
-    shadow a local record (owner invariant I1). An item whose records cover no
-    applicable axis falls back to the legacy raw path unchanged, so an item the
-    engine could not measure (producer failure, no records) keeps today's exact
-    numbers.
+    (the engine ran and had nothing, which is a different fact). An item whose
+    records cover no applicable axis falls back to the legacy raw path
+    unchanged, so an item the engine could not measure (producer failure, no records)
+    keeps today's exact numbers.
 
     ``excluded_axes`` is the series' salience verdict (``_inside_noise_axes``):
     those axes carry no weight because they cannot separate these variants.
@@ -489,11 +508,9 @@ def rank_series(items, *, mode=None, profile=None, pairwise_order=None) -> dict[
 
     ``profile`` (metric profile) selects the axes, so the rank can never
     disagree with the dots/prompt about which axes count. The axes whose spread
-    across THIS series is inside the DETECTORS' noise carry no weight
-    (``axis_salience`` + ``_inside_noise_axes`` with ``DETECTOR_NOISE_FLOOR``):
-    the callers get an order built only from what actually separates the variants.
-    There is no judge floor here because no judge-measured axis can enter a
-    local vector (owner invariant I1) — the whole vector is detector output.
+    across THIS series is inside the judge's noise carry no weight
+    (``axis_salience`` + ``_inside_noise_axes``): the callers get an order built
+    only from what actually separates the variants.
 
     ``pairwise_order`` (opt-in, ``use_cases/pairwise_rank``) is an explicit
     ordering of a SUBSET — the series' near-tie top set, derived from complete
@@ -509,6 +526,8 @@ def rank_series(items, *, mode=None, profile=None, pairwise_order=None) -> dict[
     verdicts = axis_salience(
         [_axis_vector(member, axes) for member in members],
         noise_floor=DETECTOR_NOISE_FLOOR,
+        judge_noise_floor=AXIS_NOISE_FLOOR,
+        judge_axes=judge_axes_of(axes),
     )
     excluded = _inside_noise_axes(verdicts)
     measured: list[tuple[float, str]] = []
