@@ -189,9 +189,15 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
         # answer yet) the axis check cannot be applied — the analysis does not
         # run at all in that state, and a conservative "any scorecard" hit here
         # would hand the UI numbers nobody asked for.
+        profile = getattr(ctx, "profile", None)
+        # STRICT only for the JUDGE's vocabulary: every axis it named must be
+        # answered, or the card has nothing to show. A registry/mode profile is
+        # allowed to be partial (a detector may legitimately not measure an axis),
+        # exactly as before.
         wanted_axes = (
-            scorecard_axis_ids(ctx.mode, profile=ctx.profile)
-            if getattr(ctx, "profile", None) is not None
+            scorecard_axis_ids(ctx.mode, profile=profile)
+            if profile is not None
+            and str(getattr(profile, "source", "")) == "vlm"
             else ()
         )
     except Exception:
