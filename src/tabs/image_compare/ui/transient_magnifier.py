@@ -10,38 +10,9 @@ from core.constants import AppConstants
 from sli_ui_toolkit.managers import DelayedActionTimer
 from tabs.image_compare.canvas.registry import registry
 from core.log_names import APP_LOGGER_NAME
+from tabs.image_compare.ui.focus_log import log_focus_event
 
 logger = logging.getLogger(APP_LOGGER_NAME)
-
-#: Focus-event logging throttle. FocusIn/FocusOut can burst at kHz — a closing
-#: window hands focus back and forth, and a popup can re-focus its anchor every
-#: frame — so an unconditional ``logger.debug`` per event becomes a wall of
-#: identical lines (owner report 2026-10-26: thousands of
-#: ``[magnifier-visibility] btn_magnifier event=9 reason=MouseFocusReason`` at
-#: ~1 ms apart). One line per (kind, reason) is enough to diagnose the state;
-#: the throttle re-arms after a quiet gap so a later burst is still visible.
-_FOCUS_LOG_SIG: tuple | None = None
-_FOCUS_LOG_TS: float = 0.0
-_FOCUS_LOG_MIN_INTERVAL_S = 3.0
-
-
-def _log_focus_event(event) -> None:
-    """Throttled focus logging (see ``_FOCUS_LOG_MIN_INTERVAL_S``)."""
-    global _FOCUS_LOG_SIG, _FOCUS_LOG_TS
-    try:
-        reason = getattr(event, "reason", lambda: None)()
-    except Exception:
-        reason = None
-    sig = (event.type(), reason)
-    now = time.monotonic()
-    if sig == _FOCUS_LOG_SIG and (now - _FOCUS_LOG_TS) < _FOCUS_LOG_MIN_INTERVAL_S:
-        return
-    _FOCUS_LOG_SIG, _FOCUS_LOG_TS = sig, now
-    logger.debug(
-        "[magnifier-visibility] btn_magnifier event=%s reason=%s", *sig
-    )
-
-
 
 def _query_overlay(store, capability_id: str, default=None):
     command = registry().get_feature_command_by_alias(capability_id)
@@ -404,7 +375,7 @@ class MagnifierVisibilityController:
             return False
         if watched is btn:
             if event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
-                _log_focus_event(event)
+                log_focus_event(logger, event, "[magnifier-visibility] btn_magnifier")
             return self._handle_button_event(event)
         if watched is self.widget.magnifier_visibility_flyout:
             return self._handle_flyout_event(event)
