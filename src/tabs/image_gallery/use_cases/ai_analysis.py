@@ -287,6 +287,36 @@ def domain_epoch(owner) -> int:
         return 0
 
 
+def analysis_epoch(owner) -> int:
+    """The owner's measured-metrics epoch (the RESET's cancellation token).
+
+    ``owner._analysis_epoch`` advances on every ``cache_reset.clear_metrics_caches``
+    — a reset is a hard barrier: a result produced before it must not land after
+    it (memory, disk, card). ``_domain_epoch`` covers the judgment-backed work
+    (AI / Jev / profile); Stage-2 proxy chunks, triage and the per-stage metric
+    producers have no domain, so they snapshot THIS token in their worker
+    closure and compare it at landing. Created lazily (``getattr`` default) so
+    the many owner doubles keep working.
+    """
+    try:
+        return int(getattr(owner, "_analysis_epoch", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _analysis_epoch_is_current(owner, epoch: int | None) -> bool:
+    """True when *epoch* still describes the live measured-metrics pass.
+
+    ``epoch=None`` is an unversioned caller (a direct call in a legacy test or
+    a double that never owned the ledger): treated as current, the same rule
+    ``_epoch_is_current`` applies to its own ``epoch=None``. This is the ONE
+    place the reset barrier is decided for non-domain work.
+    """
+    if epoch is None:
+        return True
+    return analysis_epoch(owner) == int(epoch)
+
+
 def _epoch_is_current(owner, epoch: int | None, *, domain: str | None = "ai") -> bool:
     """True when *epoch* still describes the live judgment domain.
 

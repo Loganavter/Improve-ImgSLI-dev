@@ -35,9 +35,18 @@ show_rank=False)``) and refreshes the bound cards through the live view
 the items are already empty (the painted view is not derived from the items
 at paint time, it is stamped at build/update time).
 
-``reset_metrics_caches`` then re-enters the rebuild
-(``_start_triage(..., cover_grid=False)``) so the pipeline actually recomputes
-instead of repainting the already-measured view.
+``reset_metrics_caches`` (the user-facing action) then stops. OWNER DECISION
+2026-10-22: the reset ZEROES, it does not re-run (see that function).
+
+**The reset is a HARD BARRIER** (owner decision 2026-10-26): the clear advances
+two current-work tokens *before* it touches anything — ``_domain_epoch`` (the
+judgment-domain token: AI / Jev / profile / series-priority / pairwise) and
+``_analysis_epoch`` (the measured-metrics token: Stage-2 proxy, triage, the
+per-stage producers). Every such worker snapshots its token at start and drops
+its delivery when the token moved, so a result produced before the reset cannot
+land afterwards in memory, on disk (``save_analysis`` / ``local_metrics.persist``)
+or on a card. The in-flight ledgers (batch, phase markers, stage gate, judge
+run, AI queue) are retired in the same step — see ``_clear_delivery_ledgers``.
 
 EVERY measurement cache is dropped, INCLUDING the Jev rank pins and the
 tie-break briefs (``services.jev_cache`` / ``services.vlm_cache``) on disk and
@@ -102,6 +111,91 @@ def _path_key(item) -> str:
         return str(getattr(item, "path", ""))
     except Exception:
         return ""
+
+
+def _bump_delivery_epochs(owner) -> None:
+    """FIRST action of a reset: advance BOTH current-work tokens.
+
+    Owner decision 2026-10-26: the reset is a HARD BARRIER — after
+    ``clear_metrics_caches`` returns, no result of a pre-reset run may land in
+    memory, on disk or on a card. Two tokens cover every producer:
+
+    * ``_domain_epoch`` — the judgment-domain token
+      (``ai_analysis._epoch_is_current``): AI scorecards, Jev ranks, the metric
+      profile selector, the series-priority hint and pairwise refinement;
+    * ``_analysis_epoch`` — the measured-metrics token for work that has no
+      judgment domain: the Stage-2 proxy pass, triage and the per-stage
+      producers (``proxy_pass`` / ``metrics_stage2`` / ``triage_run``).
+
+    Each worker closure snapshots its token when it starts and compares it at
+    landing; the ``getattr`` defaults keep bare owner doubles working.
+    """
+    try:
+        owner._domain_epoch = int(getattr(owner, "_domain_epoch", 0) or 0) + 1
+    except Exception:
+        logger.debug("metrics reset: domain epoch bump failed", exc_info=True)
+    try:
+        owner._analysis_epoch = int(getattr(owner, "_analysis_epoch", 0) or 0) + 1
+    except Exception:
+        logger.debug("metrics reset: analysis epoch bump failed", exc_info=True)
+
+
+def _clear_delivery_ledgers(owner) -> None:
+    """Retire every ledger that still describes the pre-reset world.
+
+    The same shape as the folder-generation rollover
+    (``controller._next_folder_gen``): the winner marker, the analysis-phase
+    markers, the stage gate and the judge run all belong to the pass that just
+    ended, so a later settle must not read them as facts about the now-empty
+    world. Plus the AI queue ledgers — a paused queue or a parked 429 card
+    would re-run pre-reset work straight through the barrier. Never raises.
+    """
+    try:
+        from tabs.image_gallery.use_cases import analysis_batch as _analysis_batch
+
+        _analysis_batch.reset(owner)
+    except Exception:
+        logger.debug("metrics reset: analysis batch reset failed", exc_info=True)
+    try:
+        owner._metrics_settled_gen = -1
+        owner._jev_inflight_gen = -1
+        owner._ai_tail_started_gen = -1
+        owner._done_held_gen = -1
+    except Exception:
+        logger.debug("metrics reset: analysis phase ledger clear failed", exc_info=True)
+    try:
+        gate = getattr(owner, "_stage_gate", None)
+        if gate is not None:
+            gate.invalidate()
+    except Exception:
+        logger.debug("metrics reset: stage gate invalidate failed", exc_info=True)
+    try:
+        owner._judge_run = None
+        from tabs.image_gallery.controller import _refresh_continue_action
+
+        _refresh_continue_action(owner)
+    except Exception:
+        logger.debug("metrics reset: judge run ledger clear failed", exc_info=True)
+    try:
+        owner._ai_queue_retry = []
+        owner._ai_queue_attempts = {}
+    except Exception:
+        logger.debug("metrics reset: AI retry ledger clear failed", exc_info=True)
+    # A paused queue owns a ``threading.Event`` its in-flight workers are BLOCKED
+    # in. Release it so they reach the send gate and are dropped there on the
+    # bumped epoch, instead of parking until the pause deadline. Deliberately
+    # NOT ``scheduler.resume_ai_queue``: that re-dispatches the parked cards —
+    # exactly the pre-reset work the barrier must not restart.
+    try:
+        pause = getattr(owner, "_ai_queue_pause", None)
+        if pause is not None:
+            try:
+                pause.event.set()
+            except Exception:
+                pass
+            owner._ai_queue_pause = None
+    except Exception:
+        logger.debug("metrics reset: AI queue pause clear failed", exc_info=True)
 
 
 def _clear_item(item) -> None:
@@ -268,8 +362,19 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
     marker is re-stamped too — and the bound cards are re-stamped unranked and
     repainted BEFORE this returns; a reset must look reset immediately, not
     after the async pass repaints.
+
+    A HARD BARRIER: the first action advances both current-work tokens and
+    retires the in-flight ledgers (:func:`_bump_delivery_epochs` /
+    :func:`_clear_delivery_ledgers`), so no pre-reset delivery can land after
+    this returns.
     """
     summary = {"items": 0, "ai_files": 0, "profiles": 0, "jev_files": 0, "vlm_files": 0}
+    # HARD BARRIER (owner decision 2026-10-26), BEFORE any clear: advance the
+    # two current-work tokens and retire the in-flight ledgers. A delivery that
+    # races the clear is stale from this line on, and the ledgers it would
+    # consult (settled/phase/stage/judge/queue) no longer describe this world.
+    _bump_delivery_epochs(owner)
+    _clear_delivery_ledgers(owner)
     items = _items_of(owner)
     if paths is None:
         targets = items

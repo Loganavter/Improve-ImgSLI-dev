@@ -322,6 +322,14 @@ class GalleryController:
         #: changes (``_set_judgment_domain``); read by
         #: ``use_cases/ai_analysis.domain_epoch`` / ``_epoch_is_current``.
         self._domain_epoch = 0
+        #: Monotonic epoch of the MEASURED-METRICS world (owner decision
+        #: 2026-10-26): ``cache_reset.clear_metrics_caches`` bumps it as its first
+        #: action, so a reset is a hard barrier — Stage-2 proxy chunks, triage and
+        #: the per-stage producers snapshot it at start and drop their delivery
+        #: when it moved (they have no judgment domain, so ``_domain_epoch``
+        #: cannot cover them). Read by
+        #: ``use_cases.ai_analysis.analysis_epoch`` / ``_analysis_epoch_is_current``.
+        self._analysis_epoch = 0
         #: Folder generation whose AI calls were built under the current
         #: profile (P5). A profile is a REQUEST IDENTITY (the analysis cache
         #: keys a scorecard on it), so a replacement after the first call of
@@ -3424,10 +3432,10 @@ class GalleryController:
 
         return _metrics_stage2._start_artifact_analysis(self, items, source_path)
 
-    def _on_artifacts_ready(self, result: object, gen: int | None = None) -> None:
+    def _on_artifacts_ready(self, result: object, gen: int | None = None, *, aepoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import metrics_stage2 as _metrics_stage2
 
-        return _metrics_stage2._on_artifacts_ready(self, result, gen)
+        return _metrics_stage2._on_artifacts_ready(self, result, gen, aepoch=aepoch)
 
     def _apply_artifact_map(self, result: dict, maps: dict | None = None) -> None:
         from tabs.image_gallery.use_cases import metrics_stage2 as _metrics_stage2
@@ -3446,10 +3454,10 @@ class GalleryController:
 
         return _metrics_stage2._start_fidelity_analysis(self, items, source_path)
 
-    def _on_fidelity_ready(self, result: object, gen: int | None = None) -> None:
+    def _on_fidelity_ready(self, result: object, gen: int | None = None, *, aepoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import metrics_stage2 as _metrics_stage2
 
-        return _metrics_stage2._on_fidelity_ready(self, result, gen)
+        return _metrics_stage2._on_fidelity_ready(self, result, gen, aepoch=aepoch)
 
     def _apply_fidelity_map(self, result: dict) -> None:
         from tabs.image_gallery.use_cases import metrics_stage2 as _metrics_stage2
@@ -3466,10 +3474,10 @@ class GalleryController:
 
         return _metrics_stage2._refresh_changed_metrics(self, changed, tag)
 
-    def _on_camera_metrics_ready(self, result: object, gen: int | None = None) -> None:
+    def _on_camera_metrics_ready(self, result: object, gen: int | None = None, *, aepoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import metrics_stage2 as _metrics_stage2
 
-        return _metrics_stage2._on_camera_metrics_ready(self, result, gen)
+        return _metrics_stage2._on_camera_metrics_ready(self, result, gen, aepoch=aepoch)
 
     def _apply_camera_map(self, result: dict) -> None:
         from tabs.image_gallery.use_cases import metrics_stage2 as _metrics_stage2
@@ -3494,15 +3502,15 @@ class GalleryController:
 
         return _proxy_pass._start_proxy_analysis(self, items, source_path, mode, on_done=on_done)
 
-    def _on_proxy_batch_ready(self, result: object, gen: int | None, wanted: object = None, *, source=None, include_camera: bool | None = None, full_res_artifacts: bool = False) -> None:
+    def _on_proxy_batch_ready(self, result: object, gen: int | None, wanted: object = None, *, source=None, include_camera: bool | None = None, full_res_artifacts: bool = False, aepoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import proxy_pass as _proxy_pass
 
-        return _proxy_pass._on_proxy_batch_ready(self, result, gen, wanted, source=source, include_camera=include_camera, full_res_artifacts=full_res_artifacts)
+        return _proxy_pass._on_proxy_batch_ready(self, result, gen, wanted, source=source, include_camera=include_camera, full_res_artifacts=full_res_artifacts, aepoch=aepoch)
 
-    def _on_triage_ready(self, result: object, gen: int | None = None, sgen: int | None = None) -> None:
+    def _on_triage_ready(self, result: object, gen: int | None = None, sgen: int | None = None, aepoch: int | None = None) -> None:
         from tabs.image_gallery.use_cases import proxy_pass as _proxy_pass
 
-        return _proxy_pass._on_triage_ready(self, result, gen, sgen)
+        return _proxy_pass._on_triage_ready(self, result, gen, sgen, aepoch)
 
     def _commit_triage_series(self, series, source, mode):
         from tabs.image_gallery.use_cases import proxy_pass as _proxy_pass
