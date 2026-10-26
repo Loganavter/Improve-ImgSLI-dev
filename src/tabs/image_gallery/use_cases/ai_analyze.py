@@ -185,7 +185,15 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
     try:
         from tabs.image_gallery.services.profile_judged import scorecard_axis_ids
 
-        wanted_axes = scorecard_axis_ids(ctx.mode, profile=ctx.profile)
+        # Only a PROFILE knows which axes this run asks. Without one (no judge
+        # answer yet) the axis check cannot be applied — the analysis does not
+        # run at all in that state, and a conservative "any scorecard" hit here
+        # would hand the UI numbers nobody asked for.
+        wanted_axes = (
+            scorecard_axis_ids(ctx.mode, profile=ctx.profile)
+            if getattr(ctx, "profile", None) is not None
+            else ()
+        )
     except Exception:
         wanted_axes = ()
     for item in items:

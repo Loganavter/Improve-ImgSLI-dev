@@ -231,17 +231,44 @@ def test_a_fully_cached_folder_spends_no_profile_request_and_no_analyze(
     )
 
     # …and the analyze tail is pure cache: every card HITs, nothing is built.
+    # The SAME axis set that built the entries: this is the warm-folder case.
+    # (A re-rolled axis set is deliberately NOT a hit any more — the card would
+    # have no numbers on the new axes, which is the "dots vanished" report; see
+    # ``test_a_re_rolled_axis_set_re_analyses``.)
     ctx = ActionContext(
         targets=tuple(it.path for it in owner.state.items),
         backend=BACKEND_AI,
         mode=Mode.CAMERA,
-        profile=PROFILE_B,
+        profile=PROFILE_A,
     )
     for item in owner.state.items:
         item.analysis = None  # force the per-card path to consult the disk
         item.analysis_status = None
     GalleryController.analyze(owner, ctx)
     assert owner.payloads == [], "0 analyze MISS on the second run"
+
+
+def test_a_re_rolled_axis_set_re_analyses(tmp_path, monkeypatch) -> None:
+    """A scorecard that does not ANSWER the asked axes is a MISS (2026-10-26).
+
+    Owner report: dots vanished and Quick Look read "не измерено" while the cards
+    carried numbers under the PREVIOUS vocabulary. The cache used to serve them.
+    """
+    _cache_dir(tmp_path, monkeypatch)
+    items = _items()
+    identity = ai_cache.analysis_cache_identity(
+        SETTINGS, mode="camera", profile=PROFILE_A
+    )
+    for item in items:
+        ai_cache.save_analysis(item.path, item.mtime_ns, _result(), identity)
+
+    asked = ai_cache.analysis_cache_identity(
+        SETTINGS, mode="camera", profile=PROFILE_B
+    )
+    hit = ai_cache.load_cached_analysis(
+        items[0].path, items[0].mtime_ns, asked, axes=("exposure",)
+    )
+    assert hit is None, "PROFILE_B asks 'exposure'; the entry answers sharpness/noise"
 
 
 def test_a_miss_in_the_folder_still_asks_the_selector(tmp_path, monkeypatch) -> None:
