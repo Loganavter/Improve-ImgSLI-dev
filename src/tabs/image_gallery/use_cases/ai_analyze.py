@@ -233,6 +233,25 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
     ctx, refusal = _with_axis_profile(owner, ctx, items)
     if refusal is not None:
         return refusal
+    try:
+        pending = getattr(getattr(owner, "state", None), "metric_profile", None)
+        if pending is not None and str(getattr(pending, "source", "")) == "pending":
+            # Nothing to ask the model yet: name the wait instead of spending a
+            # call that would come back with no axes (owner rule 2026-10-26).
+            kick = getattr(owner, "_run_profile_select_on_settle", None)
+            if callable(kick):
+                try:
+                    kick()
+                except Exception:
+                    logger.debug("profile kick from analyze failed", exc_info=True)
+            return Refusal(
+                REFUSAL_PROFILE_PENDING,
+                ctx.targets,
+                "the model is naming the axes for this folder — the analysis "
+                "starts when it answers",
+            )
+    except Exception:
+        pass
     identity = analysis_identity_for(owner, ctx=ctx)
     # The scorecard must answer the axes this run asks for (see
     # ``ai_cache.load_cached_analysis``): a cached read under another vocabulary
