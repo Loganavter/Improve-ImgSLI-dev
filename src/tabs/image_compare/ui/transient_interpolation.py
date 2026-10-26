@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import time
+import traceback
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QCursor, QFont
