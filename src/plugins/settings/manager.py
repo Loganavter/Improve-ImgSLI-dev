@@ -482,7 +482,7 @@ class SettingsManager:
             "include_file_names_in_saved", False, bool
         )
 
-        main_interp = self._get_setting("interpolation_method", "BILINEAR", str)
+        main_interp = self._get_setting("interpolation_method", AppConstants.DEFAULT_INTERPOLATION_METHOD, str)
         render.interpolation_method = main_interp
         render.zoom_interpolation_method = self._get_setting(
             "zoom_interpolation_method", "BILINEAR", str
