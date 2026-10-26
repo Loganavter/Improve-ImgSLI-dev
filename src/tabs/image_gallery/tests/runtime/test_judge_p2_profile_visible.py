@@ -21,6 +21,11 @@ Falsification story (each test names the defect it kills):
 The real ``GalleryController`` entry / stamp / apply methods run on a Qt-free
 double; only the payload-build seam (``_begin_analysis``) and the disk cache are
 substituted, so "a payload was built" is observed, not assumed.
+
+R6 fixture note (owner rule 2026-10-26): the AI backend has no local fallback,
+so a payload is built only under a REAL, AI-tagged axis set — the context comes
+from the production builder (``context_for_paths``) and the double's AI slot
+starts at ``PRIOR_PROFILE``. A 0-axis call is refused by name, never spent.
 """
 
 from __future__ import annotations
@@ -39,12 +44,25 @@ from tabs.image_gallery.services.metric_profile import (
     profile_for_mode,
 )
 from tabs.image_gallery.use_cases import ai_analyze
-from tabs.image_gallery.use_cases.action_context import BACKEND_AI, ActionContext
+from tabs.image_gallery.use_cases.action_context import (
+    ORIGIN_ACTION,
+    context_for_paths,
+)
 from core.log_names import APP_LOGGER_NAME
 
 VLM_PROFILE = MetricProfile(
     axis_ids=("sharpness", "noise"), mode="camera", source="vlm",
     salient_axes=("sharpness", "noise"),
+)
+
+#: The axis set an earlier answer already installed for the generation — the
+#: one its requests are keyed on. Since R6 a request can only be BUILT under a
+#: real, AI-tagged profile (an axis-less call is refused by name, owner rule
+#: 2026-10-26), so "a payload was built" needs this slot populated first. That
+#: populated slot is precisely what a late answer would silently re-key.
+PRIOR_PROFILE = MetricProfile(
+    axis_ids=("sharpness", "noise", "exposure"), mode="camera", source="vlm",
+    salient_axes=("sharpness",),
 )
 
 
@@ -56,12 +74,12 @@ class _Owner:
     ``payloads`` list is the fact "a request was built", not a guess.
     """
 
-    def __init__(self, paths: tuple[Path, ...], *, gen: int = 0) -> None:
+    def __init__(self, paths: tuple[Path, ...], *, gen: int = 0, profile=None) -> None:
         self.state = SimpleNamespace(
             items=[GalleryItem(path=path, mtime_ns=0) for path in paths],
             mode="camera",
             algorithms_profile=profile_for_mode("camera"),
-            ai_profile=None,
+            ai_profile=profile,
             profile_reject_reason="",
         )
         self._judgment_domain = "ai"
@@ -118,10 +136,11 @@ def _drive_analyze(monkeypatch, owner: _Owner, *, hit: bool) -> None:
     monkeypatch.setattr(
         ai_analyze, "analysis_identity_for", lambda owner_, ctx=None: {"model": "m"}
     )
-    ctx = ActionContext(
-        targets=tuple(it.path for it in owner.state.items),
-        backend=BACKEND_AI,
-        mode="camera",
+    # The production context builder: the AI backend's OWN slot is what an AI
+    # action carries, so a MISS builds a payload only when the generation
+    # already has an axis set (R6 refuses the 0-axis call instead of spending).
+    ctx = context_for_paths(
+        owner, tuple(it.path for it in owner.state.items), origin=ORIGIN_ACTION
     )
     assert GalleryController.analyze(owner, ctx) is None
 
@@ -157,11 +176,17 @@ def test_cache_only_analyze_keeps_the_generation_open_and_applies_the_answer(
 def test_reply_after_a_built_request_is_rejected_with_a_visible_reason(
     monkeypatch, caplog
 ) -> None:
-    """(b) a built request still freezes the generation — and says why."""
+    """(b) a built request still freezes the generation — and says why.
+
+    The request is built under the axis set the generation already carries
+    (``PRIOR_PROFILE``); a reply that would REPLACE it afterwards is the one
+    dropped, because the scorecards of that generation are keyed on the set
+    their payloads were built with.
+    """
     paths = (Path("/gallery/miss_1.png"), Path("/gallery/miss_2.png"))
-    owner = _Owner(paths)
+    owner = _Owner(paths, profile=PRIOR_PROFILE)
     heuristic = owner.state.algorithms_profile
-    assert owner.state.ai_profile is None
+    assert owner.state.ai_profile is PRIOR_PROFILE
 
     _drive_analyze(monkeypatch, owner, hit=False)
 
@@ -175,9 +200,9 @@ def test_reply_after_a_built_request_is_rejected_with_a_visible_reason(
     with caplog.at_level(logging.DEBUG, logger=APP_LOGGER_NAME):
         owner._apply_profile_outcome(VLM_PROFILE, owner._folder_gen)
 
-    assert owner.state.ai_profile is None, (
+    assert owner.state.ai_profile is PRIOR_PROFILE, (
         "a reply landing after a request was built may not re-key that "
-        "generation's scorecards"
+        "generation's scorecards — the set they were built with stays"
     )
     assert owner.state.algorithms_profile is heuristic, (
         "the AI drop must not touch the Algorithms backend's own slot"
@@ -203,7 +228,7 @@ def test_the_freeze_is_generation_scoped_so_the_next_folder_still_accepts(
     of the session.
     """
     paths = (Path("/gallery/g1_1.png"), Path("/gallery/g1_2.png"))
-    owner = _Owner(paths, gen=1)
+    owner = _Owner(paths, gen=1, profile=PRIOR_PROFILE)
     _drive_analyze(monkeypatch, owner, hit=False)
     assert owner._profile_consumed_gen == 1
 
