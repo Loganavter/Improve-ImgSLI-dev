@@ -438,6 +438,25 @@ class MagnifierVisibilityController:
                 _new is btn or (_flyout is not None and _flyout.isAncestorOf(_new))
             )
             if not _still:
+                # Pointer still on the button / on the flyout body = this is the
+                # hover-lens focus cycle, not a departure. Hiding here runs
+                # BaseFlyout.hide -> should_restore_host_focus -> win.setFocus(),
+                # which re-emits focusChanged and feeds the same cycle again
+                # (measured 2026-10-27: FocusOut on btn_magnifier every ~18 ms,
+                # and the transient-close handler ended in RecursionError deep
+                # inside logging once the debug flag turned its logging on).
+                # Closing stays with the hover/leave path below and with the
+                # flyout's own auto-hide.
+                try:
+                    from PySide6.QtGui import QCursor as _QCursor
+
+                    _under_pointer = bool(btn.underMouse()) or bool(
+                        _flyout is not None and _flyout.contains_global(_QCursor.pos())
+                    )
+                except Exception:
+                    _under_pointer = False
+                if _under_pointer:
+                    return False
                 # Keep open only if focus ring still alive on btn/flyout and
                 # last input was keyboard — same guard as bottom panel.
                 try:
