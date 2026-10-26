@@ -1,22 +1,24 @@
-"""INVARIANT: the Algorithms order is built from LOCAL measurements only.
+"""INVARIANT: each backend ranks on ITS OWN profile's axes — never the other's.
 
-The Algorithms backend ranks what the deterministic detectors measured: the
-engine records / ``item.metrics``. A VLM scorecard (``item.analysis``) was
-produced by the OTHER backend, so it must not move an Algorithms rank — not
-even through an axis the model named in free form.
+The isolation is carried by the PROFILE, not by deleting the score read. Owner
+decision #694 (2026-10-26): the free-form axes the judge names ARE the AI
+backend's measurement vocabulary and they rank. So ``rank_fusion`` legitimately
+reads ``item.analysis`` — for the AI profile. The Algorithms backend must be
+handed an Algorithms profile (``source`` = ``series`` / ``heuristic``, no judge
+entries), and then a VLM scorecard cannot move its order.
 
-Falsification story (red on ``int/backend-isolation``): the fusion call passes
-the ACTIVE metric profile, which may carry the judge's own axis entries
-(``MetricProfile.axis_entries``), and ``rank_fusion._judge_scores`` reads those
-numbers out of ``item.analysis``. Two items with byte-identical ``metrics``
-therefore stop tying as soon as one of them carries a scorecard: the paid
-axis changes its quality and its rank. Measured here as an OBSERVABLE rank/
-value difference, never as "``_judge_scores`` exists".
+Falsification story (red before the profile split): one ``state.metric_profile``
+slot held the judge's answer, and the fusion call passed it to the Algorithms
+ranker. Consequence: two items with byte-identical ``metrics`` stopped tying as
+soon as one carried a scorecard — the paid axis changed the Algorithms quality
+and rank. The same scorecard MUST move the AI order (that is the non-vacuity
+half of this test, and #694's contract).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from tabs.image_gallery.models import AiAnalysisResult, AiAxisProposal, GalleryItem
 from tabs.image_gallery.services.metric_profile import MetricProfile
@@ -25,19 +27,23 @@ from tabs.image_gallery.services.rank_fusion import (
     measured_axes_for,
     rank_series,
 )
+from tabs.image_gallery.use_cases.profile_select import active_profile
 
-#: A profile the model shaped for this series: the registry half the local
-#: detectors answer PLUS one axis the judge named (no local producer exists for
-#: it). The Algorithms backend's fusion call passes the active profile, so this
-#: is the shape in which a judge-named axis reaches ``rank_series``.
 _JUDGE_AXIS = "halation"
 
 
-def _algorithms_profile() -> MetricProfile:
+def _local_profile() -> MetricProfile:
+    """What the LOCAL derivation produces: registry ids, no judge entries."""
     return MetricProfile(
-        axis_ids=("sharpness", "noise"),
-        mode="batch_synthetic",
-        source="series",
+        axis_ids=("sharpness", "noise"), mode="camera", source="series"
+    )
+
+
+def _judge_profile() -> MetricProfile:
+    """What the VLM judge produces: its own free-form axis, no registry ids."""
+    return MetricProfile(
+        mode="camera",
+        source="vlm",
         axis_entries=(
             AiAxisProposal(
                 name=_JUDGE_AXIS,
@@ -47,6 +53,12 @@ def _algorithms_profile() -> MetricProfile:
             ),
         ),
     )
+
+
+def _state(**slots) -> SimpleNamespace:
+    base = {"mode": "camera", "algorithms_profile": None, "ai_profile": None}
+    base.update(slots)
+    return SimpleNamespace(**base)
 
 
 def _item(name: str) -> GalleryItem:
@@ -67,33 +79,64 @@ def _scorecard(*, axis: str, score: int) -> AiAnalysisResult:
     )
 
 
-def test_algorithms_rank_ignores_judge_axes() -> None:
-    profile = _algorithms_profile()
+def test_the_two_profiles_carry_different_axis_families() -> None:
+    state = _state(
+        algorithms_profile=_local_profile(), ai_profile=_judge_profile()
+    )
+    algo = active_profile(state, domain="algorithms")
+    ai = active_profile(state, domain="ai")
 
-    # Non-vacuous: the judge-named axis really is in the profile's axis set, so
-    # a difference below is caused by the scorecard, not by the axis being
-    # absent from the question.
-    assert _JUDGE_AXIS in measured_axes_for(None, profile=profile)
+    assert _JUDGE_AXIS not in measured_axes_for("camera", profile=algo), (
+        "the Algorithms profile must not carry a judge-named axis"
+    )
+    assert _JUDGE_AXIS in measured_axes_for("camera", profile=ai), (
+        "non-vacuity: the judge axis must be rankable in the AI backend"
+    )
+
+
+def test_a_vlm_scorecard_cannot_move_the_algorithms_order() -> None:
+    state = _state(algorithms_profile=_local_profile())
+    algo = active_profile(state, domain="algorithms")
 
     a = _item("a.png")
     b = _item("b.png")
-    baseline_ranks = rank_series([a, b], profile=profile)
-    baseline_quality = [item_quality(item, profile=profile) for item in (a, b)]
+    baseline_ranks = rank_series([a, b], profile=algo)
+    baseline_quality = [item_quality(item, profile=algo) for item in (a, b)]
 
-    # The same two items, same metrics; b now carries the AI backend's answer.
+    # The AI backend's answer exists on the item, but not in this backend's
+    # profile — so it cannot contribute a number.
     b.analysis = _scorecard(axis=_JUDGE_AXIS, score=100)
-
-    leaked_ranks = rank_series([a, b], profile=profile)
-    leaked_quality = [item_quality(item, profile=profile) for item in (a, b)]
 
     assert baseline_quality == [65.0, 65.0], (
         "fixture sanity: identical metrics must produce identical local quality"
     )
-    assert leaked_quality == baseline_quality, (
-        "the Algorithms backend's quality must not read item.analysis: "
-        f"baseline={baseline_quality!r} with-analysis={leaked_quality!r}"
+    assert [item_quality(item, profile=algo) for item in (a, b)] == baseline_quality, (
+        "the Algorithms backend's quality must not read item.analysis"
     )
-    assert leaked_ranks == baseline_ranks, (
-        "a VLM scorecard changed the Algorithms order: "
-        f"baseline={baseline_ranks!r} with-analysis={leaked_ranks!r}"
+    assert rank_series([a, b], profile=algo) == baseline_ranks, (
+        "a VLM scorecard changed the Algorithms order"
+    )
+
+
+def test_the_same_scorecard_moves_the_ai_order() -> None:
+    """Owner #694: judge-named axes rank — for the AI profile.
+
+    This half keeps the test honest: the scorecard above is a real measurement
+    that the AI backend must use, not an inert fixture.
+    """
+    state = _state(ai_profile=_judge_profile())
+    ai = active_profile(state, domain="ai")
+    assert ai.axis_entries, "the AI slot must carry the judge's axis"
+
+    a = _item("a.png")
+    b = _item("b.png")
+    b.analysis = _scorecard(axis=_JUDGE_AXIS, score=100)
+
+    ranks = rank_series([a, b], profile=ai)
+    assert ranks[str(b.path)] < ranks[str(a.path)], (
+        "the judge's axis must order the AI backend's rank: "
+        f"ranks={ranks!r}"
+    )
+    assert item_quality(a, profile=ai) is None, (
+        "an item with no judge value for the axis stays unmeasured, never 0"
     )
