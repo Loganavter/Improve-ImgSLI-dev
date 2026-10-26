@@ -172,6 +172,7 @@ def test_clear_defeats_the_skip(tmp_path, caches) -> None:
         "profiles": 1,
         "jev_files": 1,
         "vlm_files": 1,
+        "pairwise_verdicts": 0,
     }
 
 

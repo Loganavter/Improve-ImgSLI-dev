@@ -270,8 +270,9 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
     keyed by series/pair identity, not by one card's path, so a scoped delete
     cannot express "drop the pins this card was part of". Returns an honest
     summary: ``{"items": n, "ai_files": n, "profiles": n, "jev_files": n,
-    "vlm_files": n}`` — the last two are the Jev rank pins and the VLM
-    tie-break/brief files actually unlinked.
+    "vlm_files": n, "pairwise_verdicts": n}`` — the last three are the Jev rank
+    pins, the VLM tie-break/brief files and the in-memory pairwise verdicts
+    actually dropped.
 
     Cleared items lose their metric-derived rank state AND their VLM verdict /
     brief fields (see :func:`_clear_item`); the in-memory verdict maps
@@ -286,7 +287,14 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
     :func:`~tabs.image_gallery.use_cases.reset_barrier.clear_delivery_ledgers`),
     so no pre-reset delivery can land after this returns.
     """
-    summary = {"items": 0, "ai_files": 0, "profiles": 0, "jev_files": 0, "vlm_files": 0}
+    summary = {
+        "items": 0,
+        "ai_files": 0,
+        "profiles": 0,
+        "jev_files": 0,
+        "vlm_files": 0,
+        "pairwise_verdicts": 0,
+    }
     # HARD BARRIER (owner decision 2026-10-26), BEFORE any clear: advance the
     # two current-work tokens and retire the in-flight ledgers. A delivery that
     # races the clear is stale from this line on, and the ledgers it would
@@ -348,6 +356,16 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
     # only observable proof the action did anything on disk.
     summary["jev_files"] = int(jev_cache.clear_default_cache())
     summary["vlm_files"] = int(vlm_cache.clear_default_cache())
+    # The process-wide pairwise verdict store is the ONE measurement cache with
+    # no disk half. Reset must drop it too, or provider A's A/B verdicts keep
+    # ordering provider B's pass after a config switch (W6 exposed the clearer;
+    # the reset owns the call).
+    try:
+        from tabs.image_gallery.use_cases import pairwise_rank as _pairwise_rank
+
+        summary["pairwise_verdicts"] = int(_pairwise_rank.clear_default_cache())
+    except Exception:
+        logger.debug("metrics reset: pairwise verdict clear failed", exc_info=True)
     # The IN-MEMORY halves of those two stores. An open session paints the
     # pinned Jev ordering and the VLM verdicts from ``state`` without reading
     # disk again, so dropping the files alone left the stale measurements on

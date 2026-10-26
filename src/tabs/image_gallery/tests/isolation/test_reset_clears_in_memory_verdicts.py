@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabs.image_gallery.models import CompareBrief, GalleryState, GalleryItem, TieBreakResult
+from tabs.image_gallery.use_cases import pairwise_rank
 from tabs.image_gallery.use_cases.cache_reset import clear_metrics_caches
 
 
@@ -34,7 +35,8 @@ class _Owner:
 
     def clear_metric_profile(self) -> None:
         self.profile_clears += 1
-        self.state.metric_profile = None
+        self.state.algorithms_profile = None
+        self.state.ai_profile = None
 
     def _clear_series_priority(self) -> None:
         """The controller's seam: drops the hint AND re-stamps the headers."""
@@ -82,6 +84,11 @@ def test_reset_clears_in_memory_verdicts(tmp_path, counters) -> None:
     owner = _Owner([winner, loser])
     owner.state.tie_breaks["series_1"] = verdict
     owner.state.series_priority["series_1"] = 1
+    pair = pairwise_rank.pair_key(
+        "a", 1, "b", 2, model="judge-model", base_url="https://h/v1"
+    )
+    pairwise_rank.DEFAULT_CACHE.put(pair, pairwise_rank.PairVerdict("a", "b", "a", "b"))
+    assert len(pairwise_rank.DEFAULT_CACHE) == 1, "fixture sanity: one seam verdict"
 
     summary = clear_metrics_caches(owner)
 
@@ -103,6 +110,10 @@ def test_reset_clears_in_memory_verdicts(tmp_path, counters) -> None:
         # nothing is measuring, so the card must not show a VLM spinner/error.
         assert item.vlm_brief_status == "none"
         assert item.vlm_brief_error is None
+    assert len(pairwise_rank.DEFAULT_CACHE) == 0, (
+        "the process-wide pairwise verdict store survived the reset"
+    )
+    assert summary["pairwise_verdicts"] == 1
     assert owner.profile_clears == 1
     # The header attention marker is painted from the hint, so the reset must
     # go through the controller's seam (which re-stamps the headers), not just
