@@ -15,6 +15,8 @@ from PySide6.QtGui import QColor
 
 from domain.types import Rect
 from tabs.image_compare.canvas.features.magnifier.constants import (
+    DEFAULT_CAPTURE_SIZE_RELATIVE as _DEFAULT_CAPTURE_SIZE_RELATIVE,
+    DEFAULT_MAGNIFIER_MAGNIFICATION as _DEFAULT_MAGNIFICATION,
     MIN_MAGNIFIER_SPACING_RELATIVE_FOR_COMBINE as _COMBINE_THRESHOLD,
 )
 from tabs.image_compare.canvas.features.magnifier.geometry.box_remap import (
@@ -78,6 +80,7 @@ def build_magnifier_layout(
     content_offset_y: float = 0.0,
     divider_thickness_px: int,
     render_scale: float = 1.0,
+    display_scale: float = 1.0,
     border_width: float = 2.0,
     interpolation_method: str | None = None,
     diff_mode_override: int | None = None,
@@ -144,17 +147,45 @@ def build_magnifier_layout(
             / local_scale
         )
 
+    def _resolve_magnification(model) -> float:
+        """Screen px per source px this loupe shows.
+
+        Magnification is an INVARIANT here (see
+        ``DEFAULT_MAGNIFIER_MAGNIFICATION``): ``capture_size_relative`` no
+        longer decides the geometry directly, it scales the magnification
+        RELATIVELY to the default, so a saved 0.1 gives exactly the default
+        and halving it (0.05) doubles the loupe.
+        """
+        capture_rel = float(getattr(model, "capture_size_relative", 0.0) or 0.0)
+        if capture_rel <= 1e-6:
+            return float(_DEFAULT_MAGNIFICATION)
+        return float(_DEFAULT_MAGNIFICATION) * (
+            float(_DEFAULT_CAPTURE_SIZE_RELATIVE) / capture_rel
+        )
+
     def _capture_geometry(model):
 
+        # The captured area is DERIVED from the drawn disk, never the other
+        # way round: the loupe shows ``_resolve_magnification(model)`` screen
+        # px per source px, so ``capture_radius = visible_radius / M``.
+        # ``display_scale`` (canvas px -> widget px, ``state._content_sr``)
+        # is what the old canvas-space ratio was missing: without it a
+        # letterboxed canvas silently divided the real magnification by the
+        # content scale (2.29x instead of 4.73x on a live 1400x1000 pair),
+        # which is why the interpolation choice was invisible.
+        magnifier_radius_canvas = (float(model.size_relative) * target_max) / 2.0
+        visible_radius_widget = magnifier_radius_canvas * max(
+            1e-6, float(display_scale)
+        )
+        radius = visible_radius_widget / max(1e-6, _resolve_magnification(model))
+        capture_rel = (radius * 2.0) / float(max(1, min(int(width), int(height))))
         cap_x, cap_y = clamp_capture_position(
             model.position.x,
             model.position.y,
             width,
             height,
-            model.capture_size_relative,
+            capture_rel,
         )
-        capture_ref = float(min(width, height))
-        radius = (model.capture_size_relative * capture_ref) / 2.0
         center_x = float(content_offset_x) + (cap_x * width)
         center_y = float(content_offset_y) + (cap_y * height)
 
