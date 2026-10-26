@@ -17,9 +17,10 @@ The public surface later waves consume::
     errors: BackendMismatch, NoProfileYet, CapabilityNotDeclared, SchemaMismatch,
             CacheNamespaceCollision
 
-Re-exports are the only content: no behaviour is wired into the app in this
-wave (A2–A4 rewire the profile producers, the measurement/rank paths and the
-controller).
+Re-exports are the only content: this package declares the contract, the typed
+errors and the store. The two adapters live in ``algorithms/`` and ``ai/`` and
+are registered by ``composition.py`` (the ONE composition point, wave A2);
+importing this package registers nothing.
 """
 
 from __future__ import annotations

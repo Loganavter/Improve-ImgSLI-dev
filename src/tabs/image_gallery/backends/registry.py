@@ -20,12 +20,12 @@ A backend lives in its own module and exports its instance as ``BACKEND``::
     # tabs/image_gallery/backends/algorithms.py
     BACKEND = AlgorithmsBackend()
 
-Discovery is by IMPORT, never by a hand-maintained list: the tab's plugin
-loader imports the backend modules and calls :func:`register` with each module's
-``BACKEND``. The registry itself imports nothing, so it stays a plain store and
-a broken plugin module fails at import (loudly) rather than disappearing from a
-list nobody re-reads. (The discovery step is wired in a later ADR 009 wave; A1
-ships the contract and the store only.)
+Discovery is by IMPORT, never by a hand-maintained list: the composition point
+imports the backend modules and calls :func:`register` with each module's
+``BACKEND`` (:mod:`tabs.image_gallery.backends.composition`, wired by the tab
+when it builds its controller — wave A2). The registry itself imports nothing,
+so it stays a plain store and a broken plugin module fails at import (loudly)
+rather than disappearing from a list nobody re-reads.
 """
 
 from __future__ import annotations

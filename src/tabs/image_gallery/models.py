@@ -436,22 +436,24 @@ class GalleryState:
     #: The Algorithms backend's metric profile — the axis subset the local
     #: detectors measured and the deterministic fusion ranks on
     #: (``services.metric_profile.MetricProfile``; ``source`` = ``series`` |
-    #: ``heuristic``). Written ONLY by the local derivation
-    #: (``controller.refresh_metric_profile``). The two judgment backends never
+    #: ``heuristic``). Written ONLY by that backend's adapter
+    #: (``backends.algorithms.install``, fed by
+    #: ``controller.refresh_metric_profile``). The two judgment backends never
     #: share this slot (backend-isolation invariant I1): the VLM judge answers
     #: into ``ai_profile``. Transient view state (same status as
     #: ``judgment_domain``): NOT persisted to the session slot. ``None`` =
-    #: nothing derived yet → consumers read this slot through
-    #: ``services.metric_profile.profile_for_domain`` and fall back to the mode
-    #: mapping (``use_cases.profile_select.active_profile``).
+    #: nothing derived yet → consumers read this slot through the owning
+    #: adapter and fall back to the mode mapping
+    #: (``use_cases.profile_select.active_profile``).
     algorithms_profile: MetricProfile | None = None
     #: The AI backend's metric profile — the axis set the VLM judge NAMED for
-    #: this folder (``source="vlm"``). Written ONLY by the judge's landing path
-    #: (``controller._apply_profile_outcome``); read by the AI prompt, the Jev
-    #: measured vector and the AI-domain dots/rows through
-    #: ``services.metric_profile.profile_for_domain(state, "ai")``. ``None`` =
-    #: the model has not named an axis set yet (an ERROR in the AI backend, never
-    #: a reason to borrow the Algorithms slot). Transient, like the other slot.
+    #: this folder (``source="vlm"``). Written ONLY by that backend's adapter
+    #: (``backends.ai.install``, fed by the judge's landing path
+    #: ``controller._apply_profile_outcome``); read by the AI prompt, the Jev
+    #: measured vector and the AI-domain dots/rows through the owning adapter.
+    #: ``None`` = the model has not named an axis set yet (an ERROR in the AI
+    #: backend, never a reason to borrow the Algorithms slot). Transient, like
+    #: the other slot.
     ai_profile: MetricProfile | None = None
     #: Why the last VLM axis-set answer was NOT applied to this folder's
     #: generation (``""`` = nothing was rejected). One of

@@ -185,8 +185,11 @@ flowchart LR
 
 Two backends, two slots (backend-isolation invariant I1): the local derivation
 writes `state.algorithms_profile`, the judge writes `state.ai_profile`, and every
-consumer reads its own slot through `metric_profile.profile_for_domain`. A
-foreign-tagged profile is a loud `ForeignProfileError`, never a silent cross-read.
+consumer reads its own slot. Since ADR 009 wave A2 the slot is WRITTEN and READ
+by the owning adapter — `backends.algorithms` / `backends.ai` (`install` /
+`load_profile`) — and `metric_profile.profile_for_domain` is a deprecated
+one-line delegate to that adapter (the name goes away in A3). A foreign-tagged
+profile is a loud `ForeignProfileError`, never a silent cross-read.
 
 `source` is one of three values (`PROFILE_SOURCES` in
 `services/metric_profile.py`):

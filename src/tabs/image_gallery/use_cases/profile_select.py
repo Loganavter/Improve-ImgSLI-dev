@@ -43,7 +43,6 @@ from tabs.image_gallery.services.metric_profile import (
     axis_spreads,
     format_profile,
     mode_id,
-    profile_for_domain,
     profile_for_mode,
     profile_for_series,
     profile_source_label,
@@ -139,9 +138,10 @@ def active_profile(
     ``state.algorithms_profile`` and the judge's answer on ``state.ai_profile``;
     consumers call this accessor with the domain they serve, so the dots, the AI
     scorecard, the Jev vector and the rank read the axis set of THEIR backend and
-    never the other one's. The read goes through the ONE slot accessor
-    (``metric_profile.profile_for_domain``); a foreign-tagged slot is a fail-open
-    fallback here (the UI must still paint) and a loud error at the strict seam.
+    never the other one's. The read goes through the OWNING ADAPTER (ADR 009 A2:
+    ``backends.algorithms`` / ``backends.ai`` own their slot), not through a core
+    slot lookup; a foreign-tagged slot is a fail-open fallback here (the UI must
+    still paint) and a loud error at the adapter's own seam.
 
     Without a stored profile for *domain*: the Algorithms accessor returns the
     mode mapping (the LAST local fallback, named as such by ``describe_source``);
@@ -149,13 +149,14 @@ def active_profile(
     axis set (owner rule 2026-10-26 / invariant I1).
     """
     try:
-        cached = (
-            profile_for_domain(state, domain) if state is not None else None
-        )
-        if isinstance(cached, MetricProfile) and cached:
-            # Truthiness, not ``axis_ids``: a VLM answer may name ONLY its own
-            # axes (no registry id), and that is a complete profile (P7-A).
-            return cached
+        if state is not None:
+            from tabs.image_gallery.backends.composition import backend
+
+            cached = backend(str(domain or "").strip().lower()).load_profile(state)
+            if isinstance(cached, MetricProfile) and cached:
+                # Truthiness, not ``axis_ids``: a VLM answer may name ONLY its own
+                # axes (no registry id), and that is a complete profile (P7-A).
+                return cached
     except Exception:
         logger.debug(
             "profile slot read failed domain=%s (falling back to the mode mapping)",

@@ -114,8 +114,10 @@ DOMAIN_ALGORITHMS = "algorithms"
 DOMAIN_AI = "ai"
 PROFILE_DOMAINS: tuple[str, ...] = (DOMAIN_ALGORITHMS, DOMAIN_AI)
 
-#: ``GalleryState`` slot names. Read through :func:`profile_for_domain`, never as
-#: a bare attribute: a stale reader of the deleted single slot fails loudly.
+#: ``GalleryState`` slot names. Read through the OWNING adapter
+#: (``backends.algorithms`` / ``backends.ai``; :func:`profile_for_domain` is the
+#: deprecated one-line delegate), never as a bare attribute: a stale reader of
+#: the deleted single slot fails loudly.
 ALGORITHMS_PROFILE_SLOT = "algorithms_profile"
 AI_PROFILE_SLOT = "ai_profile"
 
@@ -152,37 +154,25 @@ def profile_slot(domain) -> str:
 
 
 def profile_for_domain(state, domain):
-    """The metric profile the *domain* backend owns — the ONE slot reader.
+    """DEPRECATED — one delegate to the domain's adapter (ADR 009 A2).
 
-    Every consumer (dots, rows, Algorithms rank input, Jev measured vector, AI
-    prompt/cache identity) reads its axis set here, so the two backends can never
-    read each other's measurements:
+    The profile slots used to be a core read seam (this function decided which
+    slot a domain reads and how a foreign tag is reported). Ownership now lives
+    in the adapters: ``backends.algorithms`` / ``backends.ai`` each read their
+    OWN slot, so this name does nothing but ask the owning adapter — the same
+    three answers as before (the profile, ``None`` for an empty slot, a loud
+    ``ForeignProfileError`` for a slot holding the other backend's profile) and
+    ``ValueError`` for an unknown domain.
 
-    - ``"algorithms"`` → ``state.algorithms_profile`` (series offer / mode mapping);
-    - ``"ai"`` → ``state.ai_profile`` (the VLM judge's own axis set);
-    - an EMPTY slot → ``None``: "this backend has not answered yet". Callers fall
-      back to their own behaviour (the Algorithms mode mapping; the AI path is an
-      error, never the local axis set);
-    - an UNKNOWN domain → ``ValueError``; a profile whose tag does not match the
-      slot → :class:`ForeignProfileError`. Both are loud on purpose: silently
-      returning the other backend's profile is exactly the leak I1 forbids.
+    The NAME disappears in ADR 009 wave A3 together with the by-domain lookups
+    in the controller/use cases; it is kept only so this wave moves ownership
+    without rewriting every consumer at once.
     """
-    slot = profile_slot(domain)
-    try:
-        profile = getattr(state, slot, None) if state is not None else None
-    except Exception:
-        profile = None
-    if profile is None:
-        return None
-    tag = domain_of(profile)
-    wanted = str(domain or "").strip().lower()
-    if tag != wanted:
-        raise ForeignProfileError(
-            f"state.{slot} holds a {tag}-tagged profile (source="
-            f"{getattr(profile, 'source', '?')!r}); the {wanted} backend must "
-            "not read it"
-        )
-    return profile
+    dom = str(domain or "").strip().lower()
+    profile_slot(dom)  # ValueError for an unknown domain, before any lookup
+    from tabs.image_gallery.backends.composition import backend
+
+    return backend(dom).load_profile(state)
 
 
 #: Why a VLM axis-set answer was NOT applied to the folder generation

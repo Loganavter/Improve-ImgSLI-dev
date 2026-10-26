@@ -146,15 +146,20 @@ _pipeline_stages.register_stage(_PROFILE_STAGE, requires=("metrics_ready",))
 def _profile_selector():
     """Indirection to the P2 VLM profile selector (never imported at load time).
 
-    Returns ``use_cases.profile_ai.choose_profile_sync``. A module-level
-    function (not a method) so the controller module never imports the
-    selector lane at import time — the selector module may be absent — and so
-    tests monkeypatch this ONE seam instead of importing that lane's module.
-    Raises when the selector is unavailable; the kick treats that as fail-open.
+    Returns the AI ADAPTER's selector (ADR 009 A2:
+    ``backends.composition.ai_profile_selector`` → ``AIBackend.make_profile``,
+    which delegates to ``use_cases.profile_ai.choose_profile_sync``): the answer
+    is made and owned by the backend that reads it, while the controller keeps
+    calling the same ``(items, *, mode, settings) -> MetricProfile | None``
+    shape. A module-level function (not a method) so the controller module never
+    imports the selector lane at import time — the selector module may be absent
+    — and so tests monkeypatch this ONE seam instead of importing that lane's
+    module. Raises when the selector is unavailable; the kick treats that as
+    fail-open.
     """
-    from tabs.image_gallery.use_cases.profile_ai import choose_profile_sync
+    from tabs.image_gallery.backends.composition import ai_profile_selector
 
-    return choose_profile_sync
+    return ai_profile_selector()
 
 
 def _stamp_profile_consumed(owner) -> None:
@@ -640,17 +645,17 @@ class GalleryController:
         _gallery_slot._sync_from_slot(self)
 
     def refresh_metric_profile(self) -> object:
-        """Derive the SERIES offer from the live state and store it (P1 → P5).
+        """Derive the SERIES offer through the Algorithms backend and store it.
 
-        The **Algorithms producer** half of the profile seam: derived from
-        ``self.state`` (mode + the folder's measured metrics + whether a source
-        hub exists) via the pure ``use_cases.profile_select.derive_for_state``,
-        which delegates to ``metric_profile.profile_for_series``: the axes whose
-        spread in this series clears the local instrument's noise floor. Stored
-        ONLY in ``state.algorithms_profile`` so the Algorithms rank fusion, the
-        local rows/dots and the Jev vector of THIS backend read one axis set —
-        the VLM judge's answer lives in ``state.ai_profile`` and is never touched
-        here (backend-isolation invariant I1). Called at every site where
+        ADR 009 A2: the Algorithms **adapter** makes and owns this profile
+        (``backends.algorithms`` → ``use_cases.profile_select.derive_profile``,
+        i.e. the same builder as before); the controller only supplies the
+        series (mode + the folder's items + whether a source hub exists) and asks
+        the adapter to install the result in its own slot. Stored ONLY in
+        ``state.algorithms_profile`` so the Algorithms rank fusion, the local
+        rows/dots and the Jev vector of THIS backend read one axis set — the VLM
+        judge's answer lives in ``state.ai_profile`` and is never touched here
+        (backend-isolation invariant I1). Called at every site where
         ``state.mode`` is (re)decided and at the metrics-settled boundary — the
         metrics are the spread input, so the series offer cannot be derived
         before they exist; until then the mode mapping is stored and traced as
@@ -671,26 +676,48 @@ class GalleryController:
         plan §Product decision), so nothing overrides the derivation.
         """
         try:
+            from tabs.image_gallery.backends import ProfileRequest
+            from tabs.image_gallery.backends.composition import backend
+            from tabs.image_gallery.backends.context import (
+                SeriesContext,
+                item_key_of,
+            )
             from tabs.image_gallery.services.metric_profile import (
                 DOMAIN_ALGORITHMS,
-                profile_for_domain,
+                mode_id,
             )
             from tabs.image_gallery.use_cases.profile_select import (
-                derive_for_state,
                 describe,
                 describe_source,
             )
 
-            profile = derive_for_state(self.state)
             try:
-                previous = profile_for_domain(self.state, DOMAIN_ALGORITHMS)
+                # Every producer/reader reaches this folder's items through the
+                # duck-typed seam: a legacy double without ``state.items``
+                # derives from an empty series (the mode mapping), as before.
+                items = tuple(getattr(self.state, "items", None) or ())
+            except Exception:
+                items = ()
+            algorithms = backend(DOMAIN_ALGORITHMS)
+            algorithms.make_profile(
+                ProfileRequest(
+                    mode=mode_id(getattr(self.state, "mode", None)),
+                    member_keys=tuple(item_key_of(item) for item in items),
+                    has_reference=getattr(self.state, "source_path", None) is not None,
+                ),
+                context=SeriesContext(members=items),
+            )
+            profile = algorithms.profile
+            if profile is None:
+                return algorithms.load_profile(self.state)
+            try:
+                previous = algorithms.load_profile(self.state)
             except Exception:
                 previous = None
-            # Store the raw derived profile verbatim (a successful derivation
-            # is always a usable ``MetricProfile``, even with no salience). This
-            # slot is the Algorithms backend's ALONE: the AI slot is written by
-            # the judge's landing path, so there is nothing to guard here.
-            self.state.algorithms_profile = profile
+            # The adapter writes its OWN slot: the Algorithms slot can only ever
+            # hold a locally derived profile (the AI slot is written by the
+            # judge's landing path through the AI adapter).
+            algorithms.install(self.state, profile)
             if profile != previous:
                 logger.debug(
                     "[gallery] algorithms profile: %s",
@@ -713,7 +740,12 @@ class GalleryController:
         except Exception:
             logger.debug("metric profile refresh failed", exc_info=True)
             try:
-                return profile_for_domain(self.state, DOMAIN_ALGORITHMS)
+                from tabs.image_gallery.backends.composition import backend
+                from tabs.image_gallery.services.metric_profile import (
+                    DOMAIN_ALGORITHMS,
+                )
+
+                return backend(DOMAIN_ALGORITHMS).load_profile(self.state)
             except Exception:
                 return None
 
@@ -722,21 +754,30 @@ class GalleryController:
 
         Two backends, two slots: a folder change discards the local derivation
         AND the judge's answer, so neither backend serves an axis set measured on
-        the previous folder. Consumers fall back to the mode mapping
-        (``profile_select.active_profile``) until the next
+        the previous folder. Each adapter drops the profile generations it made
+        (``reset``) and this method clears the slots the adapters write — a later
+        ``measure``/``rank`` against a dropped generation is ``NoProfileYet``, not
+        a measurement under the previous folder's axis set. Consumers fall back to
+        the mode mapping (``profile_select.active_profile``) until the next
         ``refresh_metric_profile`` derivation / judge answer. Never raises.
         """
         try:
+            from tabs.image_gallery.backends.composition import backend
             from tabs.image_gallery.services.metric_profile import (
+                DOMAIN_AI,
                 DOMAIN_ALGORITHMS,
-                profile_for_domain,
             )
             from tabs.image_gallery.use_cases.profile_select import describe
 
             try:
-                previous = profile_for_domain(self.state, DOMAIN_ALGORITHMS)
+                previous = backend(DOMAIN_ALGORITHMS).load_profile(self.state)
             except Exception:
                 previous = None
+            for domain in (DOMAIN_ALGORITHMS, DOMAIN_AI):
+                try:
+                    backend(domain).reset()
+                except Exception:
+                    logger.debug("backend reset failed domain=%s", domain, exc_info=True)
             self.state.algorithms_profile = None
             self.state.ai_profile = None
             if previous is not None:
@@ -1307,7 +1348,9 @@ class GalleryController:
             )
             return
         try:
-            self.state.ai_profile = profile
+            from tabs.image_gallery.backends.composition import backend
+
+            backend(DOMAIN_AI).install(self.state, profile)
         except Exception:
             logger.debug("AI metric profile store failed", exc_info=True)
             return
