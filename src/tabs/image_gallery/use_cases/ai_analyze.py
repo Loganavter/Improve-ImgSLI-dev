@@ -29,6 +29,7 @@ from tabs.image_gallery.use_cases.action_context import (
     REFUSAL_NOT_CONFIGURED,
     ActionContext,
     Refusal,
+    current_backend,
     point_context,
 )
 from tabs.image_gallery.use_cases.profile_select import active_profile
@@ -138,7 +139,11 @@ def analysis_identity_for(owner, *, ctx: ActionContext | None = None) -> dict:  
         except Exception:
             mode = None
         try:
-            profile = active_profile(state) if state is not None else None
+            profile = (
+                active_profile(state, domain=current_backend(owner))
+                if state is not None
+                else None
+            )
         except Exception:
             profile = None
         effort = None

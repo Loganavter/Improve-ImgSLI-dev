@@ -60,7 +60,8 @@ class _Owner:
         self.state = SimpleNamespace(
             items=[GalleryItem(path=path, mtime_ns=0) for path in paths],
             mode="camera",
-            metric_profile=profile_for_mode("camera"),
+            algorithms_profile=profile_for_mode("camera"),
+            ai_profile=None,
             profile_reject_reason="",
         )
         self._judgment_domain = "ai"
@@ -143,7 +144,7 @@ def test_cache_only_analyze_keeps_the_generation_open_and_applies_the_answer(
     with caplog.at_level(logging.DEBUG, logger=APP_LOGGER_NAME):
         owner._apply_profile_outcome(VLM_PROFILE, owner._folder_gen)
 
-    assert owner.state.metric_profile is VLM_PROFILE, (
+    assert owner.state.ai_profile is VLM_PROFILE, (
         "the axis-set answer must be applied inside the same generation when no "
         "request was built under the previous set"
     )
@@ -159,7 +160,8 @@ def test_reply_after_a_built_request_is_rejected_with_a_visible_reason(
     """(b) a built request still freezes the generation — and says why."""
     paths = (Path("/gallery/miss_1.png"), Path("/gallery/miss_2.png"))
     owner = _Owner(paths)
-    heuristic = owner.state.metric_profile
+    heuristic = owner.state.algorithms_profile
+    assert owner.state.ai_profile is None
 
     _drive_analyze(monkeypatch, owner, hit=False)
 
@@ -173,9 +175,12 @@ def test_reply_after_a_built_request_is_rejected_with_a_visible_reason(
     with caplog.at_level(logging.DEBUG, logger=APP_LOGGER_NAME):
         owner._apply_profile_outcome(VLM_PROFILE, owner._folder_gen)
 
-    assert owner.state.metric_profile is heuristic, (
+    assert owner.state.ai_profile is None, (
         "a reply landing after a request was built may not re-key that "
         "generation's scorecards"
+    )
+    assert owner.state.algorithms_profile is heuristic, (
+        "the AI drop must not touch the Algorithms backend's own slot"
     )
     assert owner.state.profile_reject_reason == PROFILE_REJECT_CALLS_BUILT, (
         "a dropped axis-set answer is a LOSS the UI must be able to show, with "
@@ -204,12 +209,13 @@ def test_the_freeze_is_generation_scoped_so_the_next_folder_still_accepts(
 
     # The folder changed: a fresh state, a new generation, nothing consumed.
     owner._folder_gen = 2
-    owner.state.metric_profile = profile_for_mode("camera")
+    owner.state.algorithms_profile = profile_for_mode("camera")
+    owner.state.ai_profile = None
     owner.state.profile_reject_reason = ""
 
     owner._apply_profile_outcome(VLM_PROFILE, 2)
 
-    assert owner.state.metric_profile is VLM_PROFILE, (
+    assert owner.state.ai_profile is VLM_PROFILE, (
         "the freeze must not survive its generation: an all-HIT or empty next "
         "folder would never receive the model's axis set"
     )
@@ -229,7 +235,7 @@ def test_a_failed_selector_marks_the_cards_and_keeps_no_local_axes() -> None:
 
     paths = (Path("/gallery/a.png"), Path("/gallery/b.png"))
     owner = _Owner(paths)
-    before = owner.state.metric_profile
+    before = owner.state.ai_profile
     owner._profile_failed_gen = None
 
     owner._apply_profile_outcome(None, owner._folder_gen)
@@ -243,6 +249,6 @@ def test_a_failed_selector_marks_the_cards_and_keeps_no_local_axes() -> None:
             "a card with no AI axis set must say so, not show camera numbers"
         )
         assert item.analysis_error and "AI" in item.analysis_error
-    assert owner.state.metric_profile == before, (
+    assert owner.state.ai_profile == before, (
         "the failed call must not replace the stored profile with anything"
     )

@@ -122,7 +122,7 @@ reachable via the explicit Analyze action.
 | 1 | **AI analysis** (per image) | `services/ai_client/__init__.py:96` | `settings.model` | image bytes + axis list | `item.analysis` (scorecard + defects) |
 | 2 | **Jev rank** (per series) | `jev_client.py:446` | **hard-coded `typesafe/jev-router`** | measured vector, **no images** | `rank_source="jev"` |
 | 3 | **Series priority** | `series_priority.py:130` | **hard-coded `typesafe/jev-router`** | per-series aggregate signals | `state.series_priority` |
-| 4 | **VLM profile selector** (per folder) | `use_cases/profile_ai.py:303` | `settings.model` | probe images + salience | `state.metric_profile` (`source="vlm"`) |
+| 4 | **VLM profile selector** (per folder) | `use_cases/profile_ai.py:303` | `settings.model` | probe images + salience | `state.ai_profile` (`source="vlm"`) |
 | 5 | **Ask AI** (advisory) | `services/ask_router.py:298` | `settings.model` | text or images by question kind | `ask_log` (never mutates rank) |
 
 All five go through **one transport**: `ai_client/transport.py:152`
@@ -172,15 +172,21 @@ flowchart LR
         V["judge<br/>profile_ai.choose_profile_sync<br/>3..8 free-form axes named for this series"]
         F["mode fallback<br/>metric_profile.profile_for_mode<br/>no discriminating measurement yet"]
     end
-    S --> ST["state.metric_profile"]
-    V --> ST
-    F --> ST
-    ST --> C1["dots / rows<br/>rank_fusion.measured_axes_for"]
-    ST --> C2["scorecard prompt axes<br/>ai_client/prompt.py (registry + judged)"]
-    ST --> C3["fusion rank<br/>rank_fusion.rank_series"]
-    ST --> C4["Jev measured vector<br/>jev_client.py"]
-    ST --> C5["per-axis provenance<br/>profile_judged.axis_provenance"]
+    S --> A["state.algorithms_profile"]
+    F --> A
+    V --> B["state.ai_profile"]
+    A --> C1["dots / rows<br/>rank_fusion.measured_axes_for"]
+    A --> C3["fusion rank<br/>rank_fusion.rank_series"]
+    B --> C2["scorecard prompt axes<br/>ai_client/prompt.py (registry + judged)"]
+    B --> C4["Jev measured vector<br/>jev_client.py"]
+    A --> C5["per-axis provenance<br/>profile_judged.axis_provenance"]
+    B --> C5
 ```
+
+Two backends, two slots (backend-isolation invariant I1): the local derivation
+writes `state.algorithms_profile`, the judge writes `state.ai_profile`, and every
+consumer reads its own slot through `metric_profile.profile_for_domain`. A
+foreign-tagged profile is a loud `ForeignProfileError`, never a silent cross-read.
 
 `source` is one of three values (`PROFILE_SOURCES` in
 `services/metric_profile.py`):

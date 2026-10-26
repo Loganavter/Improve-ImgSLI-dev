@@ -93,7 +93,7 @@ class _TerminalCtrl:
             series=list(groups),
             items=list(items),
             mode=Mode.FIDELITY,
-            metric_profile=None,
+            algorithms_profile=None, ai_profile=None,
             rank_domain="algorithms",
         )
         self._judgment_domain = "ai"

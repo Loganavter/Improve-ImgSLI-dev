@@ -128,7 +128,10 @@ def _analysis_parameters(owner) -> dict:
 
     Mode + active profile + reasoning effort are read ONCE here, so downstream
     code never re-reads them (the reason a result could be stored under a
-    configuration other than the one that produced it).
+    configuration other than the one that produced it). The profile is the slot
+    of THIS action's backend (``profile_for_domain``), so an AI action carries
+    the judge's axis set and an Algorithms action the local derivation — never
+    the other backend's.
 
     The settings read is marked ``# action-context:`` because it exists ONLY to
     snapshot the effort the request will use — it never selects a backend.
@@ -138,10 +141,11 @@ def _analysis_parameters(owner) -> dict:
         mode = getattr(state, "mode", None) if state is not None else None
     except Exception:
         mode = None
+    backend = current_backend(owner)
     try:
         from tabs.image_gallery.use_cases.profile_select import active_profile
 
-        profile = active_profile(state) if state is not None else None
+        profile = active_profile(state, domain=backend) if state is not None else None
     except Exception:
         profile = None
     effort = None
@@ -151,7 +155,7 @@ def _analysis_parameters(owner) -> dict:
     except Exception:
         effort = None
     return {
-        "backend": current_backend(owner),
+        "backend": backend,
         "profile": profile,
         "mode": mode,
         "effort": effort,

@@ -43,14 +43,15 @@ class _Owner:
 
     def __init__(self, items, *, folder=Path("/folder")) -> None:
         self.state = SimpleNamespace(
-            items=list(items), folder=folder, metric_profile=None
+            items=list(items), folder=folder, algorithms_profile=None, ai_profile=None
         )
         self._last_analysis_fingerprint: object = ("stale",)
         self.cleared = 0
 
     def clear_metric_profile(self) -> None:
         self.cleared += 1
-        self.state.metric_profile = None
+        self.state.algorithms_profile = None
+        self.state.ai_profile = None
 
 
 @pytest.fixture
@@ -101,13 +102,13 @@ def test_clear_defeats_the_skip(tmp_path, caches) -> None:
     item._ai_cache_checked = True
 
     owner = _Owner([item])
-    owner.state.metric_profile = MetricProfile(
+    owner.state.ai_profile = MetricProfile(
         axis_ids=("ssim",), mode="fidelity", source="vlm"
     )
     # Seed the disk caches the reset must invalidate.
     ai_cache.save_analysis(img, mtime, item.analysis, IDENTITY)
     key = profile_cache.profile_cache_key([item], mode="fidelity", model="test/model")
-    profile_cache.default_cache().put(key, owner.state.metric_profile)
+    profile_cache.default_cache().put(key, owner.state.ai_profile)
     assert list(ai_dir.glob("*.json"))
     assert list(pins.glob("profile_*.json"))
 
@@ -115,7 +116,8 @@ def test_clear_defeats_the_skip(tmp_path, caches) -> None:
 
     # The fingerprint gate would otherwise skip the whole re-measure.
     assert owner._last_analysis_fingerprint is None
-    assert owner.state.metric_profile is None
+    assert owner.state.algorithms_profile is None
+    assert owner.state.ai_profile is None
     assert owner.cleared == 1
     assert list(pins.glob("profile_*.json")) == []
     assert list(ai_dir.glob("*.json")) == []

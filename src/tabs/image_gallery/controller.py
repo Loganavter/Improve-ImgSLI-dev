@@ -132,11 +132,13 @@ _pipeline_stages.register_stage(_JEV_STAGE, requires=("metrics_ready",))
 #: Declared gallery stage for the VLM metric-profile selector. Its declared
 #: input is the settled measured-metrics pass (the salience/probe input); the
 #: controller drives it ONLY from that settle, and the single-flight gate
-#: dedups. The series-derived offer ``refresh_metric_profile`` stores FIRST stays
-#: the fallback (plan-gallery-ai-judgement P5: ``source=series`` →
+#: dedups. The two backends keep separate slots (backend-isolation invariant
+#: I1): ``refresh_metric_profile`` writes the series-derived offer to
+#: ``algorithms_profile`` (plan-gallery-ai-judgement P5: ``source=series`` →
 #: ``series-derived``, or the mode mapping marked ``(fallback)`` when nothing was
-#: measured yet); the selector may only REPLACE it with a ``source="vlm"``
-#: profile once it answers — the judge's own choice wins, and the trace says so.
+#: measured yet), and the selector writes its ``source="vlm"`` answer to
+#: ``ai_profile`` — the judge's own choice is the AI backend's, never a
+#: replacement for the local one.
 _PROFILE_STAGE = "metric_profile"
 _pipeline_stages.register_stage(_PROFILE_STAGE, requires=("metrics_ready",))
 
@@ -632,28 +634,29 @@ class GalleryController:
     def refresh_metric_profile(self) -> object:
         """Derive the SERIES offer from the live state and store it (P1 → P5).
 
-        The **producer** half of the profile seam: derived from ``self.state``
-        (mode + the folder's measured metrics + whether a source hub exists) via
-        the pure ``use_cases.profile_select.derive_for_state``, which delegates
-        to ``metric_profile.profile_for_series``: the axes whose spread in this
-        series clears the local instrument's noise floor. Stored on the state so
-        the rank fusion, the prompt and the Jev measured vector read ONE axis
-        set. Called at every site where ``state.mode`` is (re)decided and at the
-        metrics-settled boundary — the metrics are the spread input, so the
-        series offer cannot be derived before they exist; until then the mode
-        mapping is stored and traced as the LAST fallback
-        (``profile_source_label`` → ``heuristic-<mode> (fallback)``).
+        The **Algorithms producer** half of the profile seam: derived from
+        ``self.state`` (mode + the folder's measured metrics + whether a source
+        hub exists) via the pure ``use_cases.profile_select.derive_for_state``,
+        which delegates to ``metric_profile.profile_for_series``: the axes whose
+        spread in this series clears the local instrument's noise floor. Stored
+        ONLY in ``state.algorithms_profile`` so the Algorithms rank fusion, the
+        local rows/dots and the Jev vector of THIS backend read one axis set —
+        the VLM judge's answer lives in ``state.ai_profile`` and is never touched
+        here (backend-isolation invariant I1). Called at every site where
+        ``state.mode`` is (re)decided and at the metrics-settled boundary — the
+        metrics are the spread input, so the series offer cannot be derived
+        before they exist; until then the mode mapping is stored and traced as
+        the LAST fallback (``profile_source_label`` →
+        ``heuristic-<mode> (fallback)``).
 
-        Precedence (plan-gallery-ai-judgement P5/P7-B, stated, TRACED and
-        enforced here): the judge's own choice wins while it is current
-        (``_apply_profile_outcome``, ``source=vlm`` → ``judge-vlm``); a later
-        settle of the SAME folder+mode does not replace it with the series offer
-        (the bug this guard closes: the paid answer vanished mid-session). This
-        series offer is the fallback (``source=series`` → ``series-derived``);
-        the mode mapping is the last one and says so. Returns the stored profile.
-        Never raises: a derivation failure keeps the previous value (or
-        ``None``), so consumers fall back to the mode mapping (fail-open,
-        plan §Fallback).
+        Two slots, two owners (plan-gallery-ai-judgement P5/P7-B): the judge's
+        choice is ``_apply_profile_outcome``'s to keep in ``ai_profile``, so a
+        later settle of the same folder re-derives the local offer without
+        discarding the paid answer. This series offer is the fallback
+        (``source=series`` → ``series-derived``); the mode mapping is the last
+        one and says so. Returns the stored Algorithms profile. Never raises: a
+        derivation failure keeps the previous value (or ``None``), so consumers
+        fall back to the mode mapping (fail-open, plan §Fallback).
 
         This is the **automatic** path only: the manual domain pin and the
         stats-strip chip that drove it were deleted (owner decision 2026-10-20,
@@ -661,7 +664,8 @@ class GalleryController:
         """
         try:
             from tabs.image_gallery.services.metric_profile import (
-                PROFILE_SOURCE_VLM,
+                DOMAIN_ALGORITHMS,
+                profile_for_domain,
             )
             from tabs.image_gallery.use_cases.profile_select import (
                 derive_for_state,
@@ -671,46 +675,26 @@ class GalleryController:
 
             profile = derive_for_state(self.state)
             try:
-                previous = getattr(self.state, "metric_profile", None)
+                previous = profile_for_domain(self.state, DOMAIN_ALGORITHMS)
             except Exception:
                 previous = None
-            # The JUDGE's answer owns the slot for this folder + mode
-            # (plan-gallery-ai-judgement P7-B; task-gallery-profile-lifecycle):
-            # a later metrics/slot settle derives the series offer again, and
-            # overwriting a landed ``source="vlm"`` profile with it silently
-            # discarded the paid answer the user was looking at. A folder change
-            # clears the slot (``clear_metric_profile``) and a mode change makes
-            # ``profile.mode`` differ, so both still derive a fresh offer.
-            # The MODE is not a discriminator (owner rule 2026-10-26): in the AI
-            # backend the axis set never depended on it, and the judge's answer
-            # may carry no mode at all (the live 07:10 run: ``mode=-`` because the
-            # selector ran before ``state.mode`` was set). Comparing it here made
-            # the heuristic offer overwrite the paid answer eleven seconds later,
-            # which is exactly the "снова все метрики из camera режима" report.
-            if (
-                previous is not None
-                and str(getattr(previous, "source", "")) == PROFILE_SOURCE_VLM
-            ):
-                try:
-                    _ai_debug(
-                        "profile kept: the judge's axes own this folder/mode — %s",
-                        describe(self.state),
-                    )
-                except Exception:
-                    pass
-                return previous
             # Store the raw derived profile verbatim (a successful derivation
-            # is always a usable ``MetricProfile``, even with no salience).
-            self.state.metric_profile = profile
+            # is always a usable ``MetricProfile``, even with no salience). This
+            # slot is the Algorithms backend's ALONE: the AI slot is written by
+            # the judge's landing path, so there is nothing to guard here.
+            self.state.algorithms_profile = profile
             if profile != previous:
-                logger.debug("[gallery] metric profile: %s", describe(self.state))
+                logger.debug(
+                    "[gallery] algorithms profile: %s",
+                    describe(self.state, domain=DOMAIN_ALGORITHMS),
+                )
                 # P5: the offer's SOURCE is a fact, not an implementation
                 # detail — the trace names which of the three decided it.
                 try:
                     _ai_debug(
-                        "profile source: %s — %s",
-                        describe_source(self.state),
-                        describe(self.state),
+                        "algorithms profile source: %s — %s",
+                        describe_source(self.state, domain=DOMAIN_ALGORITHMS),
+                        describe(self.state, domain=DOMAIN_ALGORITHMS),
                     )
                 except Exception:
                     pass
@@ -721,26 +705,37 @@ class GalleryController:
         except Exception:
             logger.debug("metric profile refresh failed", exc_info=True)
             try:
-                return getattr(self.state, "metric_profile", None)
+                return profile_for_domain(self.state, DOMAIN_ALGORITHMS)
             except Exception:
                 return None
 
     def clear_metric_profile(self) -> None:
-        """Invalidate the stored metric profile (folder changed — plan P1).
+        """Invalidate BOTH stored metric profiles (folder changed — plan P1).
 
-        Consumers fall back to the mode mapping (``profile_select.active_profile``)
-        until the next ``refresh_metric_profile`` derivation. Never raises.
+        Two backends, two slots: a folder change discards the local derivation
+        AND the judge's answer, so neither backend serves an axis set measured on
+        the previous folder. Consumers fall back to the mode mapping
+        (``profile_select.active_profile``) until the next
+        ``refresh_metric_profile`` derivation / judge answer. Never raises.
         """
         try:
+            from tabs.image_gallery.services.metric_profile import (
+                DOMAIN_ALGORITHMS,
+                profile_for_domain,
+            )
             from tabs.image_gallery.use_cases.profile_select import describe
 
             try:
-                previous = getattr(self.state, "metric_profile", None)
+                previous = profile_for_domain(self.state, DOMAIN_ALGORITHMS)
             except Exception:
                 previous = None
-            self.state.metric_profile = None
+            self.state.algorithms_profile = None
+            self.state.ai_profile = None
             if previous is not None:
-                logger.debug("[gallery] metric profile: %s", describe(self.state))
+                logger.debug(
+                    "[gallery] algorithms profile: %s",
+                    describe(self.state, domain=DOMAIN_ALGORITHMS),
+                )
         except Exception:
             logger.debug("metric profile clear failed", exc_info=True)
 
@@ -824,10 +819,11 @@ class GalleryController:
         Declared stage ``_PROFILE_STAGE``, gated on the settled measured-metrics
         pass (the same metrics_ready input ``_JEV_STAGE`` declares): the
         salience/probe input is the measured-metrics pass that just settled, so
-        this is the only place the selector is driven from. The heuristic
-        profile ``refresh_metric_profile`` already stored is the fail-open
-        fallback (plan §Fallback) — this kick may only REPLACE it with a
-        ``source="vlm"`` profile once the selector answers. Never raises and
+        this is the only place the selector is driven from. The series offer
+        ``refresh_metric_profile`` already stored in ``algorithms_profile`` is
+        the local backend's own answer; this kick writes the judge's
+        ``source="vlm"`` profile to ``ai_profile`` only (backend-isolation
+        invariant I1). Never raises and
         never blocks the UI thread: unavailable selector / AI not usable / <2
         items → a no-op; the single-flight gate dedups a second settle for the
         same ``(stage, folder_gen)``.
@@ -903,21 +899,27 @@ class GalleryController:
                 except Exception:
                     filled = 0
             # A complete analysis cache answers "do the cards have numbers", not
-            # "did the model choose the axes". While the resolved profile is the
-            # HEURISTIC fallback, skipping here means the VLM can never pick the
-            # metrics for a warm folder (owner report 2026-10-26: a fully cached
-            # folder kept heuristic axes forever). Ask once instead; a successful
-            # reply pins the profile in ``profile_cache``, so the next open
-            # short-circuits with source=vlm.
+            # "did the model choose the axes". Only the AI slot's judge answer
+            # (``source="vlm"``) may short-circuit here — the Algorithms
+            # derivation is irrelevant to the AI backend's question (invariant
+            # I1), and an EMPTY AI slot must still ask. A successful reply pins
+            # the profile in ``profile_cache``, so the next open short-circuits
+            # with source=vlm.
+            _judge_answered = False
+            _source = ""
             try:
-                from tabs.image_gallery.use_cases.profile_select import (
-                    describe_source as _describe_source,
+                from tabs.image_gallery.services.metric_profile import (
+                    DOMAIN_AI,
+                    PROFILE_SOURCE_VLM,
+                    profile_for_domain,
                 )
 
-                _source = str(_describe_source(self.state) or "")
+                _ai_profile = profile_for_domain(self.state, DOMAIN_AI)
+                _source = str(getattr(_ai_profile, "source", "") or "")
+                _judge_answered = bool(_ai_profile) and _source == PROFILE_SOURCE_VLM
             except Exception:
                 _source = ""
-            if not _source.startswith("heuristic"):
+            if _judge_answered:
                 _ai_debug(
                     "analysis cache complete: %d/%d entries for this identity — no "
                     "profile request, no analyze (gen=%s, filled=%d, source=%s)",
@@ -929,9 +931,9 @@ class GalleryController:
                 )
                 return
             _ai_debug(
-                "analysis cache complete but the profile is %s — asking the selector "
+                "analysis cache complete but the AI profile is %s — asking the selector "
                 "(%d/%d, gen=%s, filled=%d)",
-                _source,
+                _source or "empty",
                 int(probe.get("cached", 0) or 0),
                 int(probe.get("total", 0) or 0),
                 self._folder_gen,
@@ -1134,7 +1136,7 @@ class GalleryController:
             logger.debug("metric profile freeze stamp failed", exc_info=True)
 
     def _apply_profile_outcome(self, profile, gen: int) -> None:
-        """Apply a VLM-selected metric profile (P2) or keep the heuristic.
+        """Apply a VLM-selected metric profile (P2) or keep the AI slot empty.
 
         Drops a stale result (the folder changed), a reply the Algorithms domain
         owns, and a late one (an AI request of this generation was ALREADY built
@@ -1149,24 +1151,29 @@ class GalleryController:
 
         A usable profile — any object with a non-empty axis set (registry ids
         AND/OR axes the judge named, ``bool(profile)``), canonically a
-        ``MetricProfile`` with ``source="vlm"`` — is stored on the SAME
-        ``state.metric_profile`` slot the P1 producer writes, the existing
+        ``MetricProfile`` with ``source="vlm"`` — is stored in
+        ``state.ai_profile``, the AI backend's OWN slot (backend-isolation
+        invariant I1). It never touches ``state.algorithms_profile``, which the
+        P1 producer owns: the local derivation keeps ranking the Algorithms
+        domain while the judge's axes rank the AI one. The existing
         ``[gallery]``/``[ai]`` profile line is emitted (naming ``source=vlm`` and
         the judged axes), and the cards are refreshed like the neighbouring
-        apply-tails. A missing profile is a no-op (the heuristic profile
-        ``refresh_metric_profile`` stored FIRST remains — fail-open); a non-empty
-        reply with no usable axis is a no-op WITH a visible reason.
+        apply-tails. A missing profile is an ERROR in the AI backend (owner rule
+        2026-10-26); a non-empty reply with no usable axis is a no-op WITH a
+        visible reason.
 
         P7-A: a free axis (name + definition, no local producer) is the normal
         answer, so emptiness is asked of the PROFILE, never of ``axis_ids`` —
         otherwise a judge that named only its own axes would be reported hollow.
         """
         from tabs.image_gallery.services.metric_profile import (
+            DOMAIN_AI,
             PROFILE_REJECT_CALLS_BUILT,
             PROFILE_REJECT_DOMAIN,
             PROFILE_REJECT_FAILED,
             PROFILE_REJECT_HOLLOW,
             PROFILE_REJECT_STALE,
+            domain_of,
         )
 
         if not self._is_current_folder_gen(gen):
@@ -1239,14 +1246,26 @@ class GalleryController:
                     self,
                     PROFILE_REJECT_HOLLOW,
                     "the reply named no usable axis (no name with a definition, "
-                    "no measurable registry id) — heuristic profile kept",
+                    "no measurable registry id) — AI slot left empty",
                     gen,
                 )
             return
+        if domain_of(profile) != DOMAIN_AI:
+            # The AI slot accepts the JUDGE's answer only. A series/heuristic
+            # profile here would let the Algorithms derivation fuel the AI prompt
+            # (invariant I1), so it is a named rejection, not a silent store.
+            _note_profile_reject(
+                self,
+                PROFILE_REJECT_DOMAIN,
+                f"the reply is {domain_of(profile)!r}-tagged, not a judge answer "
+                "(source=vlm) — the AI slot takes the model's own axis set only",
+                gen,
+            )
+            return
         try:
-            self.state.metric_profile = profile
+            self.state.ai_profile = profile
         except Exception:
-            logger.debug("metric profile store failed", exc_info=True)
+            logger.debug("AI metric profile store failed", exc_info=True)
             return
         _clear_profile_reject(self)
         try:
@@ -1255,11 +1274,15 @@ class GalleryController:
                 describe_source,
             )
 
-            line = describe(self.state)
-            logger.debug("[gallery] metric profile: %s", line)
+            line = describe(self.state, domain=DOMAIN_AI)
+            logger.debug("[gallery] AI metric profile: %s", line)
             # P5 precedence: the judge's own choice won over the series offer —
             # the trace says which source decided, not merely which axes won.
-            _ai_debug("profile source: %s — %s", describe_source(self.state), line)
+            _ai_debug(
+                "AI profile source: %s — %s",
+                describe_source(self.state, domain=DOMAIN_AI),
+                line,
+            )
             GalleryController._trace_axis_provenance(self, profile)
         except Exception:
             logger.debug("metric profile describe failed", exc_info=True)
@@ -1374,7 +1397,20 @@ class GalleryController:
         # reads its own registry half from its own spreads and keeps the judge's
         # axes, so an axis that does not move inside a series carries no weight
         # there. One series is the folder; there is nothing to resolve.
-        folder_profile = getattr(self.state, "metric_profile", None)
+        #
+        # algorithms_profile is the Algorithms backend's slot ALONE
+        # (backend-isolation invariant I1); the judge's answer lives in
+        # ai_profile and cannot leak into this order.
+        try:
+            from tabs.image_gallery.services.metric_profile import (
+                DOMAIN_ALGORITHMS,
+                profile_for_domain,
+            )
+
+            folder_profile = profile_for_domain(self.state, DOMAIN_ALGORITHMS)
+        except Exception:
+            logger.debug("algorithms profile read failed", exc_info=True)
+            folder_profile = None
         per_series: dict[int, object] = {}
         if len(groups) > 1:
             try:
@@ -1515,7 +1551,7 @@ class GalleryController:
                     if _locked(m)
                 ),
                 current_backend(self),
-                getattr(getattr(self.state, "metric_profile", None), "source", None),
+                getattr(folder_profile, "source", None),
             )
         except Exception:
             pass
@@ -1904,6 +1940,20 @@ class GalleryController:
             _tail_decided()
             return
         mode = getattr(self.state, "mode", None)
+        # The AI backend's OWN axis set (backend-isolation invariant I1): the Jev
+        # vector is the AI rank's input and must never be built from the local
+        # Algorithms profile. An empty slot is no profile here (mode mapping at
+        # most); the selector's failure path already marks the cards.
+        try:
+            from tabs.image_gallery.services.metric_profile import (
+                DOMAIN_AI,
+                profile_for_domain,
+            )
+
+            ai_profile = profile_for_domain(self.state, DOMAIN_AI)
+        except Exception:
+            logger.debug("AI profile read failed for the Jev vector", exc_info=True)
+            ai_profile = None
         try:
             vis = getattr(self.widget, "visible_paths", None)
             visible = vis() if callable(vis) else None
@@ -1927,7 +1977,7 @@ class GalleryController:
                 members,
                 mode,
                 str(getattr(self, "_judgment_domain", "algorithms")),
-                profile=getattr(self.state, "metric_profile", None),
+                profile=ai_profile,
             )
             # Readiness is the APPLICABLE MEASURED VECTOR of EVERY member (J1,
             # plan-gallery-ai-judgement P1): an axis Jev cannot score must not
@@ -1949,7 +1999,7 @@ class GalleryController:
             # The target trace line of the plan: a rank is dispatched on a
             # COMPLETE matrix (every member carries a reading), one per series.
             _ai_debug("jev rank complete=%d/%d (profile=%s)", scored, total,
-                      getattr(getattr(self.state, "metric_profile", None), "source", "") or "heuristic")
+                      getattr(ai_profile, "source", "") or "heuristic")
             ready.append((members, vector))
         if not ready:
             _ai_debug(
@@ -2253,10 +2303,21 @@ class GalleryController:
             return
 
         mode = getattr(self.state, "mode", None)
-        # Snapshot the stored metric profile (plan P1) on the UI thread — the
-        # worker closure must read the axis set that was live when the rank was
-        # queued, not whatever a later state replacement left behind.
-        profile = getattr(self.state, "metric_profile", None)
+        # Snapshot the AI backend's OWN metric profile (plan P1) on the UI
+        # thread — the worker closure must read the axis set that was live when
+        # the rank was queued, not whatever a later state replacement left
+        # behind. ``ai_profile`` (never the Algorithms slot): the Jev rank is the
+        # AI backend's measurement (invariant I1).
+        try:
+            from tabs.image_gallery.services.metric_profile import (
+                DOMAIN_AI,
+                profile_for_domain,
+            )
+
+            profile = profile_for_domain(self.state, DOMAIN_AI)
+        except Exception:
+            logger.debug("AI profile snapshot failed for Jev", exc_info=True)
+            profile = None
         _ai_debug(
             "jev rank scheduled: series items=%d mode=%s",
             len(members), getattr(mode, "value", mode),
@@ -2560,16 +2621,36 @@ class GalleryController:
         ranker provenance it can actually observe. Never raises.
         """
         if profile is None:
+            # Two backends, two slots: name the axes of EACH, so the log says
+            # which set drives the local order and which one the judge's. A
+            # single profile argument (the AI landing path passes its own) is
+            # traced as given, never re-read from the other slot.
             try:
-                profile = getattr(self.state, "metric_profile", None)
+                from tabs.image_gallery.services.metric_profile import (
+                    DOMAIN_AI,
+                    DOMAIN_ALGORITHMS,
+                    profile_for_domain,
+                )
+
+                profiles = [("algorithms", profile_for_domain(self.state, DOMAIN_ALGORITHMS))]
+                try:
+                    ai_profile = profile_for_domain(self.state, DOMAIN_AI)
+                except Exception:
+                    ai_profile = None
+                if ai_profile is not None:
+                    profiles.append(("ai", ai_profile))
             except Exception:
-                profile = None
+                profiles = [("algorithms", None)]
+        else:
+            profiles = [(None, profile)]
         try:
             from tabs.image_gallery.use_cases.profile_ai import (
                 describe_axis_provenance,
             )
 
-            _ai_debug("profile axes: %s", describe_axis_provenance(profile))
+            for domain, profile in profiles:
+                label = f"profile axes [{domain}]" if domain else "profile axes"
+                _ai_debug("%s: %s", label, describe_axis_provenance(profile))
         except Exception:
             logger.debug("axis provenance trace failed", exc_info=True)
             return
@@ -2961,12 +3042,16 @@ class GalleryController:
         not a credential store (see ``services/ask_log.py``).
         """
         from tabs.image_gallery.services.ai_cache import analysis_cache_identity
+        from tabs.image_gallery.services.metric_profile import (
+            DOMAIN_AI,
+            profile_for_domain,
+        )
 
         try:
             identity = analysis_cache_identity(
                 settings,
                 mode=(context or {}).get("mode"),
-                profile=getattr(self.state, "metric_profile", None),
+                profile=profile_for_domain(self.state, DOMAIN_AI),
                 reasoning_effort=getattr(settings, "reasoning_effort", None),
             )
         except Exception:

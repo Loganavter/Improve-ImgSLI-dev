@@ -418,22 +418,33 @@ class GalleryState:
     mode: Mode | None = None
     source_path: Path | None = None
     triage_state: TriageState = TriageState.IDLE
-    #: The LIVE metric profile of the folder — the axis subset its series are
-    #: measured/scored on (``services.metric_profile.MetricProfile``). Derived by
-    #: the controller when the mode/metrics settle (plan
-    #: ``plan-adaptive-metric-profiles-2026-10-17`` P1) and read by the rank
-    #: fusion and the Jev measured vector. Transient view state (same status as
+    #: The Algorithms backend's metric profile — the axis subset the local
+    #: detectors measured and the deterministic fusion ranks on
+    #: (``services.metric_profile.MetricProfile``; ``source`` = ``series`` |
+    #: ``heuristic``). Written ONLY by the local derivation
+    #: (``controller.refresh_metric_profile``). The two judgment backends never
+    #: share this slot (backend-isolation invariant I1): the VLM judge answers
+    #: into ``ai_profile``. Transient view state (same status as
     #: ``judgment_domain``): NOT persisted to the session slot. ``None`` =
-    #: nothing derived yet → consumers fall back to the mode mapping
-    #: (``use_cases.profile_select.active_profile``), i.e. the pre-P1 behaviour.
-    metric_profile: MetricProfile | None = None
+    #: nothing derived yet → consumers read this slot through
+    #: ``services.metric_profile.profile_for_domain`` and fall back to the mode
+    #: mapping (``use_cases.profile_select.active_profile``).
+    algorithms_profile: MetricProfile | None = None
+    #: The AI backend's metric profile — the axis set the VLM judge NAMED for
+    #: this folder (``source="vlm"``). Written ONLY by the judge's landing path
+    #: (``controller._apply_profile_outcome``); read by the AI prompt, the Jev
+    #: measured vector and the AI-domain dots/rows through
+    #: ``services.metric_profile.profile_for_domain(state, "ai")``. ``None`` =
+    #: the model has not named an axis set yet (an ERROR in the AI backend, never
+    #: a reason to borrow the Algorithms slot). Transient, like the other slot.
+    ai_profile: MetricProfile | None = None
     #: Why the last VLM axis-set answer was NOT applied to this folder's
     #: generation (``""`` = nothing was rejected). One of
     #: ``services.metric_profile.PROFILE_REJECT_CODES`` — a CODE, not prose, so a
     #: surface can localize it; the trace line carries the human detail
     #: (``controller._apply_profile_outcome``). Exists because a dropped profile
     #: is a loss the user paid for (plan-gallery-ai-judgement P2/M5) and used to
-    #: be one debug line. Transient view state, like ``metric_profile``.
+    #: be one debug line. Transient view state, like the profile slots.
     profile_reject_reason: str = ""
     # Stage 3 VLM caches (mirrors disk cache in vlm_cache)
     tie_breaks: dict[str, TieBreakResult] = field(default_factory=dict)

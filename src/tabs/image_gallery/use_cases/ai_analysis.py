@@ -640,7 +640,12 @@ def start_pairwise_refinement(owner, *, series=None, judge=None) -> bool:
     epoch = domain_epoch(owner)
     try:
         mode = getattr(getattr(owner, "state", None), "mode", None)
-        profile = getattr(getattr(owner, "state", None), "metric_profile", None)
+        from tabs.image_gallery.services.metric_profile import (
+            DOMAIN_AI,
+            profile_for_domain,
+        )
+
+        profile = profile_for_domain(getattr(owner, "state", None), DOMAIN_AI)
     except Exception:
         mode = None
         profile = None

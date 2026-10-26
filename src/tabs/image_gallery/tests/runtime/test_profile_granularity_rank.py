@@ -430,7 +430,8 @@ def test_a_multi_group_folder_logs_one_profile_line_per_series(monkeypatch, capl
             items=[m for g in groups for m in g.members],
             series=groups,
             mode="camera",
-            metric_profile=seed,
+            algorithms_profile=seed,
+            ai_profile=None,
             source_path=None,
         ),
         _judgment_domain="algorithms",
@@ -473,7 +474,7 @@ def test_the_axis_count_is_stated_in_the_log_and_the_strip(monkeypatch, caplog, 
     strip = StatsStrip()
     qtbot.addWidget(strip)
     owner = SimpleNamespace(
-        state=SimpleNamespace(metric_profile=profile),
+        state=SimpleNamespace(algorithms_profile=None, ai_profile=profile),
         widget=SimpleNamespace(stats_strip=strip),
     )
 

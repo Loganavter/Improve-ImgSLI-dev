@@ -102,6 +102,87 @@ PROFILE_SOURCES: tuple[str, ...] = (
     PROFILE_SOURCE_FALLBACK,
 )
 
+#: The two judgment domains and the ONE state slot each backend owns
+#: (backend-isolation invariant I1). A profile is DOMAIN-TAGGED by its provenance:
+#: a judge answer (``source="vlm"``) belongs to the AI backend; the series offer
+#: and the mode mapping (``source="series"`` | ``"heuristic"``) belong to the
+#: Algorithms backend. There is no third tag, so a profile is never unowned — and
+#: the heuristic/mode mapping is legal ONLY in ``algorithms_profile``.
+DOMAIN_ALGORITHMS = "algorithms"
+DOMAIN_AI = "ai"
+PROFILE_DOMAINS: tuple[str, ...] = (DOMAIN_ALGORITHMS, DOMAIN_AI)
+
+#: ``GalleryState`` slot names. Read through :func:`profile_for_domain`, never as
+#: a bare attribute: a stale reader of the deleted single slot fails loudly.
+ALGORITHMS_PROFILE_SLOT = "algorithms_profile"
+AI_PROFILE_SLOT = "ai_profile"
+
+
+class ForeignProfileError(ValueError):
+    """A slot holds a profile the OTHER backend derived (invariant I1 broken)."""
+
+
+def domain_of(profile) -> str:
+    """The domain a profile belongs to, from its provenance. Never raises.
+
+    ``vlm`` → :data:`DOMAIN_AI`; everything else (``series`` | ``heuristic`` |
+    an absent/garbled source) → :data:`DOMAIN_ALGORITHMS`, because the local
+    derivation is the only Algorithms producer and a profile with no judge
+    provenance carries local axes.
+    """
+    try:
+        source = str(getattr(profile, "source", "") or "").strip().lower()
+    except Exception:
+        source = ""
+    return DOMAIN_AI if source == PROFILE_SOURCE_VLM else DOMAIN_ALGORITHMS
+
+
+def profile_slot(domain) -> str:
+    """The state slot name for *domain*; ``ValueError`` for anything else."""
+    dom = str(domain or "").strip().lower()
+    if dom == DOMAIN_ALGORITHMS:
+        return ALGORITHMS_PROFILE_SLOT
+    if dom == DOMAIN_AI:
+        return AI_PROFILE_SLOT
+    raise ValueError(
+        f"unknown profile domain {domain!r}; expected one of {PROFILE_DOMAINS!r}"
+    )
+
+
+def profile_for_domain(state, domain):
+    """The metric profile the *domain* backend owns — the ONE slot reader.
+
+    Every consumer (dots, rows, Algorithms rank input, Jev measured vector, AI
+    prompt/cache identity) reads its axis set here, so the two backends can never
+    read each other's measurements:
+
+    - ``"algorithms"`` → ``state.algorithms_profile`` (series offer / mode mapping);
+    - ``"ai"`` → ``state.ai_profile`` (the VLM judge's own axis set);
+    - an EMPTY slot → ``None``: "this backend has not answered yet". Callers fall
+      back to their own behaviour (the Algorithms mode mapping; the AI path is an
+      error, never the local axis set);
+    - an UNKNOWN domain → ``ValueError``; a profile whose tag does not match the
+      slot → :class:`ForeignProfileError`. Both are loud on purpose: silently
+      returning the other backend's profile is exactly the leak I1 forbids.
+    """
+    slot = profile_slot(domain)
+    try:
+        profile = getattr(state, slot, None) if state is not None else None
+    except Exception:
+        profile = None
+    if profile is None:
+        return None
+    tag = domain_of(profile)
+    wanted = str(domain or "").strip().lower()
+    if tag != wanted:
+        raise ForeignProfileError(
+            f"state.{slot} holds a {tag}-tagged profile (source="
+            f"{getattr(profile, 'source', '?')!r}); the {wanted} backend must "
+            "not read it"
+        )
+    return profile
+
+
 #: Why a VLM axis-set answer was NOT applied to the folder generation
 #: (``GalleryState.profile_reject_reason``, plan-gallery-ai-judgement P2/M5:
 #: "every loss is a visible state with a cause"). Codes, never prose — a surface
@@ -442,11 +523,17 @@ def format_profile(profile) -> str:
 
 
 __all__ = [
+    "AI_PROFILE_SLOT",
+    "ALGORITHMS_PROFILE_SLOT",
     "AXIS_PROVENANCE",
+    "DOMAIN_AI",
+    "DOMAIN_ALGORITHMS",
     "EXCLUDED_AXES",
+    "ForeignProfileError",
     "MEASURED_POOL",
     "MODES",
     "PHOTO_TAG",
+    "PROFILE_DOMAINS",
     "PROFILE_REJECT_CALLS_BUILT",
     "PROFILE_REJECT_CODES",
     "PROFILE_REJECT_DOMAIN",
@@ -462,11 +549,14 @@ __all__ = [
     "MetricProfile",
     "axis_provenance",
     "axis_spreads",
+    "domain_of",
     "format_profile",
     "judged_axis_entries",
     "mode_id",
     "pool_axis_ids",
+    "profile_for_domain",
     "profile_for_mode",
     "profile_for_series",
+    "profile_slot",
     "profile_source_label",
 ]

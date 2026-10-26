@@ -78,7 +78,7 @@ def _cache_dir(tmp_path, monkeypatch) -> Path:
 def _owner(settings, started: list) -> SimpleNamespace:
     """A minimal analyze-path owner: settings, mode, card refresh, begin seam."""
     return SimpleNamespace(
-        state=SimpleNamespace(mode="camera", metric_profile=None, items=[]),
+        state=SimpleNamespace(mode="camera", algorithms_profile=None, ai_profile=None, items=[]),
         widget=SimpleNamespace(refresh_card=lambda it: None),
         _judgment_domain="ai",
         _ai_settings_store=SimpleNamespace(load=lambda: settings),
@@ -140,7 +140,7 @@ def test_analyze_item_never_serves_a_pre_identity_entry(tmp_path, monkeypatch) -
 
     started: list = []
     owner = SimpleNamespace(
-        state=SimpleNamespace(mode="camera", metric_profile=None, items=[]),
+        state=SimpleNamespace(mode="camera", algorithms_profile=None, ai_profile=None, items=[]),
         widget=SimpleNamespace(refresh_card=lambda it: None),
         _judgment_domain="ai",
         _ai_settings_store=SimpleNamespace(load=lambda: _settings(model="model/B")),
@@ -213,7 +213,7 @@ def test_analyze_item_hits_its_own_backend(tmp_path, monkeypatch) -> None:
 
     started: list = []
     owner = SimpleNamespace(
-        state=SimpleNamespace(mode="camera", metric_profile=None, items=[]),
+        state=SimpleNamespace(mode="camera", algorithms_profile=None, ai_profile=None, items=[]),
         widget=SimpleNamespace(refresh_card=lambda it: None),
         _judgment_domain="ai",
         _ai_settings_store=SimpleNamespace(load=lambda: _settings()),
