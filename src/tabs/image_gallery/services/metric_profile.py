@@ -96,9 +96,13 @@ MODES: tuple[str, ...] = ("fidelity", "camera", "batch_synthetic")
 PROFILE_SOURCE_SERIES = "series"
 PROFILE_SOURCE_VLM = "vlm"
 PROFILE_SOURCE_FALLBACK = "heuristic"
+#: The AI backend's axis set is not resolved yet: an explicit EMPTY profile, so
+#: no consumer can fall back to the mode mapping (owner rule 2026-10-26).
+PROFILE_SOURCE_PENDING = "pending"
 PROFILE_SOURCES: tuple[str, ...] = (
     PROFILE_SOURCE_SERIES,
     PROFILE_SOURCE_VLM,
+    PROFILE_SOURCE_PENDING,
     PROFILE_SOURCE_FALLBACK,
 )
 
@@ -113,10 +117,6 @@ PROFILE_SOURCES: tuple[str, ...] = (
 #: ``domain-algorithms`` the Algorithms domain owns the profile derivation;
 #: ``stale-generation`` the folder changed while the selector was in flight;
 #: ``hollow-answer``    the reply named no usable pool axis (heuristic kept).
-#: The AI backend's axis set is not resolved yet: an explicit EMPTY profile, so
-#: no consumer can fall back to the mode mapping (owner rule 2026-10-26).
-PROFILE_SOURCE_PENDING = "pending"
-
 PROFILE_REJECT_CALLS_BUILT = "calls-built"
 PROFILE_REJECT_DOMAIN = "domain-algorithms"
 PROFILE_REJECT_STALE = "stale-generation"
