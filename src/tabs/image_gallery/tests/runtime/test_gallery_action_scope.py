@@ -581,3 +581,47 @@ def test_card_context_call_site_analyzes_every_selected_target(monkeypatch) -> N
     captured["on_triggered"]("gallery.selection.analyze", None)
     assert analyzed == [a, b, c]
 
+
+
+# --- the widening cannot come back -----------------------------------------
+#
+# The behaviour tests above would still pass if a future edit re-introduced
+# ``paths=None`` at ONE of the two reset call sites while the other kept the
+# scope (each test fires one entry). This structural guard names the exact
+# bypass that produced the 2026-10-27 report: a resolved ``ActionContext`` is
+# passed to ``reset_metrics_caches`` as ``paths=None`` instead of its targets.
+# It is red on the parent tree (both call sites read ``paths=None``).
+
+
+def _called_with_paths_none(fn, call_name: str) -> bool:
+    """True when *fn*'s source calls ``call_name(..., paths=None)``."""
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name != call_name:
+            continue
+        for kw in node.keywords:
+            if kw.arg == "paths" and isinstance(kw.value, ast.Constant):
+                if kw.value.value is None:
+                    return True
+        if any(isinstance(a, ast.Constant) and a.value is None for a in node.args):
+            return True
+    return False
+
+
+def test_no_reset_entry_widens_a_resolved_scope_to_the_pool() -> None:
+    from tabs.image_gallery.ui.card import context_actions
+    from tabs.image_gallery.use_cases import gallery_actions
+
+    assert not _called_with_paths_none(
+        gallery_actions.reset_metrics, "reset_metrics_caches"
+    ), "gallery_actions.reset_metrics must pass the context's targets, never None"
+    assert not _called_with_paths_none(
+        context_actions._ctx_reset_metrics, "reset_metrics_caches"
+    ), "_ctx_reset_metrics must pass the resolved targets, never None"
