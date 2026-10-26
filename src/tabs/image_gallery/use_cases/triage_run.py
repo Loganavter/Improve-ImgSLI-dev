@@ -601,6 +601,17 @@ def _run_ai_on_settle(owner) -> None:
     """
     if str(getattr(owner, "_judgment_domain", "algorithms") or "").strip().lower() != "ai":
         return
+    # Owner rule 2026-10-26: when this generation's axis profile FAILED, the
+    # cards carry the error and NOTHING is analysed — the model has no axis set
+    # to answer, and the local numbers are not a substitute. (Live 07:49: the
+    # profile call was refused (HTTP 403), and the batch went out anyway.)
+    try:
+        failed = getattr(owner, "_profile_failed_gen", None)
+        if failed is not None and int(failed) == int(getattr(owner, "_folder_gen", -1)):
+            logger.debug("ai analysis withheld: this generation's profile failed")
+            return
+    except Exception:
+        pass
     runner = getattr(owner, "_run_ai_for_visible", None)
     if callable(runner):
         try:
@@ -622,6 +633,15 @@ def _run_jev_on_settle(owner) -> None:
     """
     from tabs.image_gallery.use_cases.analysis_batch import dispatch_terminal_rank
 
+    # Same gate as the analysis tail: no rank is dispatched for a generation
+    # whose axis profile failed (there is nothing measured to rank on).
+    try:
+        failed = getattr(owner, "_profile_failed_gen", None)
+        if failed is not None and int(failed) == int(getattr(owner, "_folder_gen", -1)):
+            logger.debug("jev rank withheld: this generation's profile failed")
+            return
+    except Exception:
+        pass
     dispatch_terminal_rank(owner)
 
 
