@@ -113,6 +113,10 @@ PROFILE_SOURCES: tuple[str, ...] = (
 #: ``domain-algorithms`` the Algorithms domain owns the profile derivation;
 #: ``stale-generation`` the folder changed while the selector was in flight;
 #: ``hollow-answer``    the reply named no usable pool axis (heuristic kept).
+#: The AI backend's axis set is not resolved yet: an explicit EMPTY profile, so
+#: no consumer can fall back to the mode mapping (owner rule 2026-10-26).
+PROFILE_SOURCE_PENDING = "pending"
+
 PROFILE_REJECT_CALLS_BUILT = "calls-built"
 PROFILE_REJECT_DOMAIN = "domain-algorithms"
 PROFILE_REJECT_STALE = "stale-generation"
@@ -395,6 +399,8 @@ def profile_source_label(profile) -> str:
         source = str(getattr(profile, "source", "") or "").strip().lower()
     except Exception:
         source = ""
+    if source == PROFILE_SOURCE_PENDING:
+        return "judge-pending (no axes yet)"
     if source == PROFILE_SOURCE_VLM:
         return "judge-vlm"
     if source == PROFILE_SOURCE_SERIES:

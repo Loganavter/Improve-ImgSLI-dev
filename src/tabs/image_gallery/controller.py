@@ -704,14 +704,27 @@ class GalleryController:
                         pass
                     return previous
                 try:
-                    self.state.metric_profile = None
+                    from tabs.image_gallery.services.metric_profile import (
+                        MetricProfile as _MP,
+                        PROFILE_SOURCE_PENDING as _PENDING,
+                    )
+
+                    # NEVER "no profile": an absent profile is what fell back to the
+                    # mode mapping everywhere. An explicit EMPTY profile is the
+                    # pending state — no dots, no rows, no rank, and nothing local
+                    # to mistake for an answer (owner rule 2026-10-26).
+                    self.state.metric_profile = _MP(
+                        axis_ids=(),
+                        mode=str(getattr(self.state, "mode", "") or ""),
+                        source=_PENDING,
+                    )
                 except Exception:
-                    pass
+                    logger.debug("pending profile store failed", exc_info=True)
                 _ai_debug(
                     "profile pending: the AI backend takes its axes from the judge — "
                     "no local offer is derived"
                 )
-                return None
+                return getattr(self.state, "metric_profile", None)
             profile = derive_for_state(self.state)
             try:
                 previous = getattr(self.state, "metric_profile", None)
@@ -1353,9 +1366,11 @@ class GalleryController:
             # re-run the tail so they are re-analysed under the judge's set. The
             # per-card cache MISSes exactly on those (axis check), and cards that
             # already answer them stay HITs.
-            _ai_debug(
-                "profile applied late: re-analysing the cards that answer other "
-                "axes (gen=%s)",
+            # INFO, not the AI-debug channel: a paid answer arriving after the
+            # batch started is a real event in a normal run.
+            logger.info(
+                "[gallery] profile applied late: re-analysing the cards that "
+                "answer other axes (gen=%s)",
                 gen,
             )
             try:
