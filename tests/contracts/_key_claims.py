@@ -47,11 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tests.contracts._framework import SRC, parse, rel
-from ui.actions.keymap import (
-    all_effective_chords,
-    effective_shortcut_for_id,
-    normalize_sequence,
-)
+from ui.actions.keymap import all_effective_chords, normalize_sequence
 
 #: ``Qt.Key`` names whose portable chord text is not just the stripped suffix.
 _NAMED_KEYS = {
@@ -210,15 +206,6 @@ def discover_claims(root: Path | None = None) -> tuple[KeyClaim, ...]:
     return tuple(sorted(claims, key=lambda c: (c.chord, c.path, c.line)))
 
 
-def claims_in_scope(claims: tuple[KeyClaim, ...], tab: str | None) -> tuple[KeyClaim, ...]:
-    """Claims that hold inside ``tab``'s window scope (or platform-only)."""
-    if tab is None:
-        return tuple(claim for claim in claims if claim.scope is None)
-    return tuple(
-        claim for claim in claims if claim.scope is None or claim.scope == tab
-    )
-
-
 def reserved_clashes(
     defaults: dict[str, tuple[str | None, str | None]],
     claims: tuple[KeyClaim, ...],
@@ -272,9 +259,7 @@ __all__ = [
     "KeyClaim",
     "ReservedClash",
     "catalog_defaults",
-    "claims_in_scope",
     "discover_claims",
-    "effective_shortcut_for_id",
     "portable_key",
     "reserved_clashes",
     "scope_of",

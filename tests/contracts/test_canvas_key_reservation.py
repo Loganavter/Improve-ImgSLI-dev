@@ -24,7 +24,6 @@ import pytest
 from tests.contracts._key_claims import (
     KeyClaim,
     catalog_defaults,
-    claims_in_scope,
     discover_claims,
     portable_key,
     reserved_clashes,
@@ -166,12 +165,3 @@ def test_portable_key_names(attribute, chord):
 )
 def test_scope_attribution_is_structural(path, scope):
     assert scope_of(path) == scope
-
-
-def test_claims_in_scope_keeps_shared_code_out_of_platform_only():
-    claims = (_claim("D", "image_compare"), _claim("Space", None))
-    assert {claim.chord for claim in claims_in_scope(claims, "image_compare")} == {
-        "D",
-        "Space",
-    }
-    assert {claim.chord for claim in claims_in_scope(claims, None)} == {"Space"}
