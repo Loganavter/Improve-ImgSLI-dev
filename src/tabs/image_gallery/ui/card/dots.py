@@ -370,7 +370,7 @@ def metric_dots_for_item(
             band = str(score_band(score)).lower()
         except Exception:
             band = "bad"
-        colors.append(_severity_color(_BAND_SEVERITY.get(band, "clean")))
+        colors.append(_severity_color(_BAND_SEVERITY.get(band, "unmeasured")))
         infos.append((label, score))
     return tuple(colors), tuple(infos)
 
