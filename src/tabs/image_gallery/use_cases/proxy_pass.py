@@ -1,4 +1,5 @@
 """Unified Stage-2 proxy pass for the Image Gallery controller (Wave 3).
+Audit-Meta: pattern=stage2-delivery size=exempt reason="one Stage-2 delivery seam: the chunk launcher, its reset-barrier token (captured in the same closure), the in-worker cancel probe and the path fan-out into the apply tails must stay together or a cancellation token lands in a second module and pre-reset chunks leak again"
 
 Thin-owner helpers: plain functions taking the owner (``GalleryController``).
 One chunked single-pass ``GenericWorker`` per 50 items decodes each file once

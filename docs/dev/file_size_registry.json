@@ -1283,11 +1283,11 @@
       "path": "src/tabs/image_gallery/use_cases/proxy_pass.py",
       "limit": 500,
       "marker": "Audit-Meta:",
-      "raw": "pattern=batch-contract size=542 reason=\"one Stage-2 batch contract: chunk scheduling, the proxy decode, the engine records and the reset-token landing guard describe one pass; splitting them lets a pre-reset chunk persist after the barrier.\"",
+      "raw": "pattern=stage2-delivery size=exempt reason=\"one Stage-2 delivery seam: the chunk launcher, its reset-barrier token (captured in the same closure), the in-worker cancel probe and the path fan-out into the apply tails must stay together or a cancellation token lands in a second module and pre-reset chunks leak again\"",
       "parsed": {
-        "pattern": "batch-contract",
-        "size": "542",
-        "reason": "one Stage-2 batch contract: chunk scheduling, the proxy decode, the engine records and the reset-token landing guard describe one pass; splitting them lets a pre-reset chunk persist after the barrier."
+        "pattern": "stage2-delivery",
+        "size": "exempt",
+        "reason": "one Stage-2 delivery seam: the chunk launcher, its reset-barrier token (captured in the same closure), the in-worker cancel probe and the path fan-out into the apply tails must stay together or a cancellation token lands in a second module and pre-reset chunks leak again"
       }
     },
     {

@@ -984,6 +984,10 @@ class GalleryController:
             return
         mode = getattr(self.state, "mode", None)
         gen = self._folder_gen
+        #: The judgment-domain token this selector runs under. A metrics reset
+        #: (``cache_reset``, 2026-10-26) or a domain switch bumps it; a reply that
+        #: arrives after it must not install an axis set the user invalidated.
+        epoch = int(getattr(self, "_domain_epoch", 0) or 0)
         # Content key: the folder generation + member count is enough to make
         # two settles over the same folder one single-flight pass (the selector
         # lane pins the full content fingerprint in its own cache).
@@ -1001,12 +1005,14 @@ class GalleryController:
         snapshot = list(items)
         released = {"done": False}
 
-        def _release(ok: bool) -> None:
+        def _release(ok: bool, *, resume: bool = True) -> None:
             """Release the stage gate exactly once (idempotent, never raises).
 
             The release is also the moment the settle's deferred AI/Jev tails
             resume: the generation's profile is final from here on (a landed
-            vlm profile, the heuristic fallback, or a stale-drop).
+            vlm profile, the heuristic fallback, or a stale-drop). ``resume``
+            is False only for a reply invalidated by a reset — that pass must
+            not re-enter the rebuild.
             """
             if released["done"]:
                 return
@@ -1016,12 +1022,14 @@ class GalleryController:
                     gate.finished(_PROFILE_STAGE, gen, ok=bool(ok))
             except Exception:
                 logger.debug("metric profile gate finished failed", exc_info=True)
+            if not resume:
+                return
             # Duck-typed (thin-owner seam): a legacy double without the
             # resumption keeps working, it simply has no deferred tail.
-            resume = getattr(self, "_resume_settle_after_profile", None)
-            if callable(resume):
+            resume_fn = getattr(self, "_resume_settle_after_profile", None)
+            if callable(resume_fn):
                 try:
-                    resume(gen)
+                    resume_fn(gen)
                 except Exception:
                     logger.debug("settle tail resume failed", exc_info=True)
 
@@ -1032,9 +1040,22 @@ class GalleryController:
 
         worker = GenericWorker(_job)
 
-        def _on_result(profile, gen=gen):
+        def _on_result(profile, gen=gen, epoch=epoch):
             if not self._is_current_folder_gen(gen):
                 _release(True)  # stale scope: release the gate, apply nothing
+                return
+            from tabs.image_gallery.use_cases.ai_analysis import _epoch_is_current
+
+            if not _epoch_is_current(self, epoch, domain=None):
+                # A metrics reset (or a domain switch) while the selector was in
+                # flight: the answer describes an axis set the user threw away.
+                # Release WITHOUT resuming the deferred settle — the reset
+                # zeroes, it does not re-enter the rebuild (owner decisions
+                # 2026-10-22 / 2026-10-26).
+                _ai_debug(
+                    "metric profile dropped: measurements invalidated while in flight"
+                )
+                _release(False, resume=False)
                 return
             self._apply_profile_outcome(profile, gen)
             _release(True)
@@ -1043,15 +1064,30 @@ class GalleryController:
             if not self._is_current_folder_gen(gen):
                 _release(True)
                 return
+            from tabs.image_gallery.use_cases.ai_analysis import _epoch_is_current
+
+            if not _epoch_is_current(self, epoch, domain=None):
+                # The pass the reset cancelled failed: neither an error to keep
+                # retryable in the cleared world nor a reason to resume its tail.
+                _release(False, resume=False)
+                return
             logger.debug("metric profile selector error: %r", error_info, exc_info=True)
             # A fault keeps the fingerprint retryable (ok=False).
             _release(False)
 
+        def _on_finished(epoch=epoch):
+            # A None reply emits no ``result``: the job's benign non-answer still
+            # completes the stage so a re-settle over the same folder is a no-op.
+            from tabs.image_gallery.use_cases.ai_analysis import _epoch_is_current
+
+            if not _epoch_is_current(self, epoch, domain=None):
+                _release(False, resume=False)
+                return
+            _release(True)
+
         worker.signals.result.connect(_on_result)
         worker.signals.error.connect(_on_error)
-        # A None reply emits no ``result``: the job's benign non-answer still
-        # completes the stage so a re-settle over the same folder is a no-op.
-        worker.signals.finished.connect(lambda: _release(True))
+        worker.signals.finished.connect(_on_finished)
         try:
             self._pool_start(worker, None)
         except Exception:
