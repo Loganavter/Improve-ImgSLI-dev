@@ -23,6 +23,10 @@ the same way instead of each inventing a resolution rule:
   records, so an envelope's records stay attributable to their item without
   inventing a second per-axis record vocabulary (the records themselves are the
   gallery engine's ``AxisValue``).
+* :func:`require_axes` is the ONE "an axis-less profile is no profile" rule: it
+  raises ``NoProfileYet`` naming the owning backend, so A3's dead fallback (an
+  empty AI profile used to answer with the local mode mapping) cannot come back
+  as a silent default in a third place.
 
 Pure: no Qt, no HTTP, no state.
 """
@@ -33,6 +37,7 @@ import hashlib
 from dataclasses import dataclass
 
 from .contract import BackendDescriptor, OwnedProfile
+from .errors import NoProfileYet
 
 #: The payload version every adapter declares and stamps on its artifacts. The
 #: profile/envelope payloads are A1's shapes; a future shape change bumps this
@@ -118,6 +123,21 @@ def profile_axes(profile) -> tuple[str, ...]:
     return tuple(out)
 
 
+def require_axes(profile, *, backend_id: str, operation: str) -> tuple[str, ...]:
+    """The profile's own axis set, or ``NoProfileYet``.
+
+    An axis-less profile is *no profile*: it has nothing to measure, nothing to
+    rank and nothing to ask a model for. ADR 009 A3 makes that refusal typed at
+    the adapter boundary instead of letting the caller fall back to the local
+    mode mapping — "empty" and "diverted to the other backend's axes" must not
+    be the same answer (owner rule 2026-10-26, ``ANALYSIS_BACKENDS.md`` §5).
+    """
+    axes = profile_axes(profile)
+    if not axes:
+        raise NoProfileYet(backend_id=backend_id, operation=operation)
+    return axes
+
+
 def profile_identity(descriptor: BackendDescriptor, profile) -> str:
     """A stable id for *profile* within *descriptor*'s backend.
 
@@ -160,5 +180,6 @@ __all__ = [
     "owned_profile",
     "profile_axes",
     "profile_identity",
+    "require_axes",
     "select_members",
 ]

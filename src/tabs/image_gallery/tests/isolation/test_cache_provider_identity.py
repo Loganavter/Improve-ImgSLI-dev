@@ -38,6 +38,7 @@ from tabs.image_gallery.services import ai_cache, jev_cache, series_priority, vl
 from tabs.image_gallery.services.ai_cache import analysis_cache_identity
 from tabs.image_gallery.services.ai_client.parse import parse_response
 from tabs.image_gallery.services.jev_client import rank_series_jev_detailed
+from tabs.image_gallery.services.metric_profile import MetricProfile
 from tabs.image_gallery.services.rank_fusion import rank_series
 from tabs.image_gallery.use_cases import pairwise_rank
 from tabs.image_gallery.use_cases.pairwise_rank import (
@@ -187,6 +188,29 @@ def _jev_chat(decision: dict) -> dict:
     return {"choices": [{"message": {"content": json.dumps(decision)}}]}
 
 
+def _priority_profile():
+    """The AI backend's axis set the priority payload aggregates over (A3).
+
+    ``services.series_priority`` takes the profile as an argument and refuses
+    without one (no local aggregate may enter the AI payload), so the pin test
+    states the axis set it routes. The items carry no scorecard, so the payload
+    has no aggregates — the pin identity is about the endpoint + the series ids,
+    which is exactly what this test asserts.
+    """
+    return MetricProfile(
+        mode="camera",
+        source="vlm",
+        axis_entries=(
+            SimpleNamespace(
+                name="halation",
+                definition="glow at bright edges",
+                scale="0-100",
+                direction="lower-is-better",
+            ),
+        ),
+    )
+
+
 def _priority_series():
     def _camera(name: str, sharp: float, noise: float):
         return SimpleNamespace(path=Path(f"/gallery/{name}"), metrics={
@@ -334,18 +358,34 @@ def test_series_priority_pin_is_a_miss_on_another_endpoint(tmp_path) -> None:
         calls.append(payload)
         return _jev_chat({"ranking": ["series_2", "series_1"]})
 
+    profile = _priority_profile()
     first = series_priority.route_series_priority_detailed(
-        series, mode="camera", client=_client, cache=cache, base_url=ENDPOINT_A
+        series,
+        mode="camera",
+        client=_client,
+        cache=cache,
+        base_url=ENDPOINT_A,
+        profile=profile,
     )
     assert first.decided and len(calls) == 1
 
     again = series_priority.route_series_priority_detailed(
-        series, mode="camera", client=_client, cache=cache, base_url=ENDPOINT_A
+        series,
+        mode="camera",
+        client=_client,
+        cache=cache,
+        base_url=ENDPOINT_A,
+        profile=profile,
     )
     assert again.cached is True and len(calls) == 1
 
     switched = series_priority.route_series_priority_detailed(
-        series, mode="camera", client=_client, cache=cache, base_url=ENDPOINT_B
+        series,
+        mode="camera",
+        client=_client,
+        cache=cache,
+        base_url=ENDPOINT_B,
+        profile=profile,
     )
     assert switched.decided and switched.cached is False
     assert len(calls) == 2, "provider B was served provider A's priority pin"

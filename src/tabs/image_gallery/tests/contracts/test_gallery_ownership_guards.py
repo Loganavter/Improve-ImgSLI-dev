@@ -100,10 +100,10 @@ ALLOWLIST: dict[tuple[str, int], str] = {
     # storeless tail because ``state`` is a duck-typed GalleryState/SimpleNamespace
     # double in the primitives-only tests, and the slot NAME comes from the
     # descriptor, not from a literal the guard could read.
-    ("src/tabs/image_gallery/backends/algorithms/profile.py", 150): (
+    ("src/tabs/image_gallery/backends/algorithms/profile.py", 174): (
         "AlgorithmsBackend.install writes its OWN state slot (ADR 009 A2 ownership)"
     ),
-    ("src/tabs/image_gallery/backends/ai/profile.py", 160): (
+    ("src/tabs/image_gallery/backends/ai/profile.py", 181): (
         "AIBackend.install writes its OWN state slot (ADR 009 A2 ownership)"
     ),
     # --- controller/owner attr probe loops (W4) ---

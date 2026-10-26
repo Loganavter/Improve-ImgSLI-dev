@@ -12,6 +12,7 @@ The public surface later waves consume::
     MeasurementEnvelope(backend_id, schema_version, profile_id, records)
     registry[backend_id]      # KeyError when unknown
     iter_backends()
+    PAIRWISE_CAPABILITY                          # the one optional capability name
     require_capability(descriptor, name)          # CapabilityNotDeclared
     assert_envelope_owned(descriptor, envelope)   # BackendMismatch
     errors: BackendMismatch, NoProfileYet, CapabilityNotDeclared, SchemaMismatch,
@@ -31,6 +32,7 @@ from .contract import (
     MeasurementEnvelope,
     MeasureRequest,
     OwnedProfile,
+    PAIRWISE_CAPABILITY,
     ProfileRequest,
     RankRequest,
     RankResult,
@@ -59,6 +61,7 @@ __all__ = [
     "MeasurementEnvelope",
     "NoProfileYet",
     "OwnedProfile",
+    "PAIRWISE_CAPABILITY",
     "ProfileRequest",
     "RankRequest",
     "RankResult",

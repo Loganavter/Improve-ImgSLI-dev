@@ -57,6 +57,7 @@ from typing import Any, Callable
 
 from tabs.image_gallery.services import jev_cache
 from tabs.image_gallery.services.ai_client import _ai_debug
+from tabs.image_gallery.backends.errors import NoProfileYet
 from tabs.image_gallery.services.axis_proposal import direction_of
 from tabs.image_gallery.services.jev_axes import payload_axes, scored_axis_names
 from tabs.image_gallery.services.profile_judged import scorecard_axis_ids
@@ -102,6 +103,10 @@ JEV_REASON_NOUL = "AI (Jev) abstained (Noul) — kept the Algorithms rank"
 JEV_REASON_LOW_CONFIDENCE = "AI (Jev) was not confident enough — kept the Algorithms rank"
 JEV_REASON_ERROR = "AI (Jev) request failed — kept the Algorithms rank"
 JEV_REASON_MALFORMED = "AI (Jev) returned an unusable response — kept the Algorithms rank"
+#: The AI backend has no axis set yet (an empty/absent profile): the measured
+#: vector would carry no axis, and the LOCAL axis set is not a substitute (ADR
+#: 009 A3). A named "not ready", never a malformed answer.
+JEV_REASON_NO_PROFILE = "AI (Jev): no axis set yet — kept the Algorithms rank"
 #: A vector carrying fewer than two axes (P7-B / P6): one number cannot order
 #: variants, and the live ranker responded by GUESSING the axis' direction
 #: ("Noise higher = better? ... likely quality, higher better", owner log
@@ -908,6 +913,11 @@ def rank_series_jev_detailed(
         return JevRankOutcome(None, reason=JEV_REASON_EMPTY)
     try:
         vector = build_measured_vector(member_list, mode=mode, domain=domain, profile=profile)
+    except NoProfileYet:
+        # The AI backend has no axis set: nothing to measure, nothing to send —
+        # and never the local axis set (ADR 009 A3).
+        _ai_debug("jev rank skip: no axis set (NoProfileYet)")
+        return JevRankOutcome(None, reason=JEV_REASON_NO_PROFILE)
     except Exception:
         logger.debug("jev rank vector build failed", exc_info=True)
         return JevRankOutcome(None, reason=JEV_REASON_MALFORMED)

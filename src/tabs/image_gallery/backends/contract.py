@@ -40,6 +40,12 @@ from typing import Mapping, Protocol
 
 from .errors import BackendMismatch, CapabilityNotDeclared, SchemaMismatch
 
+#: The one OPTIONAL capability the gallery requests by name: the A/B (pairwise)
+#: refinement of a near-tie top set. Only the judge's domain has it (the pass is
+#: VLM work), so a caller asks the descriptor instead of assuming the feature is
+#: shared — ``require_capability(descriptor, PAIRWISE_CAPABILITY)``.
+PAIRWISE_CAPABILITY = "pairwise"
+
 
 @dataclass(frozen=True)
 class BackendDescriptor:
@@ -253,6 +259,7 @@ __all__ = [
     "MeasureRequest",
     "MeasurementEnvelope",
     "OwnedProfile",
+    "PAIRWISE_CAPABILITY",
     "ProfileRequest",
     "RankRequest",
     "RankResult",

@@ -2335,6 +2335,23 @@ class GalleryController:
         base_url = str(getattr(settings, "base_url", ""))
         api_key = str(getattr(settings, "api_key", ""))
         epoch = int(getattr(self, "_domain_epoch", 0) or 0)
+        # The AI backend's OWN axis set, snapshotted on the UI thread (the Jev
+        # vector's rule, same seam): the payload's aggregates are the judge's
+        # numbers over this profile, so there are no signals to route while the
+        # selector has not answered — the hint is cleared instead of being built
+        # from the Algorithms profile (ADR 009 A3, ``series_priority``).
+        try:
+            from tabs.image_gallery.backends.composition import backend as _backend
+            from tabs.image_gallery.services.metric_profile import DOMAIN_AI
+
+            profile = _backend(DOMAIN_AI).load_profile(self.state)
+        except Exception:
+            logger.debug("AI profile snapshot failed for series priority", exc_info=True)
+            profile = None
+        if profile is None:
+            _ai_debug("series priority skipped: no AI axis set yet")
+            self._clear_series_priority()
+            return
 
         def _job():
             from tabs.image_gallery.services.series_priority import (
@@ -2344,7 +2361,11 @@ class GalleryController:
 
             client = make_client(base_url, api_key)
             return route_series_priority_detailed(
-                snapshot, mode=mode, client=client, base_url=base_url
+                snapshot,
+                mode=mode,
+                client=client,
+                base_url=base_url,
+                profile=profile,
             )
 
         worker = GenericWorker(_job)

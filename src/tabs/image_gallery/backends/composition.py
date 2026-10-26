@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from .ai import BACKEND as AI_BACKEND
 from .algorithms import BACKEND as ALGORITHMS_BACKEND
-from .contract import AnalysisBackend
+from .contract import AnalysisBackend, PAIRWISE_CAPABILITY, require_capability
 from .registry import AnalysisBackendRegistry, registry
 
 #: The adapters this tab composes, in a fixed order (registration order never
@@ -68,6 +68,21 @@ def backend(backend_id: str) -> AnalysisBackend:
     """
     register_gallery_backends()
     return registry[backend_id]
+
+
+def pairwise_backend(backend_id: str) -> AnalysisBackend:
+    """The adapter that must DECLARE the A/B (pairwise) refinement.
+
+    Pairwise is a capability, not a shared operation (ADR 009 A3): the pass is
+    VLM work that spends per pair, so the caller asks the descriptor of the
+    backend whose domain it wants — ``CapabilityNotDeclared`` names the backend
+    and its declared set when that backend never promised the feature (the
+    Algorithms one). No default and no other-backend retry: a refusal is an
+    answer, the same as ``registry[backend_id]``'s ``KeyError``.
+    """
+    adapter = backend(backend_id)
+    require_capability(adapter.descriptor, PAIRWISE_CAPABILITY)
+    return adapter
 
 
 def ai_profile_selector():
@@ -113,5 +128,6 @@ __all__ = [
     "ALGORITHMS_BACKEND",
     "ai_profile_selector",
     "backend",
+    "pairwise_backend",
     "register_gallery_backends",
 ]

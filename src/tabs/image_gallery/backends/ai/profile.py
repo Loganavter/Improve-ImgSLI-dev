@@ -1,8 +1,8 @@
 """The AI analysis backend — the vision judge's judgment domain.
 
-ADR 009 wave A2: the judge's axis set is made, owned and read HERE. As with the
-Algorithms adapter nothing is re-implemented; each call delegates to the entry
-point that already owns the behaviour:
+ADR 009 wave A2: the judge's axis set is made, owned and read HERE. Wave A3
+gives the two operations that read numbers their own modules; this file stays
+the OWNER (profile generation, state slot, lifecycle) and delegates:
 
 * ``make_profile`` → ``use_cases.profile_ai.choose_profile_sync`` (one pinned
   call per folder generation: probe members, free-form axis naming, the 5..8
@@ -10,32 +10,36 @@ point that already owns the behaviour:
   an unusable reply — is this backend having NO profile, so it surfaces as
   ``NoProfileYet``; it is never repaired with the local axis set (owner rule
   2026-10-26, ``ANALYSIS_BACKENDS.md`` §5);
-* ``measure`` → ``analysis.read.read_axes(domain="ai")``, i.e. the scorecard's
-  per-axis records;
-* ``rank`` → ``services.jev_client.rank_series_jev`` (the AI-domain ranker over
-  the measured vector). ``None`` from a degraded Jev answer (Noul / low
-  confidence / transport error / malformed) is an EMPTY ``RankResult``: the
-  contract's "a path absent from ``ranks`` is unmeasured — never rank 0, never a
-  borrowed number". The Algorithms order is NOT substituted here; that decision
-  belongs to the A3 rank wiring, not to the owner of the profile.
+* ``measure`` → :mod:`.measure` (``analysis.read.read_axes(domain="ai")``, i.e.
+  the scorecard's per-axis records, over registry ids AND judged names);
+* ``rank`` → :mod:`.rank` (``services.jev_client.rank_series_jev`` over the
+  measured vector). ``None`` from a degraded Jev answer (Noul / low confidence /
+  transport error / malformed) is an EMPTY ``RankResult``: the contract's "a path
+  absent from ``ranks`` is unmeasured — never rank 0, never a borrowed number".
+  The Algorithms order is NOT substituted here; that decision belongs to the
+  caller, not to the owner of the profile.
 
 Two capabilities are declared beyond the four the Algorithms backend has —
 ``pairwise`` and ``ask`` — because both are AI-domain-only features the rules
 already gate (``pairwise_rank`` runs in the AI domain only, ``ask_router`` is
-advisory). Their wire is ADR 009 wave A3 (``use_cases.pairwise_rank`` /
-``use_cases.ai_analysis`` rank block are explicitly not rewired by this wave).
+advisory). Wave A3 gives ``pairwise`` its wire: :mod:`.rank` honours a pairwise
+order (declared capability) while the Algorithms backend raises
+``CapabilityNotDeclared`` for the same request, and the production trigger asks
+``backends.composition.pairwise_backend`` before scheduling a pass.
+
+An axis-less profile — the AI slot before the judge has answered — is
+``NoProfileYet`` at every boundary (``_require_profile``): it measures nothing,
+ranks nothing, asks nothing, and never falls through to the local mode mapping.
 """
 
 from __future__ import annotations
 
 from tabs.image_gallery.backends.context import (
     PROFILE_SCHEMA_VERSION,
-    MeasuredItem,
     SeriesContext,
-    item_key_of,
     owned_profile,
-    profile_axes,
     profile_identity,
+    require_axes,
     select_members,
 )
 from tabs.image_gallery.backends.contract import (
@@ -43,9 +47,11 @@ from tabs.image_gallery.backends.contract import (
     MeasurementEnvelope,
     MeasureRequest,
     OwnedProfile,
+    PAIRWISE_CAPABILITY,
     ProfileRequest,
     RankRequest,
     RankResult,
+    require_capability,
 )
 from tabs.image_gallery.backends.errors import BackendMismatch, NoProfileYet
 from tabs.image_gallery.services.metric_profile import (
@@ -55,11 +61,15 @@ from tabs.image_gallery.services.metric_profile import (
     domain_of,
 )
 
+from .measure import measure as _measure
+from .rank import rank as _rank
+
 #: What this backend promises: the four shared operations plus the two features
 #: only the judge's domain has (pairwise near-tie passes, advisory questions).
 CAPABILITIES: frozenset[str] = frozenset(
     {"measure", "rank", "profile", "pairwise", "ask", "reset"}
 )
+
 
 
 class AIBackend:
@@ -129,6 +139,9 @@ class AIBackend:
                 expected_backend_id=self.descriptor.backend_id,
                 actual_backend_id=tag,
             )
+        require_axes(
+            profile, backend_id=self.descriptor.backend_id, operation="make_profile"
+        )
         return self._own(profile)
 
     def install(self, state, profile=None):
@@ -137,7 +150,9 @@ class AIBackend:
         The AI slot accepts the judge's own answer only: a series/heuristic
         (Algorithms) profile here would let the local derivation fuel the AI
         prompt, so it is ``ForeignProfileError`` — the adapter decides, not the
-        core.
+        core. An axis-less profile is ``NoProfileYet``: the slot never holds a
+        judge "answer" that names no axis (that state is the ABSENCE of a
+        profile, and it used to fall through to local axes downstream).
         """
         if profile is None:
             profile = self._current_metric()
@@ -152,6 +167,12 @@ class AIBackend:
                 f"(source={getattr(profile, 'source', '?')!r}); the "
                 f"{self.descriptor.backend_id} backend must not own it"
             )
+        # An axis-less profile is no profile: storing one would hand every later
+        # measure/rank an empty axis set (ADR 009 A3 — the AI slot used to accept
+        # it and the consumers fell through to the local mode mapping).
+        require_axes(
+            profile, backend_id=self.descriptor.backend_id, operation="install"
+        )
         if profile_identity(self.descriptor, profile) not in self._profiles:
             # An answer that arrived through another seam (the controller's
             # landing path) becomes an owned generation here, so a later
@@ -193,28 +214,7 @@ class AIBackend:
         items (``item.analysis``), and an item the model has not scored is a
         ``gap`` record — never a detector number.
         """
-        from tabs.image_gallery.analysis.read import read_axes
-
-        profile = self._require_profile(request.profile, operation="measure")
-        members = select_members(
-            request.item_keys, (context.members if context is not None else ())
-        )
-        axes = profile_axes(profile)
-        records = tuple(
-            MeasuredItem(
-                item_key=item_key_of(member),
-                records=tuple(
-                    read_axes(member, domain=DOMAIN_AI, axes=axes, profile=profile)
-                ),
-            )
-            for member in members
-        )
-        return MeasurementEnvelope(
-            backend_id=self.descriptor.backend_id,
-            schema_version=self.descriptor.schema_version,
-            profile_id=request.profile.profile_id,
-            records=records,
-        )
+        return _measure(self, request, context=context)
 
     def rank(
         self,
@@ -223,26 +223,12 @@ class AIBackend:
         context: SeriesContext | None = None,
     ) -> RankResult:
         """The AI-domain order through the existing Jev rank entry point."""
-        from tabs.image_gallery.services import jev_client
+        return _rank(self, request, context=context)
 
-        profile = self._require_profile(request.profile, operation="rank")
-        members = select_members(
-            request.item_keys, (context.members if context is not None else ())
-        )
-        context = context if context is not None else SeriesContext()
-        base_url = str(getattr(context.settings, "base_url", "") or "")
-        api_key = str(getattr(context.settings, "api_key", "") or "")
-        client = context.client or jev_client.make_client(base_url, api_key)
-        ranks = jev_client.rank_series_jev(
-            members,
-            mode=getattr(profile, "mode", None),
-            client=client,
-            cache=context.cache,
-            domain=DOMAIN_AI,
-            profile=profile,
-            base_url=base_url,
-        )
-        return RankResult(ranks=ranks or {})
+    def require_pairwise(self) -> None:
+        """Declare the A/B pass: this backend is the one allowed to spend on it."""
+        require_capability(self.descriptor, PAIRWISE_CAPABILITY)
+
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -281,13 +267,21 @@ class AIBackend:
         return self._profiles.get(profile_id)
 
     def _require_profile(self, owned: OwnedProfile, *, operation: str):
-        """The owned profile's ``MetricProfile``, or a loud refusal (see A2 rules)."""
+        """The owned profile's ``MetricProfile``, or a loud refusal (see A2 rules).
+
+        An axis-less profile is ``NoProfileYet`` too: the AI backend with no axis
+        set has nothing to measure or rank, and the local mode mapping is not a
+        profile of this backend (ADR 009 A3 killed that fallback).
+        """
         self.descriptor.assert_owns(owned)
         profile = self._metric(getattr(owned, "profile_id", ""))
         if profile is None:
             raise NoProfileYet(
                 backend_id=self.descriptor.backend_id, operation=operation
             )
+        require_axes(
+            profile, backend_id=self.descriptor.backend_id, operation=operation
+        )
         return profile
 
     def __repr__(self) -> str:  # pragma: no cover - diagnostics only

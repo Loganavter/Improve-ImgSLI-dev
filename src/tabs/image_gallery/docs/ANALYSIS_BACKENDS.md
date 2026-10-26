@@ -22,8 +22,9 @@ model the calls go to*, and two of the five paths (Jev rank, series priority)
 ignore the user's model entirely and hard-code `typesafe/jev-router`
 (`services/jev_client.py` `JEV_MODEL`). The metric **profile** is a third,
 orthogonal axis: it decides *which axes exist*, not who computes them
-(`services/rank_fusion.py` `measured_axes_for` for the registry half,
-`services/profile_judged.py` for the axes the judge named).
+(`services/rank_fusion.py` `measured_axes_for` returns the profile's own axis
+list — registry half plus the axes the judge named, which
+`services/profile_judged.py` reads).
 
 ---
 
@@ -175,7 +176,7 @@ flowchart LR
     S --> A["state.algorithms_profile"]
     F --> A
     V --> B["state.ai_profile"]
-    A --> C1["dots / rows<br/>rank_fusion.measured_axes_for"]
+    A --> C1["dots / rows<br/>rank_fusion.measured_axes_for<br/>(the profile's own list)"]
     A --> C3["fusion rank<br/>rank_fusion.rank_series"]
     B --> C2["scorecard prompt axes<br/>ai_client/prompt.py (registry + judged)"]
     B --> C4["Jev measured vector<br/>jev_client.py"]
@@ -188,8 +189,41 @@ writes `state.algorithms_profile`, the judge writes `state.ai_profile`, and ever
 consumer reads its own slot. Since ADR 009 wave A2 the slot is WRITTEN and READ
 by the owning adapter — `backends.algorithms` / `backends.ai` (`install` /
 `load_profile`) — and `metric_profile.profile_for_domain` is a deprecated
-one-line delegate to that adapter (the name goes away in A3). A foreign-tagged
-profile is a loud `ForeignProfileError`, never a silent cross-read.
+one-line delegate to that adapter (it survives into wave A4, which rewrites the
+remaining by-domain lookups in the controller/use cases). A foreign-tagged
+profile is a loud `ForeignProfileError`, never a silent cross-read; an
+AXIS-LESS profile is `NoProfileYet` (`make_profile`/`install`/`measure`/`rank`),
+because "no axis set yet" is the absence of a profile, not a profile to repair.
+
+**Wave A3 — each backend reads only its own artifacts.** The two operations that
+read numbers live in their own modules and see one instrument each:
+`backends/algorithms/measure.py` + `rank.py` (local engine records /
+`item.metrics`, the profile's REGISTRY half only, `rank_fusion.rank_series(axes=…)`)
+and `backends/ai/measure.py` + `rank.py` (the scorecard over registry ids AND
+judged names, `jev_client.rank_series_jev`). Three consequences worth naming:
+
+- **the mode-mapping fallback is gone from the core**: `rank_fusion
+  .measured_axes_for(profile=…)` answers the profile's OWN axis list or raises
+  `NoProfileYet`; the mode mapping is reached only without a profile, through the
+  backend that owns it (`backends.algorithms` `axes_for_mode`). An EMPTY AI
+  profile used to fall through to the detector axes, so the scorecard prompt, the
+  request's echo filter, the Jev vector, the card dots and the pairwise payload
+  all silently asked/measured the LOCAL axis set (each chain — action context →
+  prompt, request echo filter, Jev vector, card dots, pairwise payload,
+  series priority — is pinned in
+  `src/tabs/image_gallery/tests/isolation/test_ai_profile_fallback_dies.py`);
+- **pairwise is a declared capability**, not a shared feature: the request goes
+  through `backends.composition.pairwise_backend(id)` →
+  `require_capability(descriptor, PAIRWISE_CAPABILITY)`; the Algorithms adapter
+  never declared it, so asking it (or handing its rank a `pairwise_order`) is
+  `CapabilityNotDeclared`. Its rank is applied by the AI adapter
+  (`backends/ai/rank.py`, the same leading-ranks rule as `rank_series`);
+- **the cross-series priority payload is the judge's own number**:
+  `services/series_priority` takes the AI profile as an argument and aggregates
+  `backends.ai.measure.series_quality` — it used to call
+  `rank_fusion.item_quality(mode=…)` with no profile, i.e. the LOCAL fusion
+  aggregate, and sent detector numbers to the AI endpoint. Without a profile the
+  pass reports `PRIORITY_REASON_NO_PROFILE` and spends nothing.
 
 `source` is one of three values (`PROFILE_SOURCES` in
 `services/metric_profile.py`):
@@ -206,9 +240,11 @@ profile is a loud `ForeignProfileError`, never a silent cross-read.
 `MetricProfile.axis_ids` vs `axis_entries`):
 
 - **registry half** — `axis_ids`: ids from the closed pool (`MEASURED_POOL`),
-  i.e. axes a local detector can produce. `rank_fusion.measured_axes_for`
-  answers only from this half, so local rows, the fusion mean and the Jev vector
-  keep ONE vocabulary.
+  i.e. axes a local detector can produce. `rank_fusion.measured_axes_for` answers
+  with this half for a local profile, so local rows, the fusion mean and the
+  local rank keep ONE vocabulary (and `backends.algorithms.measure/rank` pass
+  exactly this half, so a judge entry that reached a local profile cannot move
+  the local order).
 - **judge half** — `axis_entries`: `models.AiAxisProposal` records (name +
   definition + 0–100 scale + direction) the model named for this series. No
   local producer exists and none is required: the scorecard prompt asks for them

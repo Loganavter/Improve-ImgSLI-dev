@@ -677,14 +677,29 @@ def start_pairwise_refinement(owner, *, series=None, judge=None) -> bool:
     epoch = domain_epoch(owner)
     try:
         mode = getattr(getattr(owner, "state", None), "mode", None)
-        from tabs.image_gallery.services.metric_profile import (
-            DOMAIN_AI,
-            profile_for_domain,
-        )
-
-        profile = profile_for_domain(getattr(owner, "state", None), DOMAIN_AI)
     except Exception:
         mode = None
+    # Pairwise is a CAPABILITY, not a shared feature (ADR 009 A3): the pass is
+    # VLM work that spends per compared pair, so the request goes to the AI
+    # adapter's descriptor instead of assuming every backend can refine a
+    # near-tie order. Asking the Algorithms adapter the same question is
+    # ``CapabilityNotDeclared`` (``pairwise_backend("algorithms")``) — the
+    # refusal is a typed answer, not a convention this call site re-checks.
+    try:
+        from tabs.image_gallery.backends.composition import pairwise_backend
+        from tabs.image_gallery.backends.errors import BackendContractError
+        from tabs.image_gallery.services.metric_profile import DOMAIN_AI
+
+        adapter = pairwise_backend(DOMAIN_AI)
+    except BackendContractError:
+        _ai_debug(
+            "judge_pairwise.skip reason=capability order_kept=pointwise "
+            "(backend did not declare pairwise)"
+        )
+        return False
+    try:
+        profile = adapter.load_profile(getattr(owner, "state", None))
+    except Exception:
         profile = None
 
     try:
