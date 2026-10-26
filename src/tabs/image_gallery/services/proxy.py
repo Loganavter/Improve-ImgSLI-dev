@@ -8,8 +8,9 @@ fidelity opens item+source per item, camera opens 3x per item — source
 re-decoded N times per stage). All three stages now consume one shared
 bounded proxy per file (longest edge <= ``PROXY_MAX_EDGE``) built here:
 
-- cold path: ONE full decode per item total; the source decoded ONCE total
-  (in-memory cache shared across items and stages);
+- cold path: ONE full decode per item total; the source decoded ONCE per
+  chunk and its bounded proxy derived from that same store (R5), with the
+  in-memory proxy cache shared across items/chunks/stages;
 - warm path (proxy cached): ZERO decodes — ``proxy_for`` serves the cached
   image without touching ``Image.open``.
 
@@ -383,6 +384,11 @@ def run_proxy_stages_sync(
     cache still costs no decode at all. The engine keeps being measured over the
     full-resolution store (W14), never over the derived proxy.
 
+    R5 (same I2 rule, source reference): the chunk's ``source_store`` is opened
+    ONCE and ``src_proxy`` is derived from it (``proxy_for(source_path,
+    store=...)``); the store is closed after the chunk. Without the full-res
+    mode there is no store to reuse and the proxy keeps its single decode.
+
     ``cancel`` (optional callable) is the per-item generation check the caller
     owns (``not owner._is_current_folder_gen(gen)``); the pass yields every two
     items and stops at the first boundary where it is true.
@@ -398,13 +404,22 @@ def run_proxy_stages_sync(
     warned: set[str] = set()
 
     out: dict[str, dict] = {}
-    try:
-        src_proxy = proxy_for(source_path) if source_path is not None else None
-    except Exception:
-        src_proxy = None
+    # I2 (audit R5): the source reference's full-resolution store is opened
+    # ONCE per chunk, and the bounded src proxy is derived FROM that store
+    # (``proxy_for(..., store=...)``) instead of decoding the same file a
+    # second time with ``Image.open``. The store is closed after the chunk
+    # (outer ``finally``) — the derived proxy is detached.
     source_store = None
     if full_res_artifacts and source_path is not None:
         source_store = _open_full_res_store(source_path)
+    try:
+        src_proxy = (
+            proxy_for(source_path, store=source_store)
+            if source_path is not None
+            else None
+        )
+    except Exception:
+        src_proxy = None
     try:
         for index, it in enumerate(items or []):
             # Preemption seam: sleep(0) releases the GIL for a scroll's visible

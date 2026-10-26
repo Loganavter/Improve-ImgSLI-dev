@@ -23,9 +23,13 @@ halves of the contract:
    functions over the same pixels).
 
 Red-before (measured on the pre-change tree): 2 item decodes
-(``Image.open == 1`` + ``from_path == 1``). The source reference keeps its own
-per-chunk decode (audit R5, out of scope here): 2 source decodes, asserted below
-as an explicit "not touched" number rather than left implicit.
+(``Image.open == 1`` + ``from_path == 1``). The source reference used to keep
+its own per-chunk double decode (audit R5: ``Image.open`` for the bounded src
+proxy + ``from_path`` for the tiled source store, 2 per chunk); R5 is now fixed
+in the same seam — the source store is opened ONCE per chunk and the src proxy
+is derived from it (``proxy_for(source_path, store=source_store)``), so a chunk
+costs 1 source decode, never 2. ``test_source_decodes_once_per_chunk...`` pins
+the two-chunk shape below.
 """
 
 from __future__ import annotations
@@ -214,12 +218,14 @@ def test_cold_full_res_item_decodes_once(tmp_path: Path) -> None:
     )
     assert spy.image_opens_for(item) == 0, "the item's proxy still opened the file"
     assert spy.store_opens_for(item) == 1
-    # R5 is out of scope: the source reference still has its per-chunk proxy +
-    # store decode (measured: 2). This cell must not add a THIRD one.
-    assert spy.decodes_for(source) <= 2, (
-        "the source-reference per-chunk decode (audit R5) is not this cell's "
-        f"scope, but it must not grow (measured {spy.decodes_for(source)})"
+    # R5: the source store is opened once and the src proxy is derived from it
+    # (red-before: Image.open + from_path = 2 source decodes per chunk).
+    assert spy.decodes_for(source) == 1, (
+        f"source decoded {spy.decodes_for(source)}x "
+        f"(Image.open={spy.image_opens_for(source)}, "
+        f"from_path={spy.store_opens_for(source)})"
     )
+    assert spy.image_opens_for(source) == 0, "the src proxy still opened the source file"
 
     entry = out[str(item)]
     assert set(entry) >= {"artifacts", "fidelity", "camera", "analysis"}
@@ -308,6 +314,78 @@ def test_proxy_only_mode_keeps_its_single_decode(tmp_path: Path) -> None:
     assert spy.store_opens_for(item) == 0
     assert spy.decodes_for(item) == 1
     assert out[str(item)]["artifacts"]
+
+
+def test_source_decodes_once_per_chunk_and_feeds_src_proxy(tmp_path: Path, monkeypatch) -> None:
+    """R5: 2 chunks → 1 source store open per chunk, src proxy from that store.
+
+    Red-before (measured): each chunk opened the source TWICE —
+    ``Image.open`` for the bounded src proxy and ``TiledPixelStore.from_path``
+    for the shared full-res store — i.e. 2 source decodes/chunk, 4 for two
+    chunks. Now the store is the ONE decode and ``src_proxy`` is derived from
+    it (``proxy_for(source_path, store=...)``); ``Image.open`` never touches
+    the source while that store exists.
+    """
+    from tabs.image_gallery.services import proxy as _proxy
+
+    source = _paint(tmp_path / "source.png", (512, 384), seed=71)
+    chunks = [
+        [_paint(tmp_path / "c1.png", (320, 240), seed=72)],
+        [_paint(tmp_path / "c2.png", (320, 240), seed=73)],
+    ]
+
+    opened: dict[str, list] = {}
+    real_open = _proxy._open_full_res_store
+
+    def _tracked_open(path):
+        store = real_open(path)
+        opened.setdefault(str(Path(path).resolve()), []).append(store)
+        return store
+
+    monkeypatch.setattr(_proxy, "_open_full_res_store", _tracked_open)
+
+    built_from: list = []
+    real_build = _proxy._build_proxy_from_store
+
+    def _tracked_build(store):
+        built_from.append(store)
+        return real_build(store)
+
+    monkeypatch.setattr(_proxy, "_build_proxy_from_store", _tracked_build)
+
+    src_key = str(source.resolve())
+    spy = _DecodeSpy().start()
+    try:
+        for index, chunk in enumerate(chunks, start=1):
+            clear_proxy_cache()  # cold each chunk: the shape R5 measured
+            built_from.clear()
+            out = run_proxy_stages_sync(
+                [SimpleNamespace(path=p) for p in chunk],
+                source,
+                full_res_artifacts=True,
+            )
+            assert out.get(str(chunk[0])), "the chunk must produce an entry"
+            stores = opened[src_key]
+            assert len(stores) == index, (
+                f"chunk {index} must open the source store once, opened {len(stores)}"
+            )
+            src_store = stores[-1]
+            assert src_store is not None
+            assert built_from and built_from[0] is src_store, (
+                "src_proxy must be derived from the chunk's source store, "
+                f"built from {built_from!r}"
+            )
+            assert not src_store.is_open, "the source store must close with the chunk"
+            src_proxy = proxy_for(source)
+            assert src_proxy is not None
+            assert src_proxy.image.size == (512, 384), "src proxy pixels are detached"
+    finally:
+        spy.stop()
+
+    # Once per chunk (2), and the source is never opened by PIL again.
+    assert spy.store_opens_for(source) == len(chunks)
+    assert spy.image_opens_for(source) == 0
+    assert spy.decodes_for(source) == len(chunks)
 
 
 if __name__ == "__main__":  # pragma: no cover
