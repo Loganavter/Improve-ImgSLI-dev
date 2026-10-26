@@ -721,13 +721,15 @@ def choose_profile_sync(
                 reason = _profile_rejection(text, profile)
 
     if reason:
-        # A WARN, not a DEBUG: the run loses its VLM axes and falls back to the
-        # series offer, which LOOKS like a working profile. A thin or unexplained
-        # answer must never become the folder's order silently.
+        # A WARN, not a DEBUG: a thin or unexplained answer must never become the
+        # folder's order silently, and the loss of the paid axes must be visible.
+        # Nothing is pinned here and NOTHING is substituted: the AI backend stays
+        # without an axis set (owner rule 2026-10-26 — the local axis set is never
+        # an AI answer, so "series offer kept" would be a lie).
         logger.warning(
             "profile select: %s — finish_reason=%s max_tokens=%s attempts=%d "
-            "reasoning_chars=%d model=%s mode=%s; series offer kept and pinned "
-            "(this run has no VLM-named axes)",
+            "reasoning_chars=%d model=%s mode=%s; no profile this run (the local "
+            "axis set is never substituted)",
             reason,
             _reply_finish(raw) or "unknown",
             payload.get("max_tokens"),
@@ -737,8 +739,8 @@ def choose_profile_sync(
             mode,
         )
         logger.warning(
-            "profile select: the reply broke the axis-count rule (%s) — no profile (an "
-            "error, not a fallback to the local axis set)",
+            "profile select: the reply is unusable (%s) — no profile (an error, "
+            "not a fallback to the local axis set)",
             reason,
         )
         return None
