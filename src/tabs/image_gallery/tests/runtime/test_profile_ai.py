@@ -520,3 +520,35 @@ def test_module_exports_are_the_frozen_interface():
         "profile_axis_count",
         "profile_fingerprint",
     }
+
+
+def test_a_locally_sourced_pin_is_not_replayed(tmp_path):
+    """A stale pin holding the local axis set must not silence the model.
+
+    Owner report 2026-10-26 ("снова все метрики из camera режима" on a folder
+    opened before): older builds pinned the series offer, and a pin hit returned
+    it without a call, so the judge was never asked again. Only a judge answer
+    may be replayed now.
+    """
+    cache = ProfileCache(tmp_path)
+    items = _evidence_items()
+    offered = profile_select.derive_profile(items, mode="camera")
+    assert offered.source != "vlm", "the fixture must hold a LOCAL pin"
+    cache.put(
+        profile_cache.profile_cache_key(
+            items, mode="camera", model="m", base_url="http://x",
+            reasoning_effort="auto",
+        ),
+        offered,
+    )
+    calls: list = []
+
+    def _client(*args, **kwargs):
+        calls.append(1)
+        return _chat(_THREE_AXES)
+
+    profile = choose_profile_sync(
+        items, mode="camera", settings=_settings(), cache=cache, client_call=_client
+    )
+    assert calls, "a local pin must not skip the paid axis-naming call"
+    assert profile is not None and profile.source == "vlm"

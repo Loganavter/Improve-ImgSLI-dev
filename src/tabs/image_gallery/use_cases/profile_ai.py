@@ -544,17 +544,30 @@ def choose_profile_sync(
         except Exception:
             hit = None
         if hit is not None:
-            try:
-                from tabs.image_gallery.services.ai_client import _ai_debug
-                from tabs.image_gallery.services.metric_profile import format_profile
+            # Only a JUDGE answer may be replayed. A pin written by an older
+            # build could hold the local offer (``source="series"``/``"heuristic"``)
+            # — replaying it would pin the camera axis set forever and the model
+            # would never be asked again (owner report 2026-10-26: "снова все
+            # метрики из camera режима" on a folder that had been opened before).
+            source = str(getattr(hit, "source", "") or "")
+            if source == "vlm":
+                try:
+                    from tabs.image_gallery.services.ai_client import _ai_debug
+                    from tabs.image_gallery.services.metric_profile import format_profile
 
-                _ai_debug(
-                    "profile pin hit: %s — no profile request",
-                    format_profile(hit),
-                )
-            except Exception:
-                pass
-            return hit
+                    _ai_debug(
+                        "profile pin hit: %s — no profile request",
+                        format_profile(hit),
+                    )
+                except Exception:
+                    pass
+                return hit
+            logger.info(
+                "profile pin ignored: the pinned source is %r, not a judge answer — "
+                "asking the model (the local axis set may never be the folder's "
+                "profile)",
+                source or "unknown",
+            )
 
     try:
         probes = profile_probe.probe_members(members, reference_path=reference_path)
