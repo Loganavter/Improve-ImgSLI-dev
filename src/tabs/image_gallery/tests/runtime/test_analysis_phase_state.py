@@ -149,7 +149,7 @@ class _Owner:
 
     def __init__(self, items, *, gen: int = 3) -> None:
         self.state = SimpleNamespace(
-            items=list(items), series=[], mode=Mode.CAMERA, metric_profile=PROFILE_A
+            items=list(items), series=[], mode=Mode.CAMERA, ai_profile=PROFILE_B
         )
         self._judgment_domain = "ai"
         self._folder_gen = gen

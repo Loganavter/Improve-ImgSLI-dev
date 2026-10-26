@@ -465,8 +465,8 @@ def test_the_analyze_identity_records_the_judge_axes_without_keying_them():
 
 def test_active_profile_keeps_a_free_only_answer():
     profile = MetricProfile(mode="camera", source="vlm", axis_entries=(FREE,))
-    state = SimpleNamespace(metric_profile=profile, mode="camera")
-    assert active_profile(state) is profile, (
+    state = SimpleNamespace(ai_profile=profile, mode="camera")
+    assert active_profile(state, domain="ai") is profile, (
         "the accessor must not discard a judge answer that names only its own axes"
     )
 
@@ -478,7 +478,8 @@ class _Owner:
         self.state = SimpleNamespace(
             items=[GalleryItem(path=Path("/gallery/one.png"), mtime_ns=0)],
             mode="camera",
-            metric_profile=profile,
+            algorithms_profile=profile,
+            ai_profile=None,
             profile_reject_reason="",
         )
         self._judgment_domain = "ai"
@@ -504,16 +505,19 @@ def test_a_free_only_answer_is_applied_not_rejected_as_hollow():
 
     owner._apply_profile_outcome(free_only, 0)
 
-    assert owner.state.metric_profile is free_only, (
+    assert owner.state.ai_profile is free_only, (
         "a judge answer made only of its own axes is a complete profile — "
         f"rejected as {owner.state.profile_reject_reason!r}"
+    )
+    assert owner.state.algorithms_profile == heuristic, (
+        "the AI answer must not overwrite the Algorithms backend's own slot"
     )
     assert owner.state.profile_reject_reason == ""
     assert owner.refreshed, "the cards are refreshed like the neighbouring apply-tails"
 
     # End to end through the seam the analyze path reads: the stored profile is
     # what the scorecard is built from, and it asks for the judge's axis by name.
-    prompt = build_prompt(owner.state.mode, profile=owner.state.metric_profile)
+    prompt = build_prompt(owner.state.mode, profile=owner.state.ai_profile)
     assert '"jpeg_noise"' in prompt and FREE.definition in prompt
 
 

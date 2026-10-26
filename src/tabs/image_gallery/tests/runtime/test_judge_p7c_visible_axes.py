@@ -143,7 +143,7 @@ class _RowsStub:
         self._owner = SimpleNamespace(
             _judgment_domain=domain,
             state=SimpleNamespace(
-                mode=Mode.CAMERA, metric_profile=profile, judgment_domain=domain
+                mode=Mode.CAMERA, ai_profile=profile, judgment_domain=domain
             ),
         )
 
@@ -561,7 +561,7 @@ def _show_overlay(qtbot, item, series, *, profile, width=520):
             series=[list(series)],
             items=list(series),
             judgment_domain="ai",
-            metric_profile=profile,
+            ai_profile=profile,
         ),
     )
     overlay.show_for(item, owner)

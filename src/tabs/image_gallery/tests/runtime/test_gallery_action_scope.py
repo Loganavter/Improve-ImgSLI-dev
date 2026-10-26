@@ -375,7 +375,7 @@ def test_default_analyze_isolates_per_target_failures(monkeypatch) -> None:
         seen.append(item.path)
 
     owner = SimpleNamespace(
-        state=SimpleNamespace(mode=None, metric_profile=None, items=items),
+        state=SimpleNamespace(mode=None, algorithms_profile=None, ai_profile=None, items=items),
         widget=SimpleNamespace(refresh_card=lambda it: None),
         _judgment_domain="ai",
         _ai_settings_store=SimpleNamespace(

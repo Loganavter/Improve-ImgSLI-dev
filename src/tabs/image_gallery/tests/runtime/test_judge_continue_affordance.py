@@ -117,7 +117,7 @@ def _settings(**overrides):
 def _owner(items, **settings_overrides) -> GalleryController:
     """A storeless controller double that binds the REAL analyze path."""
     ctl = GalleryController.__new__(GalleryController)
-    ctl.state = SimpleNamespace(items=list(items), mode="camera", metric_profile=None)
+    ctl.state = SimpleNamespace(items=list(items), mode="camera", algorithms_profile=None, ai_profile=None)
     ctl.widget = _Widget()
     ctl._folder_gen = 0
     ctl._judgment_domain = "ai"

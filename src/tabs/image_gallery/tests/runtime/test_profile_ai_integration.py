@@ -11,8 +11,9 @@ dies:
   fabricated) and junk / a transport failure degrade to the deterministic
   heuristic — and are NOT pinned;
 - the profile that the wiring's apply-tail would store is the axis set the
-  consumers resolve (dots, `measured_axes_for`, rank fusion) and the trace names
-  `source=vlm`;
+  AI-domain consumers resolve (dots, `measured_axes_for`, the Jev vector) and the
+  trace names `source=vlm` — while the Algorithms rank keeps its own slot and
+  never reads the judge's axes (backend-isolation invariant I1);
 - the stage is declared with `requires=("metrics_ready",)` and the settle
   kick/apply pair exists on the controller.
 
@@ -39,7 +40,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tabs.image_gallery import controller as controller_mod
 from tabs.image_gallery.controller import GalleryController
-from tabs.image_gallery.models import GalleryState, Mode, Series
+from tabs.image_gallery.models import AiAnalysisResult, GalleryState, Mode, Series
 from tabs.image_gallery.services.metric_profile import MEASURED_POOL, profile_for_mode
 from tabs.image_gallery.services.profile_cache import ProfileCache
 from tabs.image_gallery.services.rank_fusion import measured_axes_for, rank_series
@@ -254,25 +255,43 @@ def test_the_vlm_profile_reaches_dots_axes_and_the_rank(tmp_path):
         items=list(items),
         series=[Series(id="s1", members=list(items))],
         mode=Mode.BATCH_SYNTHETIC,
-        metric_profile=profile,
+        ai_profile=profile,
     )
-    resolved = active_profile(state)
+    # The VLM answer is the AI backend's own slot; the AI consumers resolve it.
+    resolved = active_profile(state, domain="ai")
     assert resolved == profile
     assert measured_axes_for(state.mode, profile=resolved) == profile.axis_ids
 
-    _colors, infos = metric_dots_for_item(items[0], mode=state.mode, profile=resolved)
+    # The AI domain's dots read the model's scorecards: give every asked axis a
+    # value so the dots are measured (a gap paints nothing once anything exists).
+    for it in items:
+        it.analysis = AiAnalysisResult(
+            description="",
+            tags=(),
+            model="judge-model",
+            analyzed_at_iso="t",
+            axes={str(axis): 70 for axis in profile.axis_ids},
+        )
+    _colors, infos = metric_dots_for_item(
+        items[0], mode=state.mode, domain="ai", profile=resolved
+    )
     assert len(infos) == len(profile.axis_ids)
 
     expected = rank_series(list(items), mode=state.mode, profile=resolved)
     mode_only = rank_series(list(items), mode=state.mode)
     assert expected != mode_only, "the dataset must be discriminating for this to prove anything"
 
+    # ...but the Algorithms fusion reads ITS slot (empty here) and therefore
+    # ranks on the mode mapping, never on the judge's set.
+    assert state.algorithms_profile is None
     ctrl = SimpleNamespace(state=state)
     GalleryController._apply_fusion_ranks(ctrl, state.series, mode=state.mode)
     got = {str(i.path): i.rank for i in items}
-    assert _order(got) == _order(expected), "the rank must follow the SAME profile the dots read"
+    assert _order(got) == _order(mode_only), (
+        "the Algorithms rank must not follow the AI backend's profile"
+    )
 
-    assert "source=vlm" in describe(state)
+    assert "source=vlm" in describe(state, domain="ai")
 
 
 # --------------------------------------------------------------------------

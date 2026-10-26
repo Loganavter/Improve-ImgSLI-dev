@@ -443,7 +443,8 @@ def _wired_owner(items, **settings_overrides):
         items=list(items),
         series=[Series(id="s0", members=list(items))],
         mode="camera",
-        metric_profile=None,
+        algorithms_profile=None,
+        ai_profile=None,
     )
     ctl.widget = _WiringWidget()
     ctl._folder_gen = 0
@@ -1174,7 +1175,7 @@ def test_terminal_rank_schedules_the_pass_on_a_judged_series(monkeypatch, caplog
         _judged_item("c.png", texture_fidelity=88, halo_freedom=87),
     ]
     owner = _wired_owner(items, pairwise_enabled=True, pairwise_top_n=2)
-    owner.state.metric_profile = profile
+    owner.state.ai_profile = profile
     owner._apply_fusion_ranks(owner.state.series)
     judge = _install_client(monkeypatch, _ScriptedJudge(_b_wins))
 
