@@ -562,7 +562,11 @@ def _cache_path(path: Path, mtime_ns: int, identity) -> Path:  # type: ignore[no
 
 
 def load_cached_analysis(
-    path: Path, mtime_ns: int, identity  # type: ignore[no-untyped-def]
+    path: Path,
+    mtime_ns: int,
+    identity,  # type: ignore[no-untyped-def]
+    *,
+    axes=(),
 ) -> AiAnalysisResult | None:
     """The cached scorecard for ``(path, mtime_ns)`` under ``identity``.
 
@@ -571,7 +575,11 @@ def load_cached_analysis(
     and at least the sampling depth this request declares: a scorecard produced
     by fewer draws (the adaptive stop settled early, or an entry written before
     ``effective_k`` existed) is too thin to answer a deeper request and is a
-    MISS. A pre-identity entry is a miss with no migration attempt. Never
+    MISS. *axes* (the axis set the current profile asks for) is a SECOND
+    completeness check: a scorecard that answers a different vocabulary cannot
+    fill the dots or the Quick Look rows, so it is a MISS too (owner report
+    2026-10-26: the model was asked twice, named different names, and every card
+    showed "не измерено" while carrying numbers under the old names). A pre-identity entry is a miss with no migration attempt. Never
     raises: any problem degrades to ``None`` (re-analyze).
     """
     try:
@@ -630,6 +638,33 @@ def load_cached_analysis(
             # v2 = pre-identity keying): treat as a miss so the AI domain
             # re-analyzes with the current prompt and backend.
             return None
+        # The requested axis set must be ANSWERED by this payload (see the
+        # docstring): a scorecard keyed on another vocabulary is not a cache hit,
+        # it is a card with no numbers to show.
+        wanted = tuple(str(a) for a in (axes or ()) if str(a))
+        if wanted:
+            answered = set()
+            try:
+                answered.update(str(k) for k in (data.get("axes") or {}))
+            except Exception:
+                pass
+            try:
+                for entry in data.get("axis_entries", []) or ():
+                    answered.add(str(entry.get("name", "") or ""))
+            except Exception:
+                pass
+            missing_axes = [a for a in wanted if a not in answered]
+            if missing_axes:
+                logger.debug(
+                    "analysis cache MISS: the entry answers %s, not the requested "
+                    "%s (missing %s) path=%s",
+                    sorted(answered) or "-",
+                    list(wanted),
+                    missing_axes,
+                    path,
+                )
+                return None
+
         # Open per-axis scorecard (the VLM's own numbers). The judge's free
         # names are validated against the entries stored WITH the payload
         # (P7-B): a cache HIT must keep every axis a MISS parsed, and a name
@@ -744,7 +779,7 @@ def _remember_checked(item, signature) -> None:  # type: ignore[no-untyped-def]
         pass
 
 
-def folder_cache_probe(items, identity) -> dict:  # type: ignore[no-untyped-def]
+def folder_cache_probe(items, identity, *, axes=()) -> dict:  # type: ignore[no-untyped-def]
     """Which cards of ONE folder already answer *identity* — the folder gate.
 
     The measured defect this closes (2026-10-26, ``task-analysis-phase-state``):
@@ -780,7 +815,12 @@ def folder_cache_probe(items, identity) -> dict:  # type: ignore[no-untyped-def]
             path = None
         hit = None
         try:
-            hit = load_cached_analysis(path, int(getattr(item, "mtime_ns", 0) or 0), identity)
+            hit = load_cached_analysis(
+                path,
+                int(getattr(item, "mtime_ns", 0) or 0),
+                identity,
+                axes=axes,
+            )
         except Exception:
             hit = None
         if hit is None:
@@ -822,7 +862,7 @@ def recorded_profile_for(path: Path, mtime_ns: int, identity) -> dict | None:  #
     return profile_record(record) if isinstance(record, dict) else None
 
 
-def hydrate_item(item, identity) -> bool:  # type: ignore[no-untyped-def]
+def hydrate_item(item, identity, *, axes=()) -> bool:  # type: ignore[no-untyped-def]
     """Fill ``item.analysis`` from the disk cache only (no worker, no settings).
 
     ``identity`` is the caller's :func:`analysis_cache_identity` for the CURRENT
@@ -849,7 +889,7 @@ def hydrate_item(item, identity) -> bool:  # type: ignore[no-untyped-def]
                 item._ai_cache_checked_identity = None
             except Exception:
                 pass
-        cached = load_cached_analysis(item.path, item.mtime_ns, identity)
+        cached = load_cached_analysis(item.path, item.mtime_ns, identity, axes=axes)
         if cached is None:
             _remember_checked(item, signature)
             return False

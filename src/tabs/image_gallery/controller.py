@@ -669,6 +669,38 @@ class GalleryController:
                 describe_source,
             )
 
+            # Owner rule 2026-10-26: in the AI backend the axis set is the JUDGE's,
+            # so the local "camera" offer is not derived at all — not even as a
+            # placeholder (it showed up in the log and, on a bad day, won). The
+            # slot stays EMPTY until the model answers; the analysis waits for it
+            # (``_profile_settle_pending_gen``).
+            if str(getattr(self, "_judgment_domain", "algorithms") or "").strip().lower() == "ai":
+                from tabs.image_gallery.services.metric_profile import (
+                    PROFILE_SOURCE_VLM as _VLM,
+                )
+
+                try:
+                    previous = getattr(self.state, "metric_profile", None)
+                except Exception:
+                    previous = None
+                if previous is not None and str(getattr(previous, "source", "")) == _VLM:
+                    try:
+                        _ai_debug(
+                            "profile kept: the judge's axes own this folder — %s",
+                            describe(self.state),
+                        )
+                    except Exception:
+                        pass
+                    return previous
+                try:
+                    self.state.metric_profile = None
+                except Exception:
+                    pass
+                _ai_debug(
+                    "profile pending: the AI backend takes its axes from the judge — "
+                    "no local offer is derived"
+                )
+                return None
             profile = derive_for_state(self.state)
             try:
                 previous = getattr(self.state, "metric_profile", None)
@@ -763,7 +795,19 @@ class GalleryController:
             from tabs.image_gallery.use_cases.ai_analyze import analysis_identity_for
 
             identity = analysis_identity_for(self)
-            return ai_cache.folder_cache_probe(items, identity)
+            # The probe must ask the SAME question the analyze tail will: a
+            # scorecard that answers another vocabulary is not a "done" card
+            # (owner report 2026-10-26: dots vanished, rows read "не измерено").
+            from tabs.image_gallery.services.profile_judged import scorecard_axis_ids
+
+            profile = getattr(self.state, "metric_profile", None)
+            # Only a RESOLVED (judge) profile knows the axis set. Before it
+            # answers, "are these cards done" is answerable only without the axis
+            # check — the analyze tail re-checks strictly once the profile exists.
+            axes = ()
+            if profile is not None and str(getattr(profile, "source", "")) == "vlm":
+                axes = scorecard_axis_ids(getattr(self.state, "mode", None), profile=profile)
+            return ai_cache.folder_cache_probe(items, identity, axes=axes)
         except Exception:
             logger.debug("folder analysis probe failed", exc_info=True)
             return {"total": 0, "cached": 0, "complete": False, "missing": [], "results": {}}

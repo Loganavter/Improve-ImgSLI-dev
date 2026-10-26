@@ -112,7 +112,9 @@ def _drive_analyze(monkeypatch, owner: _Owner, *, hit: bool) -> None:
     """Run the REAL analyze entry with the cache seam pinned to *hit*."""
     cached = _cached_analysis() if hit else None
     monkeypatch.setattr(
-        ai_analyze, "load_cached_analysis", lambda path, mtime, identity: cached
+        ai_analyze,
+        "load_cached_analysis",
+        lambda path, mtime, identity, **_kw: cached,
     )
     monkeypatch.setattr(
         ai_analyze, "analysis_identity_for", lambda owner_, ctx=None: {"model": "m"}
