@@ -153,11 +153,9 @@ def build_magnifier_layout(
 
     def _capture_geometry(model):
 
-        # ONE owner (geometry/capture.py): the captured area is DERIVED from
-        # the drawn disk and the display scale, so the loupe always shows
-        # DEFAULT_MAGNIFIER_MAGNIFICATION screen px per source px. The scene
-        # graph resolves the same way (scene/build.py) — two owners of this
-        # number is what let the paint and the hit-test area disagree.
+        # ONE owner (geometry/capture.py): the sampled area follows the capture
+        # slider ONLY — the size slider moves just the drawn disk, so the two
+        # controls stay independent (owner decision 2026-10-26).
         radius, _magnification = resolve_magnifier_capture_radius(
             size_relative=float(
                 getattr(model, "size_relative", _DEFAULT_MAGNIFIER_SIZE_RELATIVE)

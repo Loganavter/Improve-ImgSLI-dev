@@ -208,12 +208,11 @@ def test_live_uv_path_remaps_box_to_full_uv(monkeypatch):
     assert layout is not None
     assert len(layout.slots) == 1
     slot = layout.slots[0]
-    # Capture radius is DERIVED from the drawn disk (5 screen px per source px
-    # by default: see DEFAULT_MAGNIFIER_MAGNIFICATION), and capture 0.2 is twice
-    # the default 0.1, so this loupe is 2.5x: slot.radius 10 / capture 4.
-    assert slot.radius / layout.capture_circles[0].radius == pytest.approx(2.5)
-    assert tuple(slot.uv_rect) == pytest.approx((0.384, 0.284, 0.416, 0.316))
-    assert tuple(slot.uv_rect2) == pytest.approx((0.46, 0.46, 0.54, 0.54))
+    # capture 0.2 on a 100 px canvas -> 10 px radius; the box path remaps that
+    # footprint into full-image UV (side 2 has no box and keeps plain UV).
+    assert layout.capture_circles[0].radius == pytest.approx(10.0)
+    assert tuple(slot.uv_rect) == pytest.approx((0.36, 0.26, 0.44, 0.34))
+    assert tuple(slot.uv_rect2) == pytest.approx((0.4, 0.4, 0.6, 0.6))
 
 
 def test_live_uv_path_none_box_matches_the_capture_ring(monkeypatch):
@@ -243,8 +242,8 @@ def test_live_uv_path_none_box_matches_the_capture_ring(monkeypatch):
     assert layout is not None
     assert len(layout.slots) == 1
     slot = layout.slots[0]
-    # No crop box -> the sampled rect IS the capture ring (derived radius 4 on
-    # a 100 px canvas), not a legacy capture_size_relative fraction.
-    assert layout.capture_circles[0].radius == pytest.approx(4.0)
-    assert tuple(slot.uv_rect) == pytest.approx((0.46, 0.46, 0.54, 0.54))
-    assert tuple(slot.uv_rect2) == pytest.approx((0.46, 0.46, 0.54, 0.54))
+    # No crop box -> the sampled rect IS the capture ring (capture 0.2 on a
+    # 100 px canvas = 10 px radius).
+    assert layout.capture_circles[0].radius == pytest.approx(10.0)
+    assert tuple(slot.uv_rect) == pytest.approx((0.4, 0.4, 0.6, 0.6))
+    assert tuple(slot.uv_rect2) == pytest.approx((0.4, 0.4, 0.6, 0.6))
