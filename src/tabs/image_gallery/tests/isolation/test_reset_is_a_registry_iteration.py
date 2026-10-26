@@ -205,6 +205,24 @@ def test_clearing_another_backends_store_is_a_typed_refusal() -> None:
     require_namespace(ALGORITHMS_BACKEND.descriptor, metrics_cache)
 
 
+def test_release_drops_the_ask_bindings_a_reset_keeps(counters) -> None:
+    """``release`` is the teardown ``reset`` must not be: it drops the bindings."""
+    from tabs.image_gallery.backends.ai import AIBackend
+
+    adapter = AIBackend()
+    owner = _Owner()
+    cache = adapter.new_ask_cache(owner)
+    cache["scope|question|backend|model"] = "an answer"
+
+    adapter.release()
+
+    assert cache == {}, "release must still empty what the reset half owns"
+    assert adapter.ask_caches() == (), (
+        "release kept the per-owner binding a reset deliberately keeps — the end of "
+        "a session must not leave a cache bound to a dead owner"
+    )
+
+
 def test_two_backends_still_cannot_share_one_cache_namespace() -> None:
     """The registry gate A1 shipped must survive A4's namespace declarations."""
     registry = AnalysisBackendRegistry()
