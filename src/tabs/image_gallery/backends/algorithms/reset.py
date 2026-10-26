@@ -1,7 +1,7 @@
 """The Algorithms backend's reset and release (ADR 009 wave A4).
 
 The local detectors' domain owns exactly one measured cache: the Stage-2 local
-metrics (``services.metrics_cache`` — ``gallery_local_metrics``, the per-item
+metrics (``services.metrics_cache`` — gallery_local_metrics, the per-item
 records the proxy/triage path persists). Everything else a metrics reset touches
 belongs to the other backend (AI scorecards, VLM profile pins, Jev ranks, VLM
 tie-break/brief, A/B verdicts, the Ask answers) or is not a backend's cache at

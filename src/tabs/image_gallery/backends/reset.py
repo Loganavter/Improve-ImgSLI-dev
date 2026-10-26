@@ -27,8 +27,8 @@ modules share, so "which caches do I own" is answered once:
 The report keys
 ---------------
 An adapter's ``reset`` returns the counts of what it dropped, keyed by the
-public fields of the reset summary it publishes (``ai_files``, ``profiles``,
-``jev_files``, ``vlm_files``, ``pairwise_verdicts``); an adapter that publishes
+public fields of the reset summary it publishes (ai_files, profiles,
+jev_files, vlm_files, pairwise_verdicts); an adapter that publishes
 no count returns ``{}``. The summary's shape is the use case's API, so the
 adapter names its caches in the vocabulary the caller already shows — and
 ``clear_metrics_caches`` merges whatever comes back instead of knowing which

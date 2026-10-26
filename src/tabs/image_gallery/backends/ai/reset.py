@@ -7,13 +7,13 @@ simply missing (it survived every reset).
 
 Owned stores, all under ``descriptor.cache_namespace == "ai"``:
 
-* ``services.ai_cache`` — the per-image scorecards (``ai_files``);
+* ``services.ai_cache`` — the per-image scorecards (ai_files);
 * ``services.profile_cache`` — the pinned VLM metric-profile answers
-  (``profiles``);
-* ``services.jev_cache`` — the pinned Jev rank orders (``jev_files``);
-* ``services.vlm_cache`` — the tie-break / compare-brief files (``vlm_files``);
+  (profiles);
+* ``services.jev_cache`` — the pinned Jev rank orders (jev_files);
+* ``services.vlm_cache`` — the tie-break / compare-brief files (vlm_files);
 * ``use_cases.pairwise_rank.DEFAULT_CACHE`` — the process-wide A/B verdicts, the
-  one measurement cache with no disk half (``pairwise_verdicts``);
+  one measurement cache with no disk half (pairwise_verdicts);
 * the Ask-AI answer caches bound to their owners through
   :meth:`AIBackend.new_ask_cache` (counted only in the trace: the reset summary's
   public fields are the five above, and inventing a sixth would change an API
