@@ -955,7 +955,17 @@ class GalleryController:
             or not getattr(settings, "base_url", "")
             or not getattr(settings, "api_key", "")
         ):
-            _ai_debug("metric profile skip: AI not configured (items=%d)", len(items))
+            # Owner rule 2026-10-26: this stage only runs in the AI domain, so an
+            # unusable configuration is an ERROR for the cards, not a quiet skip
+            # that leaves them ranked on the local axis set.
+            self._mark_ai_profile_error(
+                "the AI backend is selected but its settings are not configured "
+                "(API key / model) — no axis set, no local fallback"
+            )
+            _ai_debug(
+                "metric profile: AI not configured — cards marked ERROR (items=%d)",
+                len(items),
+            )
             return
         mode = getattr(self.state, "mode", None)
         gen = self._folder_gen
@@ -2437,16 +2447,33 @@ class GalleryController:
     def _degrade_jev(self, members, reason: str, *, as_error: bool = False) -> None:
         """Keep the Algorithms (fusion) rank and surface a visible reason.
 
-        The stored rank is never touched here — a failed Jev rank must not
-        fabricate a number or re-rank a subset (no silent fallback). A BENIGN
-        non-answer (abstain / low confidence / nothing to rank / unusable reply)
-        CLEARS the AI activity so the card shows the Algorithms rank instead of a
-        false "error" chip that later flips to "done"; only a real fault
-        (``as_error``: transport error / not configured) paints the error chip.
-        The reason is always logged.
+        A BENIGN non-answer (abstain / low confidence / nothing to rank /
+        unusable reply) CLEARS the AI activity so the card shows the Algorithms
+        rank instead of a false "error" chip that later flips to "done". A real
+        FAULT (``as_error``: transport error / not configured) is an ERROR in the
+        AI backend (owner rule 2026-10-26): the card carries the error chip AND
+        the local order is withdrawn (``rank``/``rank_source`` cleared) instead of
+        being presented as the answer. A manual rank is never touched. The reason
+        is always logged.
         """
         logger.debug("jev rank degraded: %s", reason)
         _ai_debug("jev rank degraded: %s", reason)
+        if as_error:
+            # Owner rule 2026-10-26: a selected AI backend that FAILED is an
+            # ERROR — the folder is not re-ordered on the local (fusion) numbers
+            # behind the user's back. The previous behaviour kept those ranks and
+            # only painted a chip ("kept the Algorithms rank"), so a broken model
+            # looked like a working ranker using camera metrics. Clearing the
+            # claims is what makes the state honest: no order is presented until
+            # a rank actually succeeds.
+            for m in list(members or ()):
+                it = self._find_item(getattr(m, "path", None)) or m
+                try:
+                    if getattr(it, "rank_source", None) in (None, "", "fusion"):
+                        it.rank = None
+                        it.rank_source = None
+                except Exception:
+                    pass
         touched: list = []
         for m in list(members or ()):
             it = self._find_item(getattr(m, "path", None)) or m
