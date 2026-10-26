@@ -162,6 +162,20 @@ def _profile_selector():
     return ai_profile_selector()
 
 
+def _ai_analysis_backend():
+    """The AI analysis-backend adapter (composition registers on first use).
+
+    ADR 009 wave A4: the Ask-AI answer cache is one of the measured caches the
+    judge's domain owns, so the adapter issues it (``new_ask_cache``) and its
+    ``reset`` empties every bound cache. Lazy by design — the controller module
+    imports nothing from ``backends`` at load time, the same rule
+    :func:`_profile_selector` follows, and tests can monkeypatch this ONE seam.
+    """
+    from tabs.image_gallery.backends.composition import backend
+
+    return backend("ai")
+
+
 def _stamp_profile_consumed(owner) -> None:
     """Freeze the owner's folder-generation profile once a REQUEST PAYLOAD is built (P5/P2).
 
@@ -391,9 +405,14 @@ class GalleryController:
         self._thread_pool = thread_pool or _new_gallery_pool()
         self._context = context
         self._ai_settings_store = AiSettingsStore()
-        # Ask AI (A4): in-session answer cache keyed by
+        # Ask AI: in-session answer cache keyed by
         # scope-identity + question + backend + model (re-open serves cache).
-        self._ask_cache: dict[str, object] = {}
+        # OWNED by the AI analysis backend (ADR 009 wave A4): a paid answer is a
+        # measurement of the items a reset zeroes, so the backend that produces
+        # them holds the cache and its ``reset`` empties every bound one. The
+        # controller keeps the dict for lookups; it used to own it outright,
+        # which is why no reset ever cleared it.
+        self._ask_cache: dict[str, object] = _ai_analysis_backend().new_ask_cache(self)
         # Generation tokens against async races: bumped on every folder switch
         # (open_folder/open_paths). Late triage/artifact/thumbnail/VLM results
         # carrying a stale generation are dropped, never applied to the new

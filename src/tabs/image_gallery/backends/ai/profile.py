@@ -30,9 +30,22 @@ order (declared capability) while the Algorithms backend raises
 An axis-less profile — the AI slot before the judge has answered — is
 ``NoProfileYet`` at every boundary (``_require_profile``): it measures nothing,
 ranks nothing, asks nothing, and never falls through to the local mode mapping.
+
+Wave A4 gives this adapter its **lifecycle ownership**: ``reset``
+(:mod:`.reset`) clears every cache the judge's domain fills — scorecards, VLM
+profile pins, Jev rank pins, tie-break/brief files, the A/B verdict store and the
+Ask-AI answer caches bound through :meth:`AIBackend.new_ask_cache` — and advances
+this adapter's work generation. That generation is what the three worker-thread
+pins ask immediately before they write, so a result produced before a reset can
+no longer land in a store the reset just emptied.
 """
 
 from __future__ import annotations
+
+import logging
+import weakref
+
+from core.log_names import APP_LOGGER_NAME
 
 from tabs.image_gallery.backends.context import (
     PROFILE_SCHEMA_VERSION,
@@ -54,6 +67,7 @@ from tabs.image_gallery.backends.contract import (
     require_capability,
 )
 from tabs.image_gallery.backends.errors import BackendMismatch, NoProfileYet
+from tabs.image_gallery.backends.generation import WorkGeneration
 from tabs.image_gallery.services.metric_profile import (
     AI_PROFILE_SLOT,
     DOMAIN_AI,
@@ -69,6 +83,8 @@ from .rank import rank as _rank
 CAPABILITIES: frozenset[str] = frozenset(
     {"measure", "rank", "profile", "pairwise", "ask", "reset"}
 )
+
+logger = logging.getLogger(APP_LOGGER_NAME)
 
 
 
@@ -95,6 +111,16 @@ class AIBackend:
     def __init__(self) -> None:
         self._profiles: dict[str, object] = {}
         self._current: OwnedProfile | None = None
+        #: Monotonic work generation, advanced by every :meth:`reset`.
+        self._generation = 0
+        #: The Ask-AI answer caches this backend owns, one per owner (a
+        #: controller session). Weak keys: the cache lives exactly as long as
+        #: the owner does, and a reset still reaches every live one — which is
+        #: precisely what the cache never had (it survived every reset because
+        #: the controller owned it and no clear knew about it).
+        self._ask_caches: "weakref.WeakKeyDictionary[object, dict]" = (
+            weakref.WeakKeyDictionary()
+        )
 
     # -- profile -----------------------------------------------------------
 
@@ -232,20 +258,108 @@ class AIBackend:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def reset(self) -> None:
-        """Drop the in-memory profile generations.
+    def new_ask_cache(self, owner) -> dict[str, object]:
+        """Bind a fresh Ask-AI answer cache to *owner* and return it.
 
-        The pinned selector answers and the pairwise verdict cache are disk /
-        in-memory caches of their own seams (``profile_cache`` /
-        ``pairwise_rank.clear_default_cache``); clearing them is ADR 009 wave A4
-        (``use_cases.cache_reset``) and is NOT duplicated here.
+        The answer cache is a MEASUREMENT cache (a paid answer about the items a
+        reset zeroes), so it belongs to the backend that produced the answers —
+        a reset must be able to drop it without the use case knowing the
+        controller has one. Per owner, not process-wide: the answers are an
+        in-session convenience, and a second session must not inherit them (or
+        its own "the cache starts empty" assertions stop being true).
+
+        An owner that cannot be weakly referenced is not remembered (the caller
+        still gets a working cache); the binding is what makes ``reset`` reach
+        it, so that limitation is traced rather than hidden.
         """
-        self._profiles.clear()
-        self._current = None
+        cache: dict[str, object] = {}
+        try:
+            self._ask_caches[owner] = cache
+        except TypeError:
+            logger.debug(
+                "ask cache: owner %r is not weak-referenceable; a reset will not "
+                "reach this cache",
+                type(owner).__name__,
+            )
+        return cache
+
+    def ask_caches(self) -> tuple[dict[str, object], ...]:
+        """Every live Ask-AI answer cache this backend owns."""
+        try:
+            return tuple(self._ask_caches.values())
+        except Exception:
+            return ()
+
+    def clear_ask_caches(self) -> int:
+        """Empty every bound Ask cache; return how many answers were dropped."""
+        dropped = 0
+        try:
+            caches = list(self._ask_caches.values())
+        except Exception:
+            caches = []
+        for cache in caches:
+            try:
+                dropped += len(cache)
+                cache.clear()
+            except Exception:
+                continue
+        return dropped
+
+    def reset(self) -> dict[str, int]:
+        """Drop every cache this backend owns (a new world); advance generation.
+
+        Delegates to :mod:`.reset`, where the generation advance is the FIRST
+        statement and the stores follow. The returned mapping is the reset
+        summary's own vocabulary, filled by the owner of each cache — not by the
+        use case that shows the numbers.
+        """
+        from .reset import reset as _reset
+
+        return _reset(self)
 
     def release(self) -> None:
-        """Drop everything this backend holds; ``reset`` is the same operation."""
-        self.reset()
+        """Tear down what ``reset`` cannot (the per-owner Ask bindings)."""
+        from .reset import release as _release
+
+        _release(self)
+
+    # -- work generations --------------------------------------------------
+
+    @property
+    def generation(self) -> int:
+        """The live work generation (advanced by every :meth:`reset`)."""
+        return int(self._generation)
+
+    def lease(self) -> WorkGeneration:
+        """The lease a worker snapshots when it starts working for this backend."""
+        return WorkGeneration(
+            backend_id=self.descriptor.backend_id, generation=self.generation
+        )
+
+    def assert_generation(self, lease: WorkGeneration, *, operation: str) -> None:
+        """Refuse a *lease* this backend has dropped (``reset`` moved on).
+
+        ``BackendMismatch`` for the other backend's lease (this adapter never
+        issued it), ``NoProfileYet`` for an older generation of this one: after a
+        reset there is no profile of that generation for the result to belong to,
+        so the write is refused instead of landing in a cache that was cleared a
+        moment ago.
+        """
+        if lease.backend_id != self.descriptor.backend_id:
+            raise BackendMismatch(
+                what="work generation",
+                expected_backend_id=self.descriptor.backend_id,
+                actual_backend_id=lease.backend_id,
+            )
+        if int(lease.generation) != self.generation:
+            raise NoProfileYet(
+                backend_id=self.descriptor.backend_id,
+                operation=operation,
+                detail=(
+                    f"is stale: generation {int(lease.generation)} was dropped by "
+                    f"reset() (current {self.generation})"
+                ),
+            )
 
     # -- internals ---------------------------------------------------------
 

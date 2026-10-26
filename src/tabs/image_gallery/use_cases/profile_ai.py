@@ -479,6 +479,19 @@ def choose_profile_sync(
     members = _as_list(items)
 
     from tabs.image_gallery.services import profile_cache
+    from tabs.image_gallery.services.metric_profile import DOMAIN_AI
+
+    # The AI adapter's work generation, snapshotted at the START of the pass (this
+    # function IS the selector's worker body) and compared immediately before the
+    # pin write below: a metrics reset that lands while the paid call is in flight
+    # emptied ``profile_cache``, and the pin then wrote the pre-reset axis set
+    # straight back into it (ADR 009 wave A4, measured gap).
+    from tabs.image_gallery.backends.generation import (
+        current_generation,
+        generation_is_current,
+    )
+
+    generation = current_generation(DOMAIN_AI)
 
     try:
         key = profile_cache.profile_cache_key(
@@ -494,8 +507,17 @@ def choose_profile_sync(
     cache_obj = cache if cache is not None else profile_cache.default_cache()
 
     def _pin(profile, *, why: str):
-        """Persist the resolved profile (whatever its source). Never raises."""
+        """Persist the resolved profile (whatever its source). Never raises.
+
+        The write is refused when *generation* is stale: the profile belongs to a
+        world the reset dropped, so pinning it would serve a pre-reset axis set to
+        the next pass over the (now empty) folder. The caller still gets the
+        profile — returning it is this function's contract; only the cache write is
+        dropped.
+        """
         if profile is None or not key:
+            return profile
+        if not generation_is_current(generation, operation="pin the VLM profile"):
             return profile
         try:
             cache_obj.put(key, profile)

@@ -31,9 +31,12 @@ What is NEW is the ownership, not the computation:
 * ``pairwise_order`` is not a shared feature but a CAPABILITY this backend does
   not declare, so :mod:`.rank` refuses it with ``CapabilityNotDeclared``.
 
-The disk caches (metrics/proxy pins) are untouched: their reset is ADR 009 wave
-A4 (``use_cases.cache_reset``). ``reset`` here drops the in-memory profile
-generations, which is what the folder-generation reset needs.
+The disk caches (metrics/proxy pins) were ADR 009 wave A4: the local metrics
+store is cleared by THIS adapter's ``reset`` (``backends.algorithms.reset``),
+which is why ``use_cases.cache_reset`` no longer names it. ``reset`` here drops
+the in-memory profile generations, advances the adapter's work generation (the
+lease a worker compares immediately before it writes) and clears the caches this
+backend owns.
 """
 
 from __future__ import annotations
@@ -58,6 +61,7 @@ from tabs.image_gallery.backends.contract import (
     require_capability,
 )
 from tabs.image_gallery.backends.errors import BackendMismatch, NoProfileYet
+from tabs.image_gallery.backends.generation import WorkGeneration
 from tabs.image_gallery.services.metric_profile import (
     ALGORITHMS_PROFILE_SLOT,
     DOMAIN_ALGORITHMS,
@@ -99,6 +103,10 @@ class AlgorithmsBackend:
     def __init__(self) -> None:
         self._profiles: dict[str, object] = {}
         self._current: OwnedProfile | None = None
+        #: Monotonic work generation, advanced by every :meth:`reset`. A worker
+        #: snapshots :meth:`lease` when it starts and hands the lease back to
+        #: this adapter immediately before it writes a cache entry.
+        self._generation = 0
 
     # -- profile -----------------------------------------------------------
 
@@ -238,14 +246,63 @@ class AlgorithmsBackend:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def reset(self) -> None:
-        """Drop the in-memory profile generations (a new folder generation)."""
-        self._profiles.clear()
-        self._current = None
+    def reset(self) -> dict[str, int]:
+        """Drop this backend's caches + profile generations (a new world).
+
+        Delegates to :mod:`.reset`: the generation advance comes FIRST (so an
+        in-flight worker's lease is stale before the stores move), then the
+        in-memory profile generations are dropped and the owned disk caches are
+        emptied. The returned mapping is the reset summary's own vocabulary —
+        ``{}`` for this backend (the local metrics count is traced, not
+        published).
+        """
+        from .reset import reset as _reset
+
+        return _reset(self)
 
     def release(self) -> None:
-        """Drop everything this backend holds; ``reset`` is the same operation."""
-        self.reset()
+        """Tear down what ``reset`` cannot; the local half holds nothing extra."""
+        from .reset import release as _release
+
+        _release(self)
+
+    # -- work generations --------------------------------------------------
+
+    @property
+    def generation(self) -> int:
+        """The live work generation (advanced by every :meth:`reset`)."""
+        return int(self._generation)
+
+    def lease(self) -> WorkGeneration:
+        """The lease a worker snapshots when it starts working for this backend."""
+        return WorkGeneration(
+            backend_id=self.descriptor.backend_id, generation=self.generation
+        )
+
+    def assert_generation(self, lease: WorkGeneration, *, operation: str) -> None:
+        """Refuse a *lease* this backend has dropped (``reset`` moved on).
+
+        Two halves, the same order the artifact boundaries use: a lease issued
+        by the OTHER backend is ``BackendMismatch`` (this adapter never validated
+        it), a lease from an earlier generation of this one is ``NoProfileYet``
+        with the generation detail — after a reset there is no profile of that
+        generation to write the result under.
+        """
+        if lease.backend_id != self.descriptor.backend_id:
+            raise BackendMismatch(
+                what="work generation",
+                expected_backend_id=self.descriptor.backend_id,
+                actual_backend_id=lease.backend_id,
+            )
+        if int(lease.generation) != self.generation:
+            raise NoProfileYet(
+                backend_id=self.descriptor.backend_id,
+                operation=operation,
+                detail=(
+                    f"is stale: generation {int(lease.generation)} was dropped by "
+                    f"reset() (current {self.generation})"
+                ),
+            )
 
     # -- internals ---------------------------------------------------------
 

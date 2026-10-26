@@ -58,6 +58,10 @@ from typing import Any, Callable
 from tabs.image_gallery.services import jev_cache
 from tabs.image_gallery.services.ai_client import _ai_debug
 from tabs.image_gallery.backends.errors import NoProfileYet
+from tabs.image_gallery.backends.generation import (
+    current_generation,
+    generation_is_current,
+)
 from tabs.image_gallery.services.axis_proposal import direction_of
 from tabs.image_gallery.services.jev_axes import payload_axes, scored_axis_names
 from tabs.image_gallery.services.profile_judged import scorecard_axis_ids
@@ -874,11 +878,32 @@ def _decide(
     )
 
 
-def _pin(cache_obj, key: str, ranks: dict[str, int] | None, reason: str | None) -> None:
+def _pin(
+    cache_obj,
+    key: str,
+    ranks: dict[str, int] | None,
+    reason: str | None,
+    *,
+    generation=None,
+) -> bool:
+    """Persist one Jev answer — unless the world it describes is gone.
+
+    The pin is a DISK WRITE made from the rank worker, so the reset barrier's
+    landing checks never see it: a reset that runs while the request is in flight
+    cleared ``jev_cache`` and the pin then wrote the pre-reset order straight back
+    (ADR 009 wave A4, measured gap). ``generation`` is the AI adapter's lease,
+    snapshotted when this pass started, and it is compared *immediately before the
+    write* — the adapter owns the answer, so it raises; this seam only refuses to
+    write. Returns ``True`` when the pin landed.
+    """
+    if not generation_is_current(generation, operation="pin the Jev rank"):
+        return False
     try:
         cache_obj.put(key, ranks, reason=reason)
     except Exception:
         logger.debug("jev rank pin failed", exc_info=True)
+        return False
+    return True
 
 
 def rank_series_jev_detailed(
@@ -892,6 +917,11 @@ def rank_series_jev_detailed(
     base_url: str = "",
 ) -> JevRankOutcome:
     """Jev-rank one series, returning the full :class:`JevRankOutcome`.
+
+    The pass snapshots the AI backend's work generation at entry (this function
+    runs on the worker thread) and hands it to :func:`_pin`, so an answer that
+    arrives after a metrics reset is not written into the store the reset just
+    emptied.
 
     This is the seam :func:`rank_series_jev` wraps: it carries the degrade
     *reason* the caller surfaces when the Algorithms rank is kept. Cache-first:
@@ -908,6 +938,9 @@ def rank_series_jev_detailed(
     poison the cache and hide a later, complete run. ``profile`` (plan P1)
     selects the axes of that vector; ``None`` keeps the mode mapping. Never raises.
     """
+    # The AI adapter's work generation, snapshotted at the START of this pass
+    # (the worker thread's body) and compared immediately before the pin write.
+    generation = current_generation(AI_DOMAIN)
     member_list = list(items or ())
     if len(member_list) < 2:
         return JevRankOutcome(None, reason=JEV_REASON_EMPTY)
@@ -1008,7 +1041,7 @@ def rank_series_jev_detailed(
     # pin a malformed response — it may be a transient backend glitch.
     _ai_debug("jev rank => decided=%s reason=%s", outcome.decided, outcome.reason)
     if key and outcome.reason != JEV_REASON_MALFORMED:
-        _pin(cache_obj, key, outcome.ranks, outcome.reason)
+        _pin(cache_obj, key, outcome.ranks, outcome.reason, generation=generation)
     return outcome
 
 

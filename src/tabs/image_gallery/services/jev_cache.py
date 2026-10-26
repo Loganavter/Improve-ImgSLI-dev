@@ -36,6 +36,10 @@ from core.log_names import APP_LOGGER_NAME
 
 logger = logging.getLogger(APP_LOGGER_NAME)
 
+#: The analysis-backend adapter that OWNS this store (ADR 009 wave A4) — see
+#: ``services.ai_cache.CACHE_NAMESPACE``.
+CACHE_NAMESPACE = "ai"
+
 #: Bump when the cached record shape changes (old pins stop matching).
 JEV_CACHE_VERSION = 1
 

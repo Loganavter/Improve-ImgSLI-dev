@@ -44,6 +44,11 @@ logger = logging.getLogger(APP_LOGGER_NAME)
 #: different question and must be a MISS. Part of both cache keys.
 VLM_PROMPT_REVISION = 1
 
+#: The analysis-backend adapter that OWNS this store (ADR 009 wave A4) — see
+#: ``services.ai_cache.CACHE_NAMESPACE``. The tie-break / brief answers are the
+#: judge's, never a detector's.
+CACHE_NAMESPACE = "ai"
+
 
 def vlm_cache_dir() -> Path:
     from services.io.project_package import cache_kind_dir

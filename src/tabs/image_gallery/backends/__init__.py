@@ -7,7 +7,9 @@ The public surface later waves consume::
     AnalysisBackend.make_profile(ProfileRequest) -> OwnedProfile
     AnalysisBackend.measure(MeasureRequest) -> MeasurementEnvelope
     AnalysisBackend.rank(RankRequest) -> RankResult
-    AnalysisBackend.reset() -> None ; AnalysisBackend.release() -> None
+    AnalysisBackend.reset() -> Mapping[str, int] ; AnalysisBackend.release()
+    AnalysisBackend.lease() -> WorkGeneration      # snapshot when work starts
+    AnalysisBackend.assert_generation(lease, operation=...)  # before the write
     OwnedProfile(backend_id, profile_id, schema_version, axes, entries)
     MeasurementEnvelope(backend_id, schema_version, profile_id, records)
     registry[backend_id]      # KeyError when unknown
@@ -47,6 +49,12 @@ from .errors import (
     NoProfileYet,
     SchemaMismatch,
 )
+from .generation import (
+    WorkGeneration,
+    current_generation,
+    generation_is_current,
+    require_current,
+)
 from .registry import AnalysisBackendRegistry, iter_backends, register, registry
 
 __all__ = [
@@ -66,9 +74,13 @@ __all__ = [
     "RankRequest",
     "RankResult",
     "SchemaMismatch",
+    "WorkGeneration",
     "assert_envelope_owned",
+    "current_generation",
+    "generation_is_current",
     "iter_backends",
     "register",
     "registry",
     "require_capability",
+    "require_current",
 ]

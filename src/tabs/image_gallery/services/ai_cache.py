@@ -108,6 +108,12 @@ logger = logging.getLogger(APP_LOGGER_NAME)
 #: inconsistently (``''`` / ``'camera'`` within one run), so one folder wrote two
 #: key sets and neither was ever read back. A v5 filename embeds the mode in its
 #: digest, so those entries are unreachable: one honest re-analysis, then hits.
+#: The analysis-backend adapter that OWNS this store (ADR 009 wave A4). A
+#: cache declares whose numbers it holds, so the adapter clearing it can prove it
+#: is clearing its own (``backends.reset.require_namespace``); the registry
+#: refuses two backends sharing one namespace (``CacheNamespaceCollision``).
+CACHE_NAMESPACE = "ai"
+
 AI_CACHE_VERSION = 6
 
 #: Prompt/schema revision of the analyze request. Bump this whenever the prompt

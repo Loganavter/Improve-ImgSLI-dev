@@ -250,6 +250,12 @@ class PairwiseVerdictCache:
 #: Process-wide cache for the live path (tests inject a fresh one).
 DEFAULT_CACHE = PairwiseVerdictCache()
 
+#: The analysis-backend adapter that OWNS this store (ADR 009 wave A4) — see
+#: ``services.ai_cache.CACHE_NAMESPACE``. A/B refinement is the judge's declared
+#: capability, so the verdicts are the AI backend's, and its ``reset`` clears
+#: them through :func:`clear_default_cache`.
+CACHE_NAMESPACE = "ai"
+
 
 def clear_default_cache() -> int:
     """Drop every process-wide verdict; return how many were held. Never raises.
@@ -851,7 +857,19 @@ def run_pairwise_pass(
     unmeasured top set, a ceiling refusal, a missing answer or an unconfigured
     judge all leave the pointwise order intact and state why in the trace.
     ``judge=None`` builds :class:`PairwiseClientJudge` from the settings row.
+
+    The pass snapshots the AI backend's work generation at entry (this function
+    runs on the worker thread) and compares it immediately before the verdict
+    store write below: the A/B verdicts are the judge's measurement cache, so an
+    answer that arrives after a metrics reset must not be pinned into the store
+    the reset just emptied (ADR 009 wave A4).
     """
+    from tabs.image_gallery.backends.generation import (
+        current_generation,
+        generation_is_current,
+    )
+
+    generation = current_generation(CACHE_NAMESPACE)
     plan = _plan_pass(
         owner,
         items,
@@ -956,9 +974,12 @@ def run_pairwise_pass(
         from_cache = verdict is not None
         if verdict is None:
             verdict = compare_pair(judge, first, second, on_call=_count_call)
-            if verdict.resolved:
+            if verdict.resolved and generation_is_current(
+                generation, operation="pin the A/B verdict"
+            ):
                 # An unresolved answer is NOT a verdict: never cache a
-                # transport failure as a permanent tie.
+                # transport failure as a permanent tie. A resolved one is only
+                # pinned while the generation it was measured in is still live.
                 store.put(key, verdict)
         else:
             cached += 1

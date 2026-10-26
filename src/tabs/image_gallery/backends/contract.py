@@ -39,6 +39,7 @@ from types import MappingProxyType
 from typing import Mapping, Protocol
 
 from .errors import BackendMismatch, CapabilityNotDeclared, SchemaMismatch
+from .generation import WorkGeneration
 
 #: The one OPTIONAL capability the gallery requests by name: the A/B (pairwise)
 #: refinement of a near-tie top set. Only the judge's domain has it (the pass is
@@ -204,6 +205,20 @@ class AnalysisBackend(Protocol):
     ``measure``/``rank`` calls against that profile; ``reset`` drops in-memory
     state for a new folder generation; ``release`` frees persistent resources.
     ``measure``/``rank`` before ``make_profile`` are ``NoProfileYet``.
+
+    ``reset`` is the OWNER's answer to "drop what you filled": it clears every
+    cache the backend's domain owns (addressed by ``descriptor
+    .cache_namespace``) and advances the backend's work generation, and it
+    RETURNS the counts keyed by the fields the caller's reset summary publishes
+    for those caches (``{}`` when the backend publishes none). A caller iterating
+    the registry therefore holds no list of cache names — the adapters do (ADR
+    009 wave A4).
+
+    ``lease`` / ``assert_generation`` are the other half: a worker snapshots
+    ``lease()`` when it starts and hands it back to the OWNING adapter
+    immediately before it writes a cache entry; a reset in between makes that
+    lease stale and the adapter refuses the write (``NoProfileYet`` with the
+    generation detail, ``BackendMismatch`` for the other backend's lease).
     """
 
     descriptor: BackendDescriptor
@@ -214,9 +229,13 @@ class AnalysisBackend(Protocol):
 
     def rank(self, request: RankRequest) -> RankResult: ...
 
-    def reset(self) -> None: ...
+    def reset(self) -> Mapping[str, int]: ...
 
     def release(self) -> None: ...
+
+    def lease(self) -> WorkGeneration: ...
+
+    def assert_generation(self, lease: WorkGeneration, *, operation: str) -> None: ...
 
 
 def assert_envelope_owned(
@@ -263,6 +282,7 @@ __all__ = [
     "ProfileRequest",
     "RankRequest",
     "RankResult",
+    "WorkGeneration",
     "assert_envelope_owned",
     "require_capability",
 ]

@@ -59,13 +59,21 @@ class NoProfileYet(BackendContractError):
     There is no implicit "make one now" and no empty result: a backend without a
     profile has nothing to measure against, and pretending otherwise is how a
     profile-free run used to score items under the wrong axis set.
+
+    A STALE WORK GENERATION is the same refusal (ADR 009 wave A4): after
+    ``reset`` the backend holds no profile of the generation that worker started
+    under, so a pin produced under it has nothing to belong to. ``detail``
+    states which half was refused — the message stays built from named fields,
+    the caller does not print its own sentence.
     """
 
-    def __init__(self, *, backend_id: str, operation: str) -> None:
+    def __init__(self, *, backend_id: str, operation: str, detail: str = "") -> None:
         self.backend_id = backend_id
         self.operation = operation
+        self.detail = detail
         super().__init__(
-            f"backend {backend_id!r}: {operation}() called before make_profile()"
+            f"backend {backend_id!r}: {operation}() "
+            f"{detail or 'called before make_profile()'}"
         )
 
 
