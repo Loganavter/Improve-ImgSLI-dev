@@ -272,6 +272,47 @@ domain owns the derivation and records the refusal as
 (`calls-built`, `stale-generation`, `hollow-answer`). So a judge-named axis can
 never appear while the shown numbers are detector numbers.
 
+**Wave A4 — the caches belong to the adapters, and so does the reset.** The
+reset is no longer a list of store names in `use_cases/cache_reset.py`; it is one
+registry iteration (`for backend in registry.iter_backends(): backend.reset()`),
+and each adapter names what it drops in its own `reset.py`
+(`backends/algorithms/reset.py`, `backends/ai/reset.py`):
+
+| Backend (`cache_namespace`) | Owned stores it clears |
+|---|---|
+| `algorithms` | `services.metrics_cache` (the local Stage-2 records) |
+| `ai` | `services.ai_cache` (scorecards), `services.profile_cache` (VLM profile pins), `services.jev_cache` (Jev rank pins), `services.vlm_cache` (tie-break / brief files), `use_cases.pairwise_rank.DEFAULT_CACHE` (A/B verdicts), the Ask-AI answer caches issued by `AIBackend.new_ask_cache` |
+
+Every cache module declares `CACHE_NAMESPACE`, and `backends.reset
+.require_namespace` refuses an adapter clearing a store of another namespace
+(`BackendMismatch`) — the pattern a registry cannot see, because the registry only
+catches two backends claiming the same one (`CacheNamespaceCollision`). What the
+use case keeps is the engine-side half: per-item measured state, the proxy decode
+cache, the in-memory `state.tie_breaks` / `state.series_priority` projections and
+their header marker, the profile-selector generation markers, the stored profile
+slots and the Stage-2 fingerprint.
+
+**Generations close the write window the barrier cannot see.** The barrier
+(`use_cases/reset_barrier`) bumps the owner's two epoch tokens and every *landing*
+path compares them — but three writes never land through an item: they go straight
+from a worker thread into a store (`services.jev_client._pin`, the profile pin in
+`use_cases.profile_ai`, `store.put` in `use_cases.pairwise_rank`). Each adapter now
+holds a monotonic **work generation** and the reset advances it *first*; a worker
+snapshots `adapter.lease()` when its pass starts and the pin asks
+`generation_is_current(lease, operation=…)` immediately before the write. The
+refusal is the owning adapter's and it is typed: `BackendMismatch` for the other
+backend's lease, `NoProfileYet` (carrying the dropped generation) for an older one
+— after a reset there is no profile of that generation for the result to belong
+to. A reset that cleared first and bumped afterwards would let the lease compare
+current again, which is why the bump is the first statement of both `reset`
+modules.
+
+The Ask-AI answers are the concrete bug this closes: they lived on the controller
+(`_ask_cache`, keyed by scope + question + backend + model) and no clear knew
+about them, so a paid answer outlived every reset. The AI adapter now issues the
+cache (`new_ask_cache(owner)`, a weak per-owner binding) and empties every bound
+one in its `reset`.
+
 ---
 
 ## 6. Removed: the metric-profile chip (2026-10-20)
