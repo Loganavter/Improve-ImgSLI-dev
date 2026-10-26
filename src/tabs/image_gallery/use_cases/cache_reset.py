@@ -321,6 +321,26 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
     except Exception:
         pass
 
+    # CANCEL the AI work of the pre-reset world (owner report 2026-10-26: "я сделал
+    # сброс кэша, а он анализ запустил"). The reset zeroes the numbers, but the
+    # analysis batch queued before it kept sending and landing — so the caches the
+    # user just cleared were refilled seconds later. ``_domain_epoch`` is the one
+    # gate every send and every reply already checks (``_send_if_current`` /
+    # ``_on_analysis_ready``), so advancing it turns the old batch into stale work:
+    # queued cards do not send, late replies are dropped instead of saved.
+    try:
+        owner._domain_epoch = int(getattr(owner, "_domain_epoch", 0) or 0) + 1
+    except Exception:
+        logger.debug("metrics reset: epoch bump failed", exc_info=True)
+    for it in list(targets or ()):
+        try:
+            status = str(getattr(getattr(it, "analysis_status", None), "value", "") or "")
+            if status == "pending":
+                it.analysis_status = None
+                it.analysis_error = None
+        except Exception:
+            continue
+
     # Stored profile + the Stage-2 skip gate.
     try:
         clear = getattr(owner, "clear_metric_profile", None)
