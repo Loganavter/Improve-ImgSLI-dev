@@ -1382,10 +1382,11 @@ class GalleryController:
             # cannot claim ``ai``, so the order is dropped, never applied.
             try:
                 from tabs.image_gallery.use_cases.action_context import (
+                    BACKEND_AI,
                     current_backend,
                 )
 
-                _pairwise_domain_ok = current_backend(self) == "ai"
+                _pairwise_domain_ok = current_backend(self) == BACKEND_AI
             except Exception:
                 _pairwise_domain_ok = False
             if not _pairwise_domain_ok:

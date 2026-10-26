@@ -11,6 +11,8 @@ Public API expected by the task:
 ``threshold`` is a hamming distance threshold for the 64-bit dHash.
 Embedding is used as a secondary gate (euclidean) and for centroid
 computation.  Explicit dependencies only — no Qt, no getattrs.
+
+Audit-Meta: pattern=perceptual-signature size=521 reason="one signature contract: the dHash, the HSV embedding and the shared decode frame must agree, because the 2026-10-26 backend-isolation W5a wave removed a duplicate open by making all three read ONE decoded image. Splitting the primitives out lets a later edit reintroduce the second decode (measured: 4 opens per image) or make the hash and the embedding describe different pixels; the module stays a single ~60-line math block over one frame."
 """
 
 from __future__ import annotations

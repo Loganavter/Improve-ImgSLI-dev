@@ -869,6 +869,17 @@
       }
     },
     {
+      "path": "src/tabs/image_gallery/services/clustering.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=perceptual-signature size=521 reason=\"one signature contract: the dHash, the HSV embedding and the shared decode frame must agree, because the 2026-10-26 backend-isolation W5a wave removed a duplicate open by making all three read ONE decoded image. Splitting the primitives out lets a later edit reintroduce the second decode (measured: 4 opens per image) or make the hash and the embedding describe different pixels; the module stays a single ~60-line math block over one frame.\"",
+      "parsed": {
+        "pattern": "perceptual-signature",
+        "size": "521",
+        "reason": "one signature contract: the dHash, the HSV embedding and the shared decode frame must agree, because the 2026-10-26 backend-isolation W5a wave removed a duplicate open by making all three read ONE decoded image. Splitting the primitives out lets a later edit reintroduce the second decode (measured: 4 opens per image) or make the hash and the embedding describe different pixels; the module stays a single ~60-line math block over one frame."
+      }
+    },
+    {
       "path": "src/tabs/image_gallery/services/jev_client.py",
       "limit": 500,
       "marker": "Audit-Meta:",
@@ -877,6 +888,17 @@
         "pattern": "wire-client",
         "size": "523",
         "reason": "one Jev rank seam: measured-vector request + decision parser + degrade contract + pin belong together — splitting scatters the wire contract"
+      }
+    },
+    {
+      "path": "src/tabs/image_gallery/services/metric_profile.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=profile-contract size=562 reason=\"one profile contract: the closed pool, the mode mapping, the two domain slots and the axis-set builders must answer from ONE vocabulary; splitting them would let the AI slot and the Algorithms slot drift apart again (2026-10-26).\"",
+      "parsed": {
+        "pattern": "profile-contract",
+        "size": "562",
+        "reason": "one profile contract: the closed pool, the mode mapping, the two domain slots and the axis-set builders must answer from ONE vocabulary; splitting them would let the AI slot and the Algorithms slot drift apart again (2026-10-26)."
       }
     },
     {
@@ -1216,6 +1238,17 @@
       }
     },
     {
+      "path": "src/tabs/image_gallery/use_cases/cache_reset.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=reset-barrier size=535 reason=\"one reset contract: the two current-work tokens, every in-memory/on-disk clear and the visible re-stamp must happen in ONE order (token first, then clear, then repaint); splitting them lets a delivery land between the steps — the exact defect the barrier removes.\"",
+      "parsed": {
+        "pattern": "reset-barrier",
+        "size": "535",
+        "reason": "one reset contract: the two current-work tokens, every in-memory/on-disk clear and the visible re-stamp must happen in ONE order (token first, then clear, then repaint); splitting them lets a delivery land between the steps — the exact defect the barrier removes."
+      }
+    },
+    {
       "path": "src/tabs/image_gallery/use_cases/judge_budget.py",
       "limit": 500,
       "marker": "Audit-Meta:",
@@ -1244,6 +1277,17 @@
         "pattern": "compound-module",
         "size": "exempt",
         "reason": "one selector decision chain: parse → the 3..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently"
+      }
+    },
+    {
+      "path": "src/tabs/image_gallery/use_cases/proxy_pass.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=batch-contract size=542 reason=\"one Stage-2 batch contract: chunk scheduling, the proxy decode, the engine records and the reset-token landing guard describe one pass; splitting them lets a pre-reset chunk persist after the barrier.\"",
+      "parsed": {
+        "pattern": "batch-contract",
+        "size": "542",
+        "reason": "one Stage-2 batch contract: chunk scheduling, the proxy decode, the engine records and the reset-token landing guard describe one pass; splitting them lets a pre-reset chunk persist after the barrier."
       }
     },
     {

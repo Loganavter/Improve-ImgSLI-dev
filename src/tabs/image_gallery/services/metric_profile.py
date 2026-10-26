@@ -43,6 +43,8 @@ Pure: no Qt, no HTTP, no state. A registry id outside the pool is *dropped* from
 ``axis_ids``, never fabricated ("detector-unavailable axes are dropped" — plan
 §Target pipeline step 4); a judge-named name outside the pool is an ENTRY, never
 a fabricated registry id.
+
+Audit-Meta: pattern=profile-contract size=562 reason="one profile contract: the closed pool, the mode mapping, the two domain slots and the axis-set builders must answer from ONE vocabulary; splitting them would let the AI slot and the Algorithms slot drift apart again (2026-10-26)."
 """
 
 from __future__ import annotations

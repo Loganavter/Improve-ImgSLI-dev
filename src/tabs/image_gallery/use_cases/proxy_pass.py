@@ -12,6 +12,8 @@ thin delegators keep the method names verbatim.
 The ``state.*`` mirror writes go through ``setattr``: a bare ``.state.X =``
 outside ``controller.py`` is rejected by the gallery ownership guard
 (``src/tabs/image_gallery/tests/contracts/test_gallery_ownership_guards.py``).
+
+Audit-Meta: pattern=batch-contract size=542 reason="one Stage-2 batch contract: chunk scheduling, the proxy decode, the engine records and the reset-token landing guard describe one pass; splitting them lets a pre-reset chunk persist after the barrier."
 """
 
 from __future__ import annotations

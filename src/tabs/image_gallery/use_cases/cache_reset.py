@@ -60,6 +60,8 @@ like a stale measurement.
 The scope is the WHOLE POOL, not the menu selection: a per-card reset leaves
 every other card's numbers in place, which is indistinguishable from "nothing
 happened" (owner report 2026-10-22). Callers pass ``paths=None``.
+
+Audit-Meta: pattern=reset-barrier size=535 reason="one reset contract: the two current-work tokens, every in-memory/on-disk clear and the visible re-stamp must happen in ONE order (token first, then clear, then repaint); splitting them lets a delivery land between the steps — the exact defect the barrier removes."
 """
 
 from __future__ import annotations
