@@ -27,6 +27,7 @@ from tabs.image_gallery.use_cases.action_context import (
     REFUSAL_EMPTY_SCOPE,
     REFUSAL_NO_ITEMS,
     REFUSAL_NOT_CONFIGURED,
+    REFUSAL_PROFILE_PENDING,
     ActionContext,
     Refusal,
     point_context,
@@ -164,6 +165,64 @@ def analyze(owner, ctx: ActionContext) -> Refusal | None:
     return _analyze_algorithms(owner, ctx)
 
 
+def _pinned_axis_profile(owner, items, ctx: ActionContext):
+    """The JUDGE's pinned axis set for this folder, or ``None`` (a disk read)."""
+    try:
+        from tabs.image_gallery.services import profile_cache
+
+        settings = _load_settings(owner)
+        key = profile_cache.profile_cache_key(
+            items,
+            mode=ctx.mode,
+            model=str(getattr(settings, "model", "") or ""),
+            base_url=str(getattr(settings, "base_url", "") or ""),
+            reasoning_effort=str(getattr(settings, "reasoning_effort", "auto") or "auto"),
+        )
+        hit = profile_cache.default_cache().get(key)
+        if hit is not None and str(getattr(hit, "source", "")) == "vlm":
+            return hit
+    except Exception:
+        pass
+    return None
+
+
+def _with_axis_profile(owner, ctx: ActionContext, items):
+    """Run this action under the JUDGE's axis set, or refuse and ask for it.
+
+    Owner rule 2026-10-26: the AI backend takes its axes from the model, so an
+    explicit analyze may not build payloads on the mode mapping. A pinned answer
+    is applied here (one disk read, no network); without one the selector is
+    kicked and the action SAYS so — the settle tail analyzes when it lands.
+    """
+    profile = getattr(ctx, "profile", None)
+    if profile is not None and str(getattr(profile, "source", "")) == "vlm":
+        return ctx, None
+    resolved = _pinned_axis_profile(owner, items, ctx)
+    if resolved is not None:
+        try:
+            owner.state.metric_profile = resolved
+        except Exception:
+            pass
+        try:
+            import dataclasses
+
+            return dataclasses.replace(ctx, profile=resolved), None
+        except Exception:
+            return ctx, None
+    # No judge answer pinned yet: ask for one, and let the settle tail run the
+    # analysis under it. The action still proceeds (the caller may be a display
+    # refresh with nothing to spend) — the per-card cache will MISS on any
+    # scorecard that does not answer the axes, so nothing is served under the
+    # wrong vocabulary.
+    kick = getattr(owner, "_run_profile_select_on_settle", None)
+    if callable(kick):
+        try:
+            kick()
+        except Exception:
+            logger.debug("profile kick from the analyze action failed", exc_info=True)
+    return ctx, None
+
+
 def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
     settings = _load_settings(owner)
     if not _is_configured(settings):
@@ -178,6 +237,9 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
     items = _items_for(owner, ctx)
     if not items:
         return Refusal(REFUSAL_NO_ITEMS, ctx.targets, "no resolved target is in the pool")
+    ctx, refusal = _with_axis_profile(owner, ctx, items)
+    if refusal is not None:
+        return refusal
     identity = analysis_identity_for(owner, ctx=ctx)
     # The scorecard must answer the axes this run asks for (see
     # ``ai_cache.load_cached_analysis``): a cached read under another vocabulary
