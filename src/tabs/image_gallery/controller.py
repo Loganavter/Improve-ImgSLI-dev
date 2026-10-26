@@ -674,7 +674,11 @@ class GalleryController:
             # placeholder (it showed up in the log and, on a bad day, won). The
             # slot stays EMPTY until the model answers; the analysis waits for it
             # (``_profile_settle_pending_gen``).
-            if str(getattr(self, "_judgment_domain", "algorithms") or "").strip().lower() == "ai":
+            from tabs.image_gallery.use_cases.ai_analysis import (
+                _epoch_is_current as _in_ai_domain,
+            )
+
+            if _in_ai_domain(self, None):
                 from tabs.image_gallery.services.metric_profile import (
                     PROFILE_SOURCE_VLM as _VLM,
                 )
