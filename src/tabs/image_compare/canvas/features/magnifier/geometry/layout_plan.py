@@ -16,8 +16,12 @@ from PySide6.QtGui import QColor
 from domain.types import Rect
 from tabs.image_compare.canvas.features.magnifier.constants import (
     DEFAULT_CAPTURE_SIZE_RELATIVE as _DEFAULT_CAPTURE_SIZE_RELATIVE,
-    DEFAULT_MAGNIFIER_MAGNIFICATION as _DEFAULT_MAGNIFICATION,
+    DEFAULT_MAGNIFIER_SIZE_RELATIVE as _DEFAULT_MAGNIFIER_SIZE_RELATIVE,
     MIN_MAGNIFIER_SPACING_RELATIVE_FOR_COMBINE as _COMBINE_THRESHOLD,
+)
+from tabs.image_compare.canvas.features.magnifier.geometry.capture import (
+    capture_size_relative_for_radius,
+    resolve_magnifier_capture_radius,
 )
 from tabs.image_compare.canvas.features.magnifier.geometry.box_remap import (
     remap_uv_rect,
@@ -147,38 +151,27 @@ def build_magnifier_layout(
             / local_scale
         )
 
-    def _resolve_magnification(model) -> float:
-        """Screen px per source px this loupe shows.
-
-        Magnification is an INVARIANT here (see
-        ``DEFAULT_MAGNIFIER_MAGNIFICATION``): ``capture_size_relative`` no
-        longer decides the geometry directly, it scales the magnification
-        RELATIVELY to the default, so a saved 0.1 gives exactly the default
-        and halving it (0.05) doubles the loupe.
-        """
-        capture_rel = float(getattr(model, "capture_size_relative", 0.0) or 0.0)
-        if capture_rel <= 1e-6:
-            return float(_DEFAULT_MAGNIFICATION)
-        return float(_DEFAULT_MAGNIFICATION) * (
-            float(_DEFAULT_CAPTURE_SIZE_RELATIVE) / capture_rel
-        )
-
     def _capture_geometry(model):
 
-        # The captured area is DERIVED from the drawn disk, never the other
-        # way round: the loupe shows ``_resolve_magnification(model)`` screen
-        # px per source px, so ``capture_radius = visible_radius / M``.
-        # ``display_scale`` (canvas px -> widget px, ``state._content_sr``)
-        # is what the old canvas-space ratio was missing: without it a
-        # letterboxed canvas silently divided the real magnification by the
-        # content scale (2.29x instead of 4.73x on a live 1400x1000 pair),
-        # which is why the interpolation choice was invisible.
-        magnifier_radius_canvas = (float(model.size_relative) * target_max) / 2.0
-        visible_radius_widget = magnifier_radius_canvas * max(
-            1e-6, float(display_scale)
+        # ONE owner (geometry/capture.py): the captured area is DERIVED from
+        # the drawn disk and the display scale, so the loupe always shows
+        # DEFAULT_MAGNIFIER_MAGNIFICATION screen px per source px. The scene
+        # graph resolves the same way (scene/build.py) — two owners of this
+        # number is what let the paint and the hit-test area disagree.
+        radius, _magnification = resolve_magnifier_capture_radius(
+            size_relative=float(
+                getattr(model, "size_relative", _DEFAULT_MAGNIFIER_SIZE_RELATIVE)
+                or _DEFAULT_MAGNIFIER_SIZE_RELATIVE
+            ),
+            capture_size_relative=float(
+                getattr(model, "capture_size_relative", _DEFAULT_CAPTURE_SIZE_RELATIVE)
+                or _DEFAULT_CAPTURE_SIZE_RELATIVE
+            ),
+            pix_w=width,
+            pix_h=height,
+            display_scale=display_scale,
         )
-        radius = visible_radius_widget / max(1e-6, _resolve_magnification(model))
-        capture_rel = (radius * 2.0) / float(max(1, min(int(width), int(height))))
+        capture_rel = capture_size_relative_for_radius(radius, width, height)
         cap_x, cap_y = clamp_capture_position(
             model.position.x,
             model.position.y,

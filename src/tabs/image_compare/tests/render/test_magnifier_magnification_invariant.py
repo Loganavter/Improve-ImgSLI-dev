@@ -136,3 +136,64 @@ def test_loupe_shows_five_sharp_zones_for_five_source_pixels(monkeypatch):
     assert drawn_diameter_widget / screen_px_per_source_px == pytest.approx(
         2.0 * layout.capture_circles[0].radius
     )
+
+
+def test_scene_graph_and_render_layout_agree_on_the_capture_area(monkeypatch):
+    """ONE owner for the loupe's captured area.
+
+    The renderer (``geometry/layout_plan.py``) and the scene graph
+    (``scene/build.py`` — hit-testing, guides, ``get_canvas_scene``) used to
+    recompute the radius independently from ``capture_size_relative``. They now
+    resolve through ``geometry/capture.py``; if that ever splits again the paint
+    shows one area while the scene describes another (measured 2026-10-26: the
+    scene read still reported the legacy 50 canvas px after the renderer moved
+    to the derived radius).
+    """
+    from domain.types import Rect
+    from ui.canvas_infra.scene.context import CanvasSceneBuildContext
+    from tabs.image_compare.canvas.features.magnifier.scene.build import (
+        build_magnifier_object,
+    )
+
+    display_scale = 0.4836
+    layout = _layout(monkeypatch, display_scale=display_scale)
+    layout_radius = layout.capture_circles[0].radius
+
+    model = MagnifierModel(
+        id="default",
+        position=Point(0.5, 0.5),
+        border_color=Color(255, 255, 255, 255),
+        size_relative=0.4,
+        capture_size_relative=0.1,
+        visible_left=True,
+        visible_center=False,
+        visible_right=True,
+    )
+    store = SimpleNamespace(
+        viewport=SimpleNamespace(
+            view_state=SimpleNamespace(
+                diff_mode="off",
+                channel_view_mode="RGB",
+                canvas_widget_state={},
+                optimize_interactive_movement=True,
+                showing_single_image_mode=0,
+            ),
+            render_config=SimpleNamespace(interpolation_method="BILINEAR"),
+            interaction_state=SimpleNamespace(is_interactive_mode=False),
+        )
+    )
+    context = CanvasSceneBuildContext(
+        store=store,
+        image_label=SimpleNamespace(
+            runtime_state=SimpleNamespace(_content_sr=display_scale)
+        ),
+        bounds=Rect(x=0, y=0, w=CONTENT_W, h=CONTENT_H),
+        label_width=1024,
+        label_height=484,
+        pix_w=CONTENT_W,
+        pix_h=CONTENT_H,
+    )
+    scene_object = build_magnifier_object(
+        context=context, model=model, z_index=1, is_active=True
+    )
+    assert scene_object.capture_radius == pytest.approx(layout_radius, rel=1e-6)
