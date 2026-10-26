@@ -1073,6 +1073,18 @@ class GalleryController:
         if not self._is_current_folder_gen(gen):
             return  # stale world: its own settle will drive the tails
         try:
+            failed_gen = getattr(self, "_profile_failed_gen", None)
+            if failed_gen is not None and int(failed_gen) == int(gen):
+                _ai_debug(
+                    "settle tails withheld: this generation's AI profile failed — "
+                    "no analysis and no rank under local axes (gen=%s)",
+                    gen,
+                )
+                _phase_recheck(self)
+                return
+        except Exception:
+            pass
+        try:
             from tabs.image_gallery.use_cases import triage_run as _triage_run
 
             # Same order as ``triage_run._settle_metrics_pass`` — only now the
@@ -1137,6 +1149,7 @@ class GalleryController:
         from tabs.image_gallery.services.metric_profile import (
             PROFILE_REJECT_CALLS_BUILT,
             PROFILE_REJECT_DOMAIN,
+            PROFILE_REJECT_FAILED,
             PROFILE_REJECT_HOLLOW,
             PROFILE_REJECT_STALE,
         )
@@ -1162,6 +1175,25 @@ class GalleryController:
         # is part of that request's cache identity — replacing it now would orphan
         # the in-flight scorecards (they land under the pre-replacement identity).
         # Drop the late reply with a visible reason instead of applying it.
+        if profile is None:
+            # Owner rule 2026-10-26: the AI backend is selected, so a selector
+            # that produced no axis set is an ERROR. The old behaviour kept the
+            # heuristic-camera profile and ranked the folder on registry axes —
+            # "снова все метрики из camera режима". The cards carry the error and
+            # the generation's analysis/rank tails are withheld below.
+            _note_profile_reject(
+                self,
+                PROFILE_REJECT_FAILED,
+                "the selector produced no axis set (the AI call the selected "
+                "backend requires failed) — no local fallback",
+                gen,
+            )
+            self._mark_ai_profile_error(
+                "the model could not name the axes — no local fallback "
+                "(the AI backend is selected)"
+            )
+            self._profile_failed_gen = gen
+            return
         try:
             consumed = getattr(self, "_profile_consumed_gen", None)
         except Exception:
@@ -1228,6 +1260,39 @@ class GalleryController:
                     self.widget.refresh_card(it)
                 except Exception:
                     pass
+
+    def _mark_ai_profile_error(self, reason: str) -> None:
+        """Paint the AI-domain ERROR on every card of this folder.
+
+        The app's existing error language (``AnalysisStatus.ERROR`` +
+        ``analysis_error`` + ``ActivityPhase.ERROR``) is the surface — no new
+        widget. An AI backend that cannot name the axes has NOTHING to rank on,
+        and the local detector numbers are not a substitute (owner rule
+        2026-10-26): the card says why instead of quietly showing a camera score.
+        Never raises.
+        """
+        try:
+            from tabs.image_gallery.models import AnalysisStatus
+            from tabs.image_gallery.services.activity import ActivityPhase, set_activity
+        except Exception:
+            return
+        message = f"AI: {reason}"
+        try:
+            items = list(getattr(self.state, "items", None) or [])
+        except Exception:
+            items = []
+        for item in items:
+            try:
+                item.analysis_status = AnalysisStatus.ERROR
+                item.analysis_error = message
+                set_activity(item, ActivityPhase.ERROR, "ai")
+            except Exception:
+                continue
+            try:
+                self.widget.refresh_card(item)
+            except Exception:
+                pass
+        logger.warning("[gallery] AI profile failed: %s (items=%d)", reason, len(items))
 
     def _apply_fusion_ranks(self, series, *, mode=None, pairwise_order=None) -> None:
         """(Re)derive every series rank from the measured metric fusion.
