@@ -877,7 +877,14 @@ def _pin(cache_obj, key: str, ranks: dict[str, int] | None, reason: str | None) 
 
 
 def rank_series_jev_detailed(
-    items, *, mode: str, client: RankClient, cache=None, domain: str = "algorithms", profile=None
+    items,
+    *,
+    mode: str,
+    client: RankClient,
+    cache=None,
+    domain: str = "algorithms",
+    profile=None,
+    base_url: str = "",
 ) -> JevRankOutcome:
     """Jev-rank one series, returning the full :class:`JevRankOutcome`.
 
@@ -885,7 +892,9 @@ def rank_series_jev_detailed(
     *reason* the caller surfaces when the Algorithms rank is kept. Cache-first:
     a hit (including a pinned abstain) is returned without calling ``client``.
     A transport exception is caught, is **not** pinned (a later pass may retry),
-    and degrades to ``None``.
+    and degrades to ``None``. ``base_url`` is the endpoint that answers; it is
+    part of the pin identity (normalized) so another provider's pinned order is
+    never served for this one — ``""`` keeps storeless callers working.
 
     Precondition (plan §J1.3): a series is only a valid Jev question when **at
     least two members carry a non-empty applicable MEASURED vector**. A vector
@@ -944,7 +953,7 @@ def rank_series_jev_detailed(
 
     cache_obj = cache if cache is not None else jev_cache.default_cache()
     try:
-        key = jev_cache.rank_cache_key(member_list, payload)
+        key = jev_cache.rank_cache_key(member_list, payload, base_url=base_url)
     except Exception:
         key = ""
     if key:
@@ -994,7 +1003,14 @@ def rank_series_jev_detailed(
 
 
 def rank_series_jev(
-    items, *, mode: str, client: RankClient, cache=None, domain: str = "algorithms", profile=None
+    items,
+    *,
+    mode: str,
+    client: RankClient,
+    cache=None,
+    domain: str = "algorithms",
+    profile=None,
+    base_url: str = "",
 ) -> dict[str, int] | None:
     """``path -> rank 1..N`` from Jev, or ``None`` when it must degrade.
 
@@ -1005,7 +1021,8 @@ def rank_series_jev(
     selected axis subset. Never raises.
     """
     return rank_series_jev_detailed(
-        items, mode=mode, client=client, cache=cache, domain=domain, profile=profile
+        items, mode=mode, client=client, cache=cache, domain=domain, profile=profile,
+        base_url=base_url,
     ).ranks
 
 

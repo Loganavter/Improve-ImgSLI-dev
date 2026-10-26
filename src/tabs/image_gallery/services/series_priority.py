@@ -212,24 +212,36 @@ def _decide(raw: dict, aliases: dict[str, str]) -> PriorityOutcome:
     return PriorityOutcome({alias_to_id[a]: i for i, a in enumerate(seq, start=1)})
 
 
-def priority_cache_key(series_list, payload: dict) -> str:
-    """Stable key: ``hash(series_ids + canonical payload)`` (order-independent)."""
+def priority_cache_key(series_list, payload: dict, *, base_url: str = "") -> str:
+    """Stable key: ``hash(series_ids + endpoint + canonical payload)``.
+
+    Order-independent by construction (ids sorted, payload ``sort_keys``). The
+    payload's model is the constant ``JEV_MODEL``, so the ENDPOINT is what
+    separates two providers serving the same id: it is normalized through the
+    ONE gallery normalizer (``ai_providers._url_key``), keeping two spellings of
+    one provider on one pin while a provider switch is a MISS.
+    """
+    from tabs.image_gallery.services.ai_providers import _url_key
+
     ids = sorted(sid for sid, _members in _ready_series(series_list))
     try:
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     except Exception:
         canonical = repr(payload)
-    raw = "|".join([*ids, canonical])
+    raw = "|".join([*ids, f"base_url={_url_key(base_url)}", canonical])
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 def route_series_priority_detailed(
-    series_list, *, mode: str, client: PriorityClient, cache=None
+    series_list, *, mode: str, client: PriorityClient, cache=None, base_url: str = ""
 ) -> PriorityOutcome:
     """Jev-route the series list, returning the full :class:`PriorityOutcome`.
 
     Cache-first (a pinned abstain included); a transport exception is caught and
     **not** pinned; never raises. Fewer than two routable series degrades empty.
+    ``base_url`` is part of the pin identity (normalized endpoint) so one
+    provider's priority map is never served for another; ``""`` keeps storeless
+    callers/tests working.
     """
     _mid, aliased = _aliased(series_list, mode=mode)
     if len(aliased) < 2:
@@ -244,7 +256,7 @@ def route_series_priority_detailed(
 
     cache_obj = cache if cache is not None else jev_cache.default_cache()
     try:
-        key = priority_cache_key(series_list, payload)
+        key = priority_cache_key(series_list, payload, base_url=base_url)
     except Exception:
         key = ""
     if key:
@@ -281,10 +293,10 @@ def route_series_priority_detailed(
     return outcome
 
 
-def route_series_priority(series_list, *, mode: str, client: PriorityClient, cache=None):
+def route_series_priority(series_list, *, mode: str, client: PriorityClient, cache=None, base_url: str = ""):
     """``{series_id: priority 1..N}`` or ``None`` when it must degrade. Never raises."""
     return route_series_priority_detailed(
-        series_list, mode=mode, client=client, cache=cache
+        series_list, mode=mode, client=client, cache=cache, base_url=base_url
     ).priorities
 
 
