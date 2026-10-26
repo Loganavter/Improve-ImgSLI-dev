@@ -212,3 +212,37 @@ def find_briefs_for_path(path: Path, mtime_ns: int) -> list[CompareBrief]:
     # even when pair strings are unresolved symlinks — try containment via hash lookup?
     # Keep fallback: direct key lookup for single-image self? Not needed.
     return out
+
+
+def clear_default_cache() -> int:
+    """Delete every cached tie-break + compare brief; return the count.
+
+    The gallery's "Reset metrics cache" entry point: a cached verdict or brief
+    was produced by a paid backend and is a measurement, so a reset that zeroes
+    every measurement has to drop it — otherwise the next pass is answered from
+    disk and the reset looks like a no-op (owner order 2026-10-22, literal: no
+    measurement survives).
+
+    Removes only this module's own ``tie_*.json`` / ``brief_*.json`` files from
+    the directory its own :func:`vlm_cache_dir` resolves (the cache root is
+    shared with the other gallery stores, so no whole-directory delete). A
+    missing directory or an entry that cannot be removed contributes 0; never
+    raises.
+    """
+    try:
+        directory = vlm_cache_dir()
+    except Exception:
+        return 0
+    deleted = 0
+    for pattern in ("tie_*.json", "brief_*.json"):
+        try:
+            entries = sorted(Path(directory).glob(pattern))
+        except Exception:
+            continue
+        for path in entries:
+            try:
+                path.unlink()
+                deleted += 1
+            except OSError:
+                logger.debug("VLM cache entry delete failed %s", path, exc_info=True)
+    return deleted

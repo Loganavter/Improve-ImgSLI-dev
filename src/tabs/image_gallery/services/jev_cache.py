@@ -158,10 +158,43 @@ def default_cache() -> JevRankCache:
     return _default_cache
 
 
+def clear_default_cache() -> int:
+    """Delete every pin in the default cache directory; return the count.
+
+    The gallery's "Reset metrics cache" entry point: a pinned Jev order is a
+    measured decision, so a reset that zeroes every measurement has to drop it
+    — otherwise the next pass over the same paths+mtimes+payload is served the
+    SAME ranks with no second call, i.e. the reset looks like a no-op (owner
+    order 2026-10-22, literal: no measurement survives).
+
+    Only this module's own ``rank_*.json`` files are unlinked: the resolved
+    directory can hold unrelated entries (the cache root is shared), so a
+    whole-directory delete is not an option. A missing directory or an entry
+    that cannot be removed contributes 0; never raises.
+    """
+    try:
+        directory = jev_cache_dir()
+    except Exception:
+        return 0
+    try:
+        entries = sorted(Path(directory).glob("rank_*.json"))
+    except Exception:
+        return 0
+    deleted = 0
+    for path in entries:
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError:
+            logger.debug("jev rank pin delete failed %s", path, exc_info=True)
+    return deleted
+
+
 __all__ = [
     "CACHE_DIR_NAME",
     "JEV_CACHE_VERSION",
     "JevRankCache",
+    "clear_default_cache",
     "default_cache",
     "jev_cache_dir",
     "rank_cache_key",
