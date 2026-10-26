@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QCursor, QFont
 from PySide6.QtWidgets import QApplication
 
 from core.constants import AppConstants
 from sli_ui_toolkit.i18n import tr
+from sli_ui_toolkit.managers import DecisionJournal
 
 _INTERP_LABEL_KEYS: dict[str, str] = {
     "NEAREST": "magnifier.nearest_neighbor",
@@ -37,9 +40,59 @@ def _design_item_metrics(
 
 
 class InterpolationFlyoutController:
+    """Options list for ``combo_interpolation`` (the loupe's resampling pick).
+
+    Decisions are journalled (``DecisionJournal("interp-flyout")``, flag-gated
+    like every other flyout journal: ``SLI_FLYOUT_DEBUG`` /
+    ``IMGSLI_FLYOUT_DEBUG`` / ``FLYOUT_DEBUG``). Why: this dropdown is a bare
+    ``SimpleOptionsFlyout`` — it has no ``AnchoredFlyoutAutoHide``, so nothing
+    in ``log.txt`` recorded when it opened or closed; the magnifier settings
+    panel's journal only ever saw it as a *linked child* (``still-linked``).
+    On 2026-10-27 a close-time question could not be answered from the log at
+    all, and "it never opened" was inferred from the absence of lines — a
+    wrong conclusion drawn from an instrument that could not see the event.
+    ``show`` and ``closed`` (emitted by ``SimpleOptionsFlyout.hideEvent`` on
+    every close path) now bracket the lifetime with ``after=<ms>``.
+    """
+
     def __init__(self, manager, widget):
         self.manager = manager
         self.widget = widget
+        self._journal = DecisionJournal("interp-flyout")
+        #: ``time.monotonic()`` of the journalled show; None while closed.
+        self._shown_at: float | None = None
+
+    def _note(self, what: str, detail: str = "") -> None:
+        try:
+            pos = QCursor.pos()
+            detail = f"{detail} cursor={pos.x()},{pos.y()}".strip()
+        except Exception:
+            pass
+        self._journal.note(what, detail)
+
+    def _note_shown(self, combo) -> None:
+        """Journal the confirmed open (``show_below`` can toggle-close instead)."""
+        flyout = getattr(self.manager.host, "_interp_flyout", None)
+        try:
+            visible = bool(flyout is not None and flyout.isVisible())
+        except RuntimeError:
+            visible = False
+        if not visible:
+            # Hidden right after show_below — the same-anchor toggle branch.
+            # Worth a line of its own: a "show" followed by an unpaired
+            # "closed" is exactly how this reads in a post-mortem otherwise.
+            self._shown_at = None
+            self._note("show:noop", "flyout not visible after show_below (toggle?)")
+            return
+        self._shown_at = time.monotonic()
+        self._note("show", f"anchor={type(combo).__name__}")
+
+    def _elapsed_detail(self) -> str:
+        started = self._shown_at
+        self._shown_at = None
+        if started is None:
+            return "unpaired"
+        return f"after={int((time.monotonic() - started) * 1000)}ms"
 
     def toggle(self):
         host = self.manager.host
@@ -166,6 +219,7 @@ class InterpolationFlyoutController:
             if host._interp_flyout is not None and combo is not None:
                 host._interp_flyout.show_below(combo)
                 host._interp_popup_open = True
+                self._note_shown(combo)
 
         QTimer.singleShot(0, _do_show)
 
@@ -264,6 +318,10 @@ class InterpolationFlyoutController:
             combo.setFlyoutOpen(False)
         host._interp_popup_open = False
         self._cancel_settings_auto_hide()
+        # ``closed`` fires from ``SimpleOptionsFlyout.hideEvent`` on EVERY close
+        # path (item picked, outside click, Escape, host teardown), so this one
+        # line brackets the dropdown's whole visible lifetime.
+        self._note("closed", self._elapsed_detail())
 
     def _cancel_settings_auto_hide(self) -> None:
         """Drop any pending hover-leave auto-hide on magnifier_settings_flyout.
