@@ -241,6 +241,16 @@ class AiAnalysisResult:
     #: more draws can say how far the SAME picture moves under the instrument,
     #: which is the measured noise floor (``quality_read.axis_noise_floor``).
     axis_samples: tuple[dict[str, int], ...] = ()
+    #: The model id the provider ACTUALLY served this answer with (from the wire
+    #: reply's ``model``). OpenRouter's fallback chain (``request
+    #: .DEFAULT_FALLBACK_MODELS``) can route a request for the primary model to
+    #: another id, and that was invisible everywhere: the scorecard said
+    #: ``model`` = what was ASKED for. Recorded as provenance only — the cache
+    #: identity stays on the requested model, because the chain is the
+    #: configuration the user chose, not a second backend (and keying on the
+    #: routed id would multiply one configuration into one entry per fallback).
+    #: Empty when the reply did not name a model / for older entries.
+    answered_model: str = ""
 
 
 #: The named alias fields that predate the open ``axes`` scorecard.
@@ -308,6 +318,9 @@ class TieBreakResult:
     confidence: float
     model: str
     decided_at_iso: str
+    #: The model the provider actually served (wire ``model``) when it differs
+    #: from the requested ``model``; provenance, not part of the cache key.
+    answered_model: str = ""
 
 
 @dataclass(frozen=True)
@@ -320,6 +333,8 @@ class CompareBrief:
     tags: tuple[str, ...]
     model: str
     created_at_iso: str
+    #: The model the provider actually served (wire ``model``); provenance only.
+    answered_model: str = ""
 
 
 @dataclass

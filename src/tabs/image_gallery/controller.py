@@ -2264,7 +2264,9 @@ class GalleryController:
             )
 
             client = make_client(base_url, api_key)
-            return route_series_priority_detailed(snapshot, mode=mode, client=client)
+            return route_series_priority_detailed(
+                snapshot, mode=mode, client=client, base_url=base_url
+            )
 
         worker = GenericWorker(_job)
 
@@ -2396,6 +2398,7 @@ class GalleryController:
                 client=client,
                 domain=str(getattr(self, "_judgment_domain", "algorithms")),
                 profile=profile,
+                base_url=base_url,
             )
 
         worker = GenericWorker(_job)
@@ -3048,9 +3051,46 @@ class GalleryController:
         )
         return template.replace("{px}", str(int(px)))
 
-    def _ask_cache_key(self, scope, context, question: str, backend: str, model: str) -> str:
+    def _ask_cache_key(
+        self,
+        scope,
+        context,
+        question: str,
+        backend: str,
+        model: str,
+        *,
+        base_url: str = "",
+        effort: str = "",
+        profile=None,
+    ) -> str:
+        """Identity of one ask: the exact QUESTION + the backend that answered it.
+
+        The cache used to key on the scope/question/backend/model only, so
+        pointing the same model id at another endpoint (a provider switch —
+        ``services/ai_providers``) replayed provider A's answer as if B had
+        answered. The configuration the request actually carries is now part of
+        the key:
+
+        - ``base_url`` — normalized with the gallery's ONE endpoint normalizer
+          (``ai_providers._url_key``), so ``https://h/v1`` and ``https://h/v1/``
+          share an entry while a provider switch is a MISS;
+        - ``effort`` — the reasoning effort sizes the answer budget and steers
+          the model, so it is a different question (``auto`` when unset);
+        - ``profile`` — the ACTIVE AI metric profile, recorded in the same
+          readable shape ``ai_cache.profile_record`` uses (axes + judged names +
+          source + mode). It participates in the answer through the scorecard
+          axes whose flags/badge the context carries, so re-rolling the axis set
+          must not replay an answer about the old one.
+
+        The caller passes all three (no global settings read here): the ask path
+        already loads ``AiSettings`` and the AI profile, and a key builder that
+        read them itself could disagree with the request it is keying.
+        """
         import hashlib
         import json
+
+        from tabs.image_gallery.services.ai_cache import profile_record
+        from tabs.image_gallery.services.ai_providers import _url_key
 
         try:
             paths = sorted(
@@ -3058,6 +3098,15 @@ class GalleryController:
             )
         except Exception:
             paths = []
+        try:
+            effort_value = getattr(effort, "value", effort)
+            effort_token = str(effort_value or "").strip().lower() or "auto"
+        except Exception:
+            effort_token = "auto"
+        try:
+            profile_fingerprint = profile_record(profile)
+        except Exception:
+            profile_fingerprint = None
         ident = {
             "kind": getattr(scope, "kind", ""),
             "series": getattr(scope, "series_id", None),
@@ -3067,6 +3116,9 @@ class GalleryController:
             "question": str(question or "").strip(),
             "backend": backend,
             "model": model,
+            "base_url": _url_key(base_url),
+            "effort": effort_token,
+            "profile": profile_fingerprint,
             # Region asks must not collide with whole-image asks.
             "region": (context or {}).get("region", {}).get("box")
             if isinstance((context or {}).get("region"), dict)
@@ -3215,7 +3267,25 @@ class GalleryController:
             )
             return
 
-        key = self._ask_cache_key(scope, context, question, backend, settings.model)
+        try:
+            from tabs.image_gallery.services.metric_profile import (
+                DOMAIN_AI,
+                profile_for_domain,
+            )
+
+            ask_profile = profile_for_domain(self.state, DOMAIN_AI)
+        except Exception:
+            ask_profile = None
+        key = self._ask_cache_key(
+            scope,
+            context,
+            question,
+            backend,
+            settings.model,
+            base_url=settings.base_url,
+            effort=getattr(settings, "reasoning_effort", ""),
+            profile=ask_profile,
+        )
         record_meta = self._ask_log_meta(scope, context, question, settings)
         cached = self._ask_cache.get(key)
         if cached is not None:
