@@ -1248,6 +1248,13 @@ class GalleryController:
         except Exception:
             logger.debug("metric profile store failed", exc_info=True)
             return
+        # A landed profile ENDS the failure state of this owner: the withheld
+        # analysis/rank tails must run again for the next generation, or one
+        # transient failure would silence the AI for the rest of the session.
+        try:
+            self._profile_failed_gen = None
+        except Exception:
+            pass
         _clear_profile_reject(self)
         try:
             from tabs.image_gallery.use_cases.profile_select import (

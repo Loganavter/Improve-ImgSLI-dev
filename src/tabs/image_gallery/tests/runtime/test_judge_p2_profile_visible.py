@@ -246,3 +246,19 @@ def test_a_failed_selector_marks_the_cards_and_keeps_no_local_axes() -> None:
     assert owner.state.metric_profile == before, (
         "the failed call must not replace the stored profile with anything"
     )
+
+
+def test_a_landed_profile_clears_the_failure_marker() -> None:
+    """One transient failure must not silence the AI for the session."""
+    from tabs.image_gallery.services.metric_profile import profile_for_mode
+
+    paths = (Path("/gallery/a.png"), Path("/gallery/b.png"))
+    owner = _Owner(paths)
+    owner._profile_failed_gen = owner._folder_gen  # a previous generation failed
+
+    owner._apply_profile_outcome(profile_for_mode("camera"), owner._folder_gen)
+
+    assert owner._profile_failed_gen is None, (
+        "a usable profile ends the failure state — otherwise the settle tails "
+        "stay withheld for every later generation"
+    )
