@@ -97,10 +97,11 @@ class MarkShuttingDownStep(WindowShutdownStep):
     name = "mark_shutting_down"
 
     def run(self, window) -> None:
-        # Read as a closing latch by the transient (magnifier) controllers —
-        # see ``transient_shutdown_latched`` in
-        # ``tabs/image_compare/ui/transient_magnifier.py`` — so a controller
-        # built after this point is born inert.
+        # Read as a closing latch by the tab-owned transient (magnifier)
+        # controllers (their ``transient_shutdown_latched`` hook), so a
+        # controller built after this point is born inert. No tab path is named
+        # here on purpose: platform code must stay tab-agnostic.
+        # ALLOWED: the latch contract lives in the tab package, not here.
         window._closing = True
         if getattr(window, "app_context", None) is not None:
             window.app_context._is_shutting_down = True
