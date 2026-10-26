@@ -1465,10 +1465,13 @@ class GalleryController:
                     )
 
                     _trace(
-                        "series profile: id=%s members=%d %s",
+                        "series profile: id=%s members=%d %s | seed=%s/%s",
                         getattr(entry, "id", "?") if hasattr(entry, "id") else "?",
                         len(members),
                         _format_profile(series_profile),
+                        str(getattr(folder_profile, "source", "") or "-"),
+                        ",".join(e.name for e in (getattr(folder_profile, "axis_entries", ()) or ()))
+                        or "-",
                     )
                 except Exception:
                     logger.debug("series profile trace failed", exc_info=True)

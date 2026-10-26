@@ -57,6 +57,9 @@ REFUSAL_NOT_CONFIGURED = "not_configured"
 REFUSAL_NO_ITEMS = "no_items"
 REFUSAL_AMBIGUOUS_SCOPE = "ambiguous_scope"
 REFUSAL_NO_HANDLER = "no_handler"
+#: The AI backend's axis set is not resolved yet: the model is naming it, so no
+#: payload may be built on the local mapping (owner rule 2026-10-26).
+REFUSAL_PROFILE_PENDING = "profile_pending"
 
 
 @dataclass(frozen=True, slots=True)
