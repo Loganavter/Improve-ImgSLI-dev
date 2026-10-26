@@ -86,15 +86,18 @@ def _build_interactive_optimization_group(dialog, layout, p):
     INTERACTIVE.tag_member(
         dialog.optimize_movement_checkbox, "settings.optimize_magnifier_movement"
     )
+    # The loupe has ONE interpolation (see ImageRenderConfigReducer): no
+    # second, movement-only filter is offered. The widget is still built because
+    # the dialog data/locale plumbing reads it, but it never reaches the row —
+    # a hidden value that only applied while dragging read as a bug ("Nearest"
+    # shown in the panel, bicubic drawn during a drag, owner report 2026-10-26).
     dialog.combo_mag_interp = ComboBox()
     apply_settings_body(dialog.combo_mag_interp)
     dialog.combo_mag_interp.setMinimumWidth(scaled_px(140))
     dialog.combo_mag_interp.setSizePolicy(
         QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
     )
-    dialog.combo_mag_interp.setEnabled(p.optimize_magnifier_movement)
     row_mag.addWidget(dialog.optimize_movement_checkbox)
-    row_mag.addWidget(dialog.combo_mag_interp, 1)
     row_mag_widget = as_nav_row(row_mag)
     dialog.interactive_opt_group.add_widget(row_mag_widget)
     rows.append(row_mag_widget)
@@ -153,9 +156,6 @@ def _build_interactive_optimization_group(dialog, layout, p):
     rows.append(auto_color_row)
 
     _populate_interpolation_combos(dialog, p)
-    dialog.optimize_movement_checkbox.toggled.connect(
-        dialog.combo_mag_interp.setEnabled
-    )
     dialog.laser_smoothing_checkbox.toggled.connect(
         dialog.combo_laser_interp.setEnabled
     )

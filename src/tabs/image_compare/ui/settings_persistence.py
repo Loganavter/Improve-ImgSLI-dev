@@ -79,17 +79,16 @@ def load_image_compare_feature_settings(store, get_setting: Callable) -> None:
     optimize_movement = get_setting("optimize_magnifier_movement", True, bool)
     _execute_alias("overlay.settings.set_optimize_movement", store, optimize_movement)
 
-    magnifier_movement_interp = get_setting(
-        "magnifier_movement_interpolation_method",
-        None,
-        str,
+    # ONE filter (see ImageRenderConfigReducer): the loupe uses the main
+    # interpolation while moving too. The old per-movement keys stay readable
+    # only so a saved profile does not resurrect a hidden second filter — the
+    # stored value is ignored on purpose (owner report 2026-10-26: "Nearest"
+    # in the panel, bicubic during a drag).
+    main_interp = getattr(render, "interpolation_method", None) or get_setting(
+        "interpolation_method", "BILINEAR", str
     )
+    magnifier_movement_interp = main_interp
     laser_smoothing_interp = None
-
-    if magnifier_movement_interp is None:
-        movement_interp = get_setting("movement_interpolation_method", "BILINEAR", str)
-        magnifier_movement_interp = movement_interp
-        laser_smoothing_interp = movement_interp
 
     _execute_alias(
         "overlay.settings.set_movement_interpolation",
