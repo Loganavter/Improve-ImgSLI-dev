@@ -1348,6 +1348,14 @@ class GalleryController:
         own sort are untouched, and ``None`` (every existing caller) reproduces
         today's exact ordering.
 
+        It is AI-domain ONLY (owner decision 2026-10-26): a pairwise order is a
+        model verdict, so it is REFUSED (dropped, never an error) while any
+        other backend owns the judgment domain. The landing is asynchronous —
+        the pass reports on a worker after the toolbar may already have left
+        ``ai`` — so this is the defence-in-depth gate behind
+        ``ai_analysis._on_pairwise_ready``, not a redundancy: an Algorithms call
+        with an explicit order still gets exactly the local fusion order.
+
         Items whose rank is an explicit user decision — ``rank_source ==
         "manual"`` or a live ``triage_best`` winner from Keep/Make best — keep
         their stored rank and are never silently re-derived; so does a
@@ -1357,6 +1365,32 @@ class GalleryController:
         unranked (``rank``/``rank_source`` cleared) unless explicitly fixed.
         Never raises.
         """
+        if pairwise_order is not None:
+            # Defence in depth for the ASYNCHRONOUS landing: the pass reports on
+            # a worker, and the domain may have moved on since it started. A
+            # pairwise order is a model verdict — it may only order the AI
+            # domain's view (owner decision 2026-10-26). ``current_backend`` is
+            # the declared accessor; an owner that cannot name a valid domain
+            # cannot claim ``ai``, so the order is dropped, never applied.
+            try:
+                from tabs.image_gallery.use_cases.action_context import (
+                    current_backend,
+                )
+
+                _pairwise_domain_ok = current_backend(self) == "ai"
+            except Exception:
+                _pairwise_domain_ok = False
+            if not _pairwise_domain_ok:
+                try:
+                    from tabs.image_gallery.services.ai_client import _ai_debug
+
+                    _ai_debug(
+                        "judge_pairwise.skip reason=domain "
+                        "detail=landing-refused order_kept=pointwise"
+                    )
+                except Exception:
+                    pass
+                pairwise_order = None
         try:
             from tabs.image_gallery.services.rank_fusion import rank_series as _rank
         except Exception:

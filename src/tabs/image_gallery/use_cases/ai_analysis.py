@@ -8,10 +8,10 @@ authority writer + toolbar switch (``_set_judgment_domain`` /
 ``activate_judgment_domain``), the bounded visible-item trigger
 (``_run_ai_for_visible``), the worker delivery tail (``_begin_analysis`` /
 ``_apply_ai_phase`` / ``_on_analysis_ready`` / ``_refresh_open_quick_look`` /
-``_on_analysis_error``) and the pairwise refinement of a just-applied pointwise
-order (``start_pairwise_refinement`` / ``_on_pairwise_ready``, off the GUI
-thread on the SAME pool as the judge) and its terminal-rank trigger
-(``dispatch_pairwise_refinement``). The analyze ENTRY points (``analyze`` /
+``_on_analysis_error``) and the pairwise refinement of the AI domain's order
+(``start_pairwise_refinement`` / ``_on_pairwise_ready``, off the GUI thread on
+the SAME pool as the judge; refused off the AI domain) and its terminal-rank
+trigger (``dispatch_pairwise_refinement``). The analyze ENTRY points (``analyze`` /
 ``reanalyze`` and the deprecated point adapters) live in
 ``use_cases/ai_analyze.py`` and are re-exported here for their callers
 (file-size policy, same wave).
@@ -394,15 +394,11 @@ def activate_judgment_domain(owner, domain: str) -> None:
         except Exception:
             logger.debug("domain switch rank re-derive failed", exc_info=True)
         owner._clear_series_priority()
-        # The pointwise (fusion) order is now applied: refine its near-tie top
-        # set with pairwise comparisons. This is the EXPLICIT trigger; the
-        # terminal-rank tail (``dispatch_pairwise_refinement``) covers the
-        # settled judge run. OFF by default, so this is one trace line — never a
-        # worker — in the normal case.
-        try:
-            start_pairwise_refinement(owner)
-        except Exception:
-            logger.debug("pairwise refinement failed", exc_info=True)
+        # NO pairwise pass here: the A/B refinement is AI work and runs only
+        # while the AI domain owns the order (owner decision 2026-10-26). The
+        # Algorithms backend must issue ZERO network calls, so this switch's
+        # explicit trigger is gone — the terminal-rank tail of the AI domain
+        # (:func:`dispatch_pairwise_refinement`) is the ONE production trigger.
         return
     # Owner rule 2026-10-26 (measured live, 07:05): the AXIS SET must be the
     # judge's, so the analysis may not start on the heuristic profile and freeze
@@ -457,22 +453,19 @@ def activate_judgment_domain(owner, domain: str) -> None:
 #
 # Why here and not per scoring arrival: the pass needs the pointwise ORDER
 # (its top-N is the displayed order), which only exists once the ranks are
-# applied. The AI domain's order belongs to Jev (``rank_source="jev"`` items
-# are LOCKED in ``_apply_fusion_ranks`` while that domain owns the rank), so
-# pairwise never touches it (:func:`dispatch_pairwise_refinement` refuses off
-# the Algorithms domain).
+# applied. The pairwise pass is the AI backend's own refinement (owner decision
+# 2026-10-26): it runs only while the AI domain owns the order
+# (:func:`dispatch_pairwise_refinement` and :func:`start_pairwise_refinement`
+# both refuse off it), and the Algorithms backend never schedules it.
 #
-# TWO trigger sites, both AFTER the pointwise order is in place:
-#   1. the explicit domain switch back to Algorithms
-#      (``activate_judgment_domain`` — it re-derives the fusion ranks itself);
-#   2. the TERMINAL-RANK tail (``analysis_batch.dispatch_terminal_rank`` →
-#      :func:`dispatch_pairwise_refinement`), which is what makes a just-settled
-#      judge run refine its own order instead of waiting for a manual toggle
-#      (measured live 2026-10-25: a completed run left the ledger at
-#      ``{pointwise: 4, pairwise: 0}`` and the series kept its pointwise order
-#      until the domain was flipped and flipped back).
+# ONE trigger site, AFTER the pointwise order is in place: the TERMINAL-RANK
+# tail (``analysis_batch.dispatch_terminal_rank`` →
+# :func:`dispatch_pairwise_refinement`), which the AI domain reaches from the
+# settle of an analysis batch and from the toolbar switch to ``ai``. The old
+# explicit trigger on the switch back to Algorithms was removed with the owner
+# decision — that switch must not cause a network call.
 #
-# NEITHER site is inside ``_apply_fusion_ranks``: that primitive is how THIS
+# The trigger is NOT inside ``_apply_fusion_ranks``: that primitive is how THIS
 # pass applies its own result (``pairwise_order=`` forwards into
 # ``rank_series``), so a trigger there would re-enter itself on every apply —
 # one pass per apply, forever. The trigger sits one level above it, on the
@@ -627,12 +620,26 @@ def _series_members(owner, entry) -> list:
 
 
 def start_pairwise_refinement(owner, *, series=None, judge=None) -> bool:
-    """Refine a just-applied pointwise order with A/B comparisons (never blocking).
+    """Refine the AI domain's near-tie order with A/B comparisons (never blocking).
+
+    AI domain ONLY (owner decision 2026-10-26): the pairwise pass is VLM work
+    refining a VLM order, so it belongs to the AI backend. Off that domain it
+    returns False BEFORE reading settings, building a client, claiming a slot or
+    touching the pool — the Algorithms backend issues zero network calls
+    (``_epoch_is_current`` is the ONE domain gate, contract G10).
 
     Returns True when at least one comparison pass was scheduled. *judge* is the
     test seam (a scripted callable); ``None`` builds the production one from the
     settings row — credentials only, no request.
     """
+    # Gate 0, before anything else: the live domain owns this pass. Under
+    # ``algorithms`` there is nothing of the model's to refine — the fusion rank
+    # is the deterministic backend's own measured result.
+    if not _epoch_is_current(owner, None, domain="ai"):
+        _ai_debug(
+            "judge_pairwise.skip reason=domain domain=algorithms order_kept=pointwise"
+        )
+        return False
     try:
         gen = int(getattr(owner, "_folder_gen", 0) or 0)
     except Exception:
@@ -774,34 +781,34 @@ def start_pairwise_refinement(owner, *, series=None, judge=None) -> bool:
 
 
 def dispatch_pairwise_refinement(owner) -> bool:
-    """Start the pass from the TERMINAL-RANK tail of the Algorithms domain.
+    """Start the pass from the terminal-rank tail — AI domain ONLY.
 
     ``analysis_batch.dispatch_terminal_rank`` calls this once the batch has
     settled (its own ``pending()`` refusal is the "the matrix is complete"
-    gate) and after the ranker ran: for Algorithms that is the pointwise
-    (fusion) order, which is what the pass refines. Before this trigger the
-    pass was reachable only through a manual domain toggle, so a series that
-    had just been judged kept its pointwise order until the user flipped the
-    domain and back (measured live 2026-10-25).
+    gate) and after the ranker ran. The pass refines the ORDER OF THE DOMAIN
+    THAT OWNS IT: the VLM pairwise comparison is AI work (owner decision
+    2026-10-26), so the order it refines and applies is the AI domain's. Before
+    that decision this tail ran under ``algorithms`` and spent judge calls on
+    the deterministic fusion order — the "AI work under Algorithms" leak.
 
     Three gates, all free (no worker, no HTTP), in this order:
 
-    * the Algorithms domain OWNS the order — under ``ai`` the displayed order
-      is Jev's, so refining the fusion order would spend calls on a ranking
-      that is not on screen (:func:`_epoch_is_current` is the ONE domain gate,
-      contract G10);
-    * the metrics pass SETTLED for the current folder generation — the same
-      finality stamp ``_apply_fusion_ranks`` uses to mark a winner. Before it,
-      the members carry no measured quality and the pass could only answer
-      too_small; the settle itself re-enters here (``_run_jev_on_settle``
-      runs after the fusion re-derive), so nothing is lost by refusing;
+    * the AI domain OWNS the order — under ``algorithms`` the displayed order
+      is the measured fusion rank and no comparison may be built, scheduled or
+      sent (:func:`_epoch_is_current` is the ONE domain gate, contract G10);
+    * the measurements pass SETTLED for the current folder generation — the
+      same finality stamp ``_apply_fusion_ranks`` uses to mark a winner. Before
+      it, the members carry no measured quality and the pass could only answer
+      too_small; the settle itself re-enters here (``_run_jev_on_settle`` runs
+      after the fusion re-derive), so nothing is lost by refusing;
     * whatever :func:`start_pairwise_refinement` decides (flag, client,
       near-tie, budget) — the pass never raises into the rank path and never
       blocks: :func:`_pairwise_error` is the fail-open seam.
 
     Returns True when at least one comparison pass was scheduled.
     """
-    if not _epoch_is_current(owner, None, domain="algorithms"):
+    if not _epoch_is_current(owner, None, domain="ai"):
+        _ai_debug("judge_pairwise.skip reason=domain order_kept=pointwise")
         return False
     try:
         settled = int(getattr(owner, "_metrics_settled_gen", -1)) == int(
@@ -856,7 +863,7 @@ def _on_pairwise_ready(
                 return
         except Exception:
             pass
-    if not _epoch_is_current(owner, epoch, domain=None):
+    if not _epoch_is_current(owner, epoch, domain="ai"):
         _ai_debug("judge_pairwise dropped: judgment domain changed while in flight")
         return
     reason = str(getattr(order, "reason", "") or "")
