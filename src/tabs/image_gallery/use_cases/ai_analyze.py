@@ -179,8 +179,19 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
     if not items:
         return Refusal(REFUSAL_NO_ITEMS, ctx.targets, "no resolved target is in the pool")
     identity = analysis_identity_for(owner, ctx=ctx)
+    # The scorecard must answer the axes this run asks for (see
+    # ``ai_cache.load_cached_analysis``): a cached read under another vocabulary
+    # is a card with no dots, not a hit.
+    try:
+        from tabs.image_gallery.services.profile_judged import scorecard_axis_ids
+
+        wanted_axes = scorecard_axis_ids(ctx.mode, profile=ctx.profile)
+    except Exception:
+        wanted_axes = ()
     for item in items:
-        cached = load_cached_analysis(item.path, item.mtime_ns, identity)
+        cached = load_cached_analysis(
+            item.path, item.mtime_ns, identity, axes=wanted_axes
+        )
         if cached is not None:
             try:
                 _ai_debug("analyze cache HIT path=%s (no API call)", item.path)

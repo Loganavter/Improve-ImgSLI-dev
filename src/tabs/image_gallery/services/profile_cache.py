@@ -142,7 +142,13 @@ def profile_cache_key(
     except Exception:
         ordered = list(items or ())
     parts = [f"{_item_path(item)}:{_item_mtime(item)}" for item in ordered]
-    parts.append(f"mode={mode_id(mode)}")
+    # The gallery mode is NOT part of the pin identity (owner rule 2026-10-26):
+    # in the AI backend the axis set never depended on it, and carrying it split
+    # one folder into two pins — the selector ran before ``state.mode`` was set
+    # (mode="") on one open and after it (mode="camera") on the next, so the
+    # judge was asked twice and named a DIFFERENT vocabulary the second time.
+    # Every card then answered the old names and the UI showed nothing measured.
+    # ``mode`` stays in the signature for call-site compatibility and is ignored.
     parts.append(f"model={str(model or '')}")
     parts.append(f"base_url={_url_key(base_url)}")
     parts.append(f"effort={_effort_token(reasoning_effort)}")

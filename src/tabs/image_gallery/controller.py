@@ -763,7 +763,14 @@ class GalleryController:
             from tabs.image_gallery.use_cases.ai_analyze import analysis_identity_for
 
             identity = analysis_identity_for(self)
-            return ai_cache.folder_cache_probe(items, identity)
+            # The probe must ask the SAME question the analyze tail will: a
+            # scorecard that answers another vocabulary is not a "done" card
+            # (owner report 2026-10-26: dots vanished, rows read "не измерено").
+            from tabs.image_gallery.services.profile_judged import scorecard_axis_ids
+
+            profile = getattr(self.state, "metric_profile", None)
+            axes = scorecard_axis_ids(getattr(self.state, "mode", None), profile=profile)
+            return ai_cache.folder_cache_probe(items, identity, axes=axes)
         except Exception:
             logger.debug("folder analysis probe failed", exc_info=True)
             return {"total": 0, "cached": 0, "complete": False, "missing": [], "results": {}}
