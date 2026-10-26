@@ -1,6 +1,6 @@
 """P7-C — the JUDGE's axes are VISIBLE, with their meaning and provenance.
 
-P7-A let the model NAME 3..8 axes in free form, P7-B made the scorecard MEASURE
+P7-A let the model NAME 5..8 axes in free form, P7-B made the scorecard MEASURE
 them and the ranker COMPARE them — but the user still saw only the registry
 rows, so "why white balance, why aesthetics" stayed invisible. This wave puts
 the judge's axes on the ONE read path and on the two surfaces that show an axis

@@ -858,6 +858,17 @@
       }
     },
     {
+      "path": "src/tabs/image_gallery/services/ai_client/request.py",
+      "limit": 500,
+      "marker": "Audit-Meta:",
+      "raw": "pattern=wire-policy size=525 reason=\"one payload/ceiling/mime contract: build_request_from_bytes, the byte and PIL entry points and the re-encode gate must agree on ONE policy; splitting the PIL entry away would let the gallery's R6 reuse ship a different ceiling or mime than the file path (the exact B2 defect class).\"",
+      "parsed": {
+        "pattern": "wire-policy",
+        "size": "525",
+        "reason": "one payload/ceiling/mime contract: build_request_from_bytes, the byte and PIL entry points and the re-encode gate must agree on ONE policy; splitting the PIL entry away would let the gallery's R6 reuse ship a different ceiling or mime than the file path (the exact B2 defect class)."
+      }
+    },
+    {
       "path": "src/tabs/image_gallery/services/artifacts.py",
       "limit": 500,
       "marker": "Audit-Meta:",
@@ -1272,11 +1283,11 @@
       "path": "src/tabs/image_gallery/use_cases/profile_ai.py",
       "limit": 500,
       "marker": "Audit-Meta:",
-      "raw": "pattern=compound-module size=exempt reason=\"one selector decision chain: parse → the 3..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently\"",
+      "raw": "pattern=compound-module size=exempt reason=\"one selector decision chain: parse → the 5..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently\"",
       "parsed": {
         "pattern": "compound-module",
         "size": "exempt",
-        "reason": "one selector decision chain: parse → the 3..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently"
+        "reason": "one selector decision chain: parse → the 5..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently"
       }
     },
     {

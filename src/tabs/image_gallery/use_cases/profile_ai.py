@@ -9,7 +9,7 @@ The model is an AUTHOR, not a selector from a closed menu:
 
 - the prompt offers EXAMPLES of what an axis can be (each with a one-line
   meaning) and says explicitly that none of them has to be taken;
-- it asks for **3 to 8 axes in free form** — the most differentiating ones for
+- it asks for **5 to 8 axes in free form** — the most differentiating ones for
   these pictures — and keeps the salience summary, because that summary is the
   "most differentiating" instruction made concrete (which measurable axes
   already separate this series);
@@ -59,7 +59,7 @@ per-SERIES resolution (``per_series_profile`` / ``per_series_profiles``) rides
 with the probe evidence it consumes, in ``use_cases/profile_probe``, and is
 re-exported here too.
 
-Audit-Meta: pattern=compound-module size=exempt reason="one selector decision chain: parse → the 3..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently"
+Audit-Meta: pattern=compound-module size=exempt reason="one selector decision chain: parse → the 5..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently"
 """
 
 from __future__ import annotations
@@ -83,11 +83,11 @@ from core.log_names import APP_LOGGER_NAME
 
 logger = logging.getLogger(APP_LOGGER_NAME)
 
-#: The owner's count rule ("from 3 to 8 axes"): a profile outside it is a thin,
+#: The owner's count rule ("from 5 to 8 axes"): a profile outside it is a thin,
 #: unusable answer — it is retried ONCE and then refused with a WARN + fallback,
 #: never accepted silently (measured 2026-10-26: a 1-axis reply ranked the whole
 #: folder on one axis while three paid axes only labelled cards).
-MIN_PROFILE_AXES = 3
+MIN_PROFILE_AXES = 5
 MAX_PROFILE_AXES = 8
 
 #: Shortest `why` that counts as evidence ("moves" is not a reason). The retry
@@ -233,7 +233,7 @@ def parse_profile_reply(text, *, mode=None):
 def profile_axis_count(profile) -> int:
     """How many axes the profile carries: registry ids + the judge's own names.
 
-    The count the 3..8 rule is about. A free-only answer counts fully (P7-A: a
+    The count the 5..8 rule is about. A free-only answer counts fully (P7-A: a
     judge that names only its own axes is a complete profile), and an unusable
     profile counts 0. Never raises.
     """
@@ -251,7 +251,7 @@ def missing_evidence_rows(text) -> int:
     Owner design (2026-10-26): every named axis must be tied to an observed
     difference ("which variants differ on it and how"). A row without that tie is
     an unanchored label, so it is counted here and the reply is refused with a
-    retry (then the WARN + fallback) — the same path the 3..8 rule uses.
+    retry (then the WARN + fallback) — the same path the 5..8 rule uses.
 
     A BARE id row is not counted: naming an axis the evidence lists IS the tie
     (the axis' spread is the observed difference), and the terse answer shape is
@@ -278,7 +278,7 @@ def _profile_rejection(text, profile) -> str:
     """Why a selector answer is unusable (``""`` when it is fine).
 
     ONE gate for every reason a paid answer may not become the folder's profile:
-    nothing usable parsed, a count outside 3..8, or an axis with no evidence tie.
+    nothing usable parsed, a count outside 5..8, or an axis with no evidence tie.
     The caller retries once, then WARNs and falls back to the series offer.
     """
     if profile is None:
@@ -468,7 +468,7 @@ def choose_profile_sync(
     offer becomes a paid judge answer. Nothing else invalidates it.
 
     Any failure — the AI backend not configured, no probe members, no transport,
-    a raising transport, a junk reply, an axis count outside 3..8 after one retry
+    a raising transport, a junk reply, an axis count outside 5..8 after one retry
     — returns ``None``. It does NOT degrade to the series offer: owner rule
     (2026-10-26) is that a selected AI backend whose call fails is an ERROR, and
     the run must not continue on the local axis set. Never raises. ``client_call`` defaults
@@ -644,7 +644,7 @@ def choose_profile_sync(
     reason = _profile_rejection(text, profile)
     # ONE retry, and only when the reply argues for one: a completion cut off at
     # the token cap was starved before its answer existed (a bigger cap can rescue
-    # it), and an answer that PARSED but broke the rule (count outside 3..8, an
+    # it), and an answer that PARSED but broke the rule (count outside 5..8, an
     # axis with no `why`) is worth exactly one correction. A junk reply with
     # finish=stop is a different failure and is not re-asked.
     starved = profile is None and _reply_finish(raw) == "length"
@@ -692,7 +692,7 @@ def choose_profile_sync(
             mode,
         )
         logger.warning(
-            "profile select: the reply broke the 3..8 rule (%s) — no profile (an "
+            "profile select: the reply broke the 5..8 rule (%s) — no profile (an "
             "error, not a fallback to the local axis set)",
             reason,
         )

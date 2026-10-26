@@ -328,7 +328,7 @@ def test_refresh_is_the_explicit_upgrade_seam(tmp_path) -> None:
         return {"choices": [{"message": {"content": "not json"}}]}
 
     def _answer(*args, **kwargs):
-        # A COMPLETE answer (3..8 axes, each tied to the evidence) — a thin one
+        # A COMPLETE answer (5..8 axes, each tied to the evidence) — a thin one
         # is refused with a WARN by the rule the phase-3 row enforces.
         rows = [
             {
@@ -345,6 +345,10 @@ def test_refresh_is_the_explicit_upgrade_seam(tmp_path) -> None:
                  "the probes differ on edge halos"),
                 ("sharpness", "micro-contrast; 0 = mushy, 100 = crisp",
                  "the measured spread separates the probes"),
+                ("posterization", "flattened tonal bands; 0 = smooth, 100 = banded",
+                 "the probes differ on tonal banding"),
+                ("chroma_noise", "coloured speckle; 0 = none, 100 = heavy",
+                 "the probes differ on coloured speckle"),
             )
         ]
         return {

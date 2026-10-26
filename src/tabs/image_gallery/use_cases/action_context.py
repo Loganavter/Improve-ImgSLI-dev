@@ -57,6 +57,8 @@ REFUSAL_NOT_CONFIGURED = "not_configured"
 REFUSAL_NO_ITEMS = "no_items"
 REFUSAL_AMBIGUOUS_SCOPE = "ambiguous_scope"
 REFUSAL_NO_HANDLER = "no_handler"
+#: The AI backend has no axis set yet (0 axes would measure nothing).
+REFUSAL_NO_PROFILE = "no_profile"
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +213,7 @@ __all__ = [
     "REFUSAL_AMBIGUOUS_SCOPE",
     "REFUSAL_EMPTY_SCOPE",
     "REFUSAL_NO_HANDLER",
+    "REFUSAL_NO_PROFILE",
     "REFUSAL_NO_ITEMS",
     "REFUSAL_NOT_CONFIGURED",
     "Refusal",

@@ -1,13 +1,13 @@
 """P7-A — the judge NAMES the axes (plan-gallery-ai-judgement §OWNER REVISION 2026-10-22).
 
 The owner replaced the "choose from the pool" design: the VLM is shown EXAMPLES of
-what an axis can be (not a menu), asked for **3..8 axes in free form** that most
+what an axis can be (not a menu), asked for **5..8 axes in free form** that most
 differentiate THESE pictures, and an axis it names is a first-class entry (name +
 definition + scale + direction), not a registry id it had to guess.
 
 Falsification story (what each test would catch, and why it is red before):
 
-- **(a)** the selector prompt offers examples-with-meanings and the 3..8 free-form
+- **(a)** the selector prompt offers examples-with-meanings and the 5..8 free-form
   instruction. Red before: the text opened with ``METRIC POOL — choose axis ids
   ONLY from this list`` and asked for ``{"axes": ["<id>", ...]}``.
 - **(b)** an axis whose name is NOT in ``MEASURED_POOL`` and NOT in
@@ -112,7 +112,7 @@ def _free_reply(**overrides) -> str:
 
 
 # ---------------------------------------------------------------------------
-# (a) the selector prompt: EXAMPLES + 3..8 free axes, never a closed list
+# (a) the selector prompt: EXAMPLES + 5..8 free axes, never a closed list
 # ---------------------------------------------------------------------------
 
 
@@ -148,7 +148,7 @@ def test_selector_prompt_names_no_axis_of_its_own_and_leads_with_evidence():
         "the per-probe scores are what lets an axis be tied to a visible difference"
     )
     lowered = text.lower()
-    assert "from 3 to 8" in lowered, "the owner's 3..8 free-form rule must be stated"
+    assert "from 5 to 8" in lowered, "the owner's 5..8 free-form rule must be stated"
     assert "most differentiate" in lowered
     assert "why" in lowered, "every axis must be tied to an observed difference"
 

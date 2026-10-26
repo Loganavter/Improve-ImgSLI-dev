@@ -169,7 +169,7 @@ the axes and their provenance.
 flowchart LR
     subgraph PROD["Producers (each yields a full profile)"]
         S["series offer<br/>profile_select.derive_profile -> profile_for_series<br/>axes whose spread separates THIS series"]
-        V["judge<br/>profile_ai.choose_profile_sync<br/>3..8 free-form axes named for this series"]
+        V["judge<br/>profile_ai.choose_profile_sync<br/>5..8 free-form axes named for this series"]
         F["mode fallback<br/>metric_profile.profile_for_mode<br/>no discriminating measurement yet"]
     end
     S --> A["state.algorithms_profile"]
@@ -293,7 +293,7 @@ in that plan, not re-litigated here.
    a specific router model id (`JEV_MODEL`). Either the Settings need a separate
    "ranking" model field, or the strip must say *which* model ranked.
 2. **Do judge-named axes need a stability rule?** They are free-form by owner
-   decision (3..8, each with a definition); `services/profile_cache.py` keys a
+   decision (5..8, each with a definition); `services/profile_cache.py` keys a
    selection on the sorted member paths + mtimes + mode + model + base_url +
    effort + pool. Whether a series that gains a member should keep its earlier
    axis set, or accept a fresh one, is not decided.

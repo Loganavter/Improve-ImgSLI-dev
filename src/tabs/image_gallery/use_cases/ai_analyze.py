@@ -27,6 +27,7 @@ from tabs.image_gallery.use_cases.action_context import (
     REFUSAL_EMPTY_SCOPE,
     REFUSAL_NO_ITEMS,
     REFUSAL_NOT_CONFIGURED,
+    REFUSAL_NO_PROFILE,
     ActionContext,
     Refusal,
     current_backend,
@@ -184,6 +185,13 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
     if not items:
         return Refusal(REFUSAL_NO_ITEMS, ctx.targets, "no resolved target is in the pool")
     identity = analysis_identity_for(owner, ctx=ctx)
+    # A scorecard with ZERO axes measures nothing: the paid call would return an
+    # empty answer and the card would stay unmeasured. The AI profile is decided
+    # BEFORE the analyze (axes-first, owner 2026-10-26), so a MISS with an empty
+    # slot is refused instead of spent. A cache HIT is still hydrated — it was
+    # measured under a real profile and costs nothing.
+    has_profile = bool(getattr(ctx, "profile", None))
+    refused_no_profile = False
     for item in items:
         cached = load_cached_analysis(item.path, item.mtime_ns, identity)
         if cached is not None:
@@ -195,6 +203,9 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
             item.analysis_status = AnalysisStatus.DONE
             item.analysis_error = None
             owner.widget.refresh_card(item)
+            continue
+        if not has_profile:
+            refused_no_profile = True
             continue
         try:
             # Per-target isolation: one failing card never aborts the context
@@ -208,6 +219,12 @@ def _analyze_ai(owner, ctx: ActionContext) -> Refusal | None:
             owner._begin_analysis(ctx, item)
         except Exception:
             continue
+    if refused_no_profile:
+        return Refusal(
+            REFUSAL_NO_PROFILE,
+            ctx.targets,
+            "the AI backend has no axis set yet — a 0-axis scorecard measures nothing",
+        )
     return None
 
 
