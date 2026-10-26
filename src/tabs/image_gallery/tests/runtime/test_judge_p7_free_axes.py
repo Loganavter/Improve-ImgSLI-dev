@@ -65,6 +65,19 @@ from tabs.image_gallery.services.metric_profile import (
 )
 from tabs.image_gallery.services.profile_cache import ProfileCache
 from tabs.image_gallery.services.rank_fusion import measured_axes_for
+#: The examples list the selector prompt used to carry (owner order 2026-10-26:
+#: DELETE it). The pairs are kept here ONLY as a regression guard — the prompt
+#: may never name them again; nothing reads them as a vocabulary.
+RETIRED_EXAMPLES: tuple[tuple[str, str], ...] = (
+    ("clarity", "how clean the picture reads"),
+    ("hallucination", "detail the processing invented"),
+    ("banding", "stepped tone transitions"),
+    ("white_balance", "a colour cast that pushes every neutral"),
+    ("jpeg_noise", "8x8 block edges and mosquito noise"),
+    ("halation", "a red or orange glow bleeding past bright edges"),
+    ("posterization", "tones flattened into visible bands"),
+)
+
 from tabs.image_gallery.use_cases import profile_ai
 from tabs.image_gallery.use_cases.profile_ai import parse_profile_reply
 from tabs.image_gallery.use_cases.profile_probe import salience_summary
@@ -103,31 +116,41 @@ def _free_reply(**overrides) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_selector_prompt_shows_examples_with_meanings_not_a_menu():
-    probes = [_item("a.png"), _item("b.png")]
-    payload = profile_ai.build_profile_request(
-        probes, model="m", salience=salience_summary(probes)
-    )
+def test_selector_prompt_names_no_axis_of_its_own_and_leads_with_evidence():
+    """Inverted on purpose by ``task-profile-granularity`` (2026-10-26).
+
+    The examples list ("clarity", "hallucination", "banding", …) is DELETED: a
+    labelled menu is what the model anchored on, so the paid answer was a guess
+    wearing the prompt's own words. The request now carries the measured evidence
+    of THIS series (per-axis spread + per-probe scores) and the schema — which is
+    also the cheapest guard against the examples creeping back.
+    """
+    probes = [
+        SimpleNamespace(path=Path("/gallery/a.png"), mtime_ns=1, metrics={"sharpness": 40.0}),
+        SimpleNamespace(path=Path("/gallery/b.png"), mtime_ns=1, metrics={"sharpness": 80.0}),
+    ]
+    summary = salience_summary(probes, probes=probes)
+    payload = profile_ai.build_profile_request(probes, model="m", salience=summary)
     text = payload["messages"][0]["content"][0]["text"]
 
-    assert "ONLY from this list" not in text, (
-        "the closed-menu instruction is withdrawn (owner revision 2026-10-22)"
+    assert "ONLY from this list" not in text, "the closed menu stays withdrawn"
+    assert "EXAMPLES of what an axis can be" not in text, (
+        "the examples list is DELETED — the prompt may not name an axis of its own"
     )
-    assert "EXAMPLES" in text and "NOT A MENU" in text
-    assert "not obliged" in text, "the examples must be optional in so many words"
-    examples = profile_ai.AXIS_EXAMPLES
-    assert len(examples) >= 5
-    for name, meaning in examples:
-        assert name in text, f"example axis {name!r} is missing from the prompt"
-        assert meaning in text, (
-            f"the example {name!r} must say WHAT it means — the examples exist to "
-            "show the shape of an axis, not to be picked from a list"
-        )
+    for name, meaning in RETIRED_EXAMPLES:
+        assert name not in text, f"retired example axis {name!r} is back in the prompt"
+        assert meaning not in text, f"the retired example {name!r} came back with its meaning"
+    assert "EVIDENCE" in text, "the measured evidence is the request's ground truth"
+    assert "spread" in text and "sharpness" in text, (
+        "the per-axis measured differences of THIS series travel with the images"
+    )
+    assert "each attached image" in text, (
+        "the per-probe scores are what lets an axis be tied to a visible difference"
+    )
     lowered = text.lower()
     assert "from 3 to 8" in lowered, "the owner's 3..8 free-form rule must be stated"
     assert "most differentiate" in lowered
-    # The salience summary stays: it is the concrete "most differentiating" input.
-    assert "SALIENCE SUMMARY" in text and "members=" in text
+    assert "why" in lowered, "every axis must be tied to an observed difference"
 
 
 def test_selector_prompt_keeps_the_json_contract():
@@ -348,13 +371,22 @@ def test_a_judge_axis_makes_the_scale_explicit():
 # ---------------------------------------------------------------------------
 
 
-def test_a_profile_with_a_free_axis_still_resolves_the_registry_part():
+def test_the_profiles_own_axes_are_the_rank_set_registry_then_judged():
+    """Inverted on purpose by ``task-profile-granularity`` (2026-10-26).
+
+    ``measured_axes_for`` used to return the registry half only, so a profile of
+    ``axes=noise`` + ``judged=jpeg_noise`` ranked on noise ALONE while the paid
+    axis only labelled cards. Owner design: the axis set is the ACTIVE PROFILE'S
+    OWN list — registry ids then the judge's free names, no registry
+    reconciliation.
+    """
     profile = _mixed_profile()
-    assert measured_axes_for("camera", profile=profile) == ("noise",), (
-        "measured_axes_for is the REGISTRY half — the local rows and the fusion "
-        "keep reading real detector ids"
+    assert measured_axes_for("camera", profile=profile) == ("noise", "jpeg_noise"), (
+        "a judge-named axis is first-class: it carries the per-card numbers and it "
+        "ranks"
     )
-    assert "jpeg_noise" not in measured_axes_for("camera", profile=profile)
+    # …and the mode mapping is still the fallback for an absent profile.
+    assert "jpeg_noise" not in measured_axes_for("camera", profile=None)
 
 
 # ---------------------------------------------------------------------------

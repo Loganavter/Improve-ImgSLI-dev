@@ -54,7 +54,12 @@ inside the function that needs it and fails open.
 
 The REQUEST side (prompt text + chat payload) lives in the sibling
 ``use_cases/profile_ai_request`` and is re-exported here, so ``profile_ai``
-stays the one import surface its callers and tests pin (``__all__`` below).
+stays the one import surface its callers and tests pin (``__all__`` below). The
+per-SERIES resolution (``per_series_profile`` / ``per_series_profiles``) rides
+with the probe evidence it consumes, in ``use_cases/profile_probe``, and is
+re-exported here too.
+
+Audit-Meta: pattern=compound-module size=exempt reason="one selector decision chain: parse → the 3..8/`why` acceptance gate → the ONE retry → the pin with its source → the offer fallback. Splitting the gate from the retry (or the pin from the answer) lets one side accept a profile the other refuses — the 2026-10-26 defect was exactly a thin answer accepted silently"
 """
 
 from __future__ import annotations
@@ -62,9 +67,13 @@ from __future__ import annotations
 import json
 import logging
 
+from tabs.image_gallery.use_cases.profile_probe import (  # noqa: F401
+    per_series_profile,
+    per_series_profiles,
+)
 from tabs.image_gallery.use_cases.profile_ai_request import (  # noqa: F401
-    AXIS_EXAMPLES,
     PROFILE_PROBE_MAX_EDGE,
+    REPLY_RETRY_NOTE,
     _as_list,
     _attr,
     build_profile_request,
@@ -73,6 +82,17 @@ from tabs.image_gallery.use_cases.profile_ai_request import (  # noqa: F401
 from core.log_names import APP_LOGGER_NAME
 
 logger = logging.getLogger(APP_LOGGER_NAME)
+
+#: The owner's count rule ("from 3 to 8 axes"): a profile outside it is a thin,
+#: unusable answer — it is retried ONCE and then refused with a WARN + fallback,
+#: never accepted silently (measured 2026-10-26: a 1-axis reply ranked the whole
+#: folder on one axis while three paid axes only labelled cards).
+MIN_PROFILE_AXES = 3
+MAX_PROFILE_AXES = 8
+
+#: Shortest `why` that counts as evidence ("moves" is not a reason). The retry
+#: note and the WARN both say the axis was left unexplained.
+MIN_WHY_CHARS = 8
 
 
 def ai_selector_available(settings) -> bool:
@@ -208,6 +228,144 @@ def parse_profile_reply(text, *, mode=None):
         logger.debug("profile select parse failed", exc_info=True)
         return None
     return profile if profile else None
+
+
+def profile_axis_count(profile) -> int:
+    """How many axes the profile carries: registry ids + the judge's own names.
+
+    The count the 3..8 rule is about. A free-only answer counts fully (P7-A: a
+    judge that names only its own axes is a complete profile), and an unusable
+    profile counts 0. Never raises.
+    """
+    try:
+        return len(tuple(getattr(profile, "axis_ids", ()) or ())) + len(
+            tuple(getattr(profile, "axis_entries", ()) or ())
+        )
+    except Exception:
+        return 0
+
+
+def missing_evidence_rows(text) -> int:
+    """How many axis rows of a selector reply carry NO ``why`` evidence.
+
+    Owner design (2026-10-26): every named axis must be tied to an observed
+    difference ("which variants differ on it and how"). A row without that tie is
+    an unanchored label, so it is counted here and the reply is refused with a
+    retry (then the WARN + fallback) — the same path the 3..8 rule uses.
+
+    A BARE id row is not counted: naming an axis the evidence lists IS the tie
+    (the axis' spread is the observed difference), and the terse answer shape is
+    explicitly accepted by the prompt. Only an explicit row that left ``why``
+    empty/blank is a loss. Never raises.
+    """
+    axes = _reply_axes(text)
+    if not axes:
+        return 0
+    missing = 0
+    for row in axes:
+        if not isinstance(row, dict):
+            continue
+        try:
+            why = str(row.get("why", "") or "").strip()
+        except Exception:
+            why = ""
+        if len(why) < MIN_WHY_CHARS:
+            missing += 1
+    return missing
+
+
+def _profile_rejection(text, profile) -> str:
+    """Why a selector answer is unusable (``""`` when it is fine).
+
+    ONE gate for every reason a paid answer may not become the folder's profile:
+    nothing usable parsed, a count outside 3..8, or an axis with no evidence tie.
+    The caller retries once, then WARNs and falls back to the series offer.
+    """
+    if profile is None:
+        return "no usable axis"
+    count = profile_axis_count(profile)
+    if count < MIN_PROFILE_AXES:
+        return f"only {count} axe(s) named (the rule is {MIN_PROFILE_AXES}..{MAX_PROFILE_AXES})"
+    if count > MAX_PROFILE_AXES:
+        return f"{count} axes named (the rule is {MIN_PROFILE_AXES}..{MAX_PROFILE_AXES})"
+    missing = missing_evidence_rows(text)
+    if missing:
+        return f"{missing} axe(s) with no `why` evidence (which variants differ, and how)"
+    return ""
+
+
+def axis_count_report(profile=None) -> dict:
+    """Honest axis accounting for one profile: judge vs local, never a guess.
+
+    - ``judged`` — axes the judge NAMED (``axis_entries``; no local producer);
+    - ``judged_with_local_detector`` — of those, the ones a registry spec can also
+      produce (a judge that named a pool id the profile did not already carry);
+    - ``registry`` — the registry half (locally measurable axes);
+    - ``total`` — ``judged`` + ``registry`` (what the order is computed over).
+
+    Plan-gallery-ai-judgement P7-C asked for the count to be stated instead of
+    implied; ``task-profile-granularity-and-axis-reporting`` (2026-10-26) makes it
+    the log/UI sentence "N axes from the judge, M of them also have a local
+    detector". Never raises.
+    """
+    try:
+        entries = tuple(getattr(profile, "axis_entries", ()) or ())
+    except Exception:
+        entries = ()
+    try:
+        registry = tuple(getattr(profile, "axis_ids", ()) or ())
+    except Exception:
+        registry = ()
+    with_local = 0
+    for entry in entries:
+        try:
+            from tabs.image_gallery.services.metric_scores import spec_for
+
+            if spec_for(str(getattr(entry, "name", "") or "")) is not None:
+                with_local += 1
+        except Exception:
+            continue
+    return {
+        "judged": len(entries),
+        "judged_with_local_detector": with_local,
+        "registry": len(registry),
+        "total": len(entries) + len(registry),
+    }
+
+
+def describe_axis_provenance(profile=None) -> str:
+    """One honest sentence: ``"3 axes from the judge, 1 of them also has a local
+    detector, 4 measured locally"`` (log and UI read the same words)."""
+    counts = axis_count_report(profile)
+    return (
+        f"{counts['judged']} axes from the judge, "
+        f"{counts['judged_with_local_detector']} of them also "
+        f"{'has' if counts['judged_with_local_detector'] == 1 else 'have'} a local "
+        f"detector, {counts['registry']} measured locally"
+    )
+
+
+def axis_evidence_split(profile, evidence_axes) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """``(from_evidence, added_beyond)`` registry axes of *profile*.
+
+    "From evidence" = the axis' spread in THIS series was measured (it is in
+    *evidence_axes*, ``profile_probe.evidence_axis_ids``); "added beyond" = the
+    model named a registry axis nobody measured a difference on here. The judge's
+    own free names are neither (they have no local spread by construction) and are
+    reported separately by :func:`axis_count_report`. Deterministic (profile
+    order). Never raises.
+    """
+    try:
+        evidence = {str(axis) for axis in (evidence_axes or ())}
+    except Exception:
+        evidence = set()
+    try:
+        axes = tuple(str(axis) for axis in (getattr(profile, "axis_ids", ()) or ()))
+    except Exception:
+        axes = ()
+    from_evidence = tuple(axis for axis in axes if axis in evidence)
+    added = tuple(axis for axis in axes if axis not in evidence)
+    return from_evidence, added
 
 
 def _reply_text(raw) -> str:
@@ -386,7 +544,32 @@ def choose_profile_sync(
     if not probes:
         return _pin(_offer(), why="resolved without an AI call (no probe members)")
 
-    summary = salience if salience is not None else profile_probe.salience_summary(members)
+    # The EVIDENCE is the request's ground truth (owner design 2026-10-26): the
+    # per-axis spread of THIS series plus each probe's own score, so every named
+    # axis can be tied to an observed difference. No evidence ⇒ no call: a paid
+    # guess anchored on nothing is worse than the free local offer.
+    if salience is None:
+        try:
+            summary = profile_probe.salience_summary(members, probes=probes)
+        except Exception:
+            summary = {}
+    else:
+        summary = salience
+    evidence_axes = ()
+    try:
+        evidence_axes = profile_probe.evidence_axis_ids(summary)
+    except Exception:
+        evidence_axes = ()
+    if not evidence_axes:
+        logger.warning(
+            "profile select skipped: no salience evidence — no measured axis "
+            "separates this series (members=%d mode=%s); series offer kept and "
+            "pinned",
+            len(members),
+            mode,
+        )
+        return _pin(_offer(), why="skipped the call: no salience evidence")
+
     try:
         payload = build_profile_request(
             probes,
@@ -409,14 +592,16 @@ def choose_profile_sync(
         return _pin(_offer(), why="resolved after a transport failure")
 
     attempts = 1
-    profile = parse_profile_reply(_reply_text(raw), mode=mode)
+    text = _reply_text(raw)
+    profile = parse_profile_reply(text, mode=mode)
+    reason = _profile_rejection(text, profile)
     # ONE retry, and only when the reply argues for one: a completion cut off at
-    # the token cap (finish=length) was starved before its answer existed, so a
-    # bigger cap can rescue it. A junk reply with finish=stop is a different
-    # failure (a second identical request has no reason to answer better) and is
-    # not retried — the cost model stays one call per folder generation.
-    if profile is None and _reply_finish(raw) == "length":
-        # Measured 2026-10-26: 560-token budget, reasoning=560, content=0.
+    # the token cap was starved before its answer existed (a bigger cap can rescue
+    # it), and an answer that PARSED but broke the rule (count outside 3..8, an
+    # axis with no `why`) is worth exactly one correction. A junk reply with
+    # finish=stop is a different failure and is not re-asked.
+    starved = profile is None and _reply_finish(raw) == "length"
+    if reason and (starved or profile is not None):
         retry_budget = retry_profile_budget(payload.get("max_tokens"))
         retry_payload = None
         try:
@@ -427,6 +612,7 @@ def choose_profile_sync(
                 effort=effort,
                 max_tokens=retry_budget,
                 base_url=base_url,
+                corrective=REPLY_RETRY_NOTE,
             )
         except Exception:
             retry_payload = None
@@ -438,16 +624,19 @@ def choose_profile_sync(
             except Exception:
                 logger.debug("profile select retry call failed", exc_info=True)
             else:
-                profile = parse_profile_reply(_reply_text(raw), mode=mode)
+                text = _reply_text(raw)
+                profile = parse_profile_reply(text, mode=mode)
+                reason = _profile_rejection(text, profile)
 
-    if profile is None:
+    if reason:
         # A WARN, not a DEBUG: the run loses its VLM axes and falls back to the
-        # series offer, which LOOKS like a working profile. Without
-        # IMGSLI_AI_DEBUG the owner had no way to see this.
+        # series offer, which LOOKS like a working profile. A thin or unexplained
+        # answer must never become the folder's order silently.
         logger.warning(
-            "profile select: no usable axis — finish_reason=%s max_tokens=%s "
-            "attempts=%d reasoning_chars=%d model=%s mode=%s; series offer "
-            "kept and pinned (this run has no VLM-named axes)",
+            "profile select: %s — finish_reason=%s max_tokens=%s attempts=%d "
+            "reasoning_chars=%d model=%s mode=%s; series offer kept and pinned "
+            "(this run has no VLM-named axes)",
+            reason,
             _reply_finish(raw) or "unknown",
             payload.get("max_tokens"),
             attempts,
@@ -455,16 +644,50 @@ def choose_profile_sync(
             model,
             mode,
         )
-        return _pin(_offer(), why="resolved after a reply with no usable axis")
+        return _pin(_offer(), why=f"resolved after an unusable answer ({reason})")
+
+    # (e) The trace says where the axes came from: the measured evidence vs. the
+    # model's own additions — plus the judge/local count, so "the judge named 3 and
+    # 1 has a local detector too" is readable without opening the payload.
+    try:
+        from_evidence, added = axis_evidence_split(profile, evidence_axes)
+        logger.debug(
+            "profile select: %d from evidence (%s), %d added beyond it (%s); %s",
+            len(from_evidence),
+            ",".join(from_evidence) or "-",
+            len(added),
+            ",".join(added) or "-",
+            describe_axis_provenance(profile),
+        )
+        from tabs.image_gallery.services.ai_client import _ai_debug
+        from tabs.image_gallery.services.metric_profile import format_profile
+
+        _ai_debug(
+            "profile select: %s — %s; from evidence: %s; added by the judge: %s",
+            describe_axis_provenance(profile),
+            format_profile(profile),
+            ",".join(from_evidence) or "-",
+            ",".join(added) or "-",
+        )
+    except Exception:
+        pass
 
     return _pin(profile, why="resolved by the judge")
 
 
 __all__ = [
-    "AXIS_EXAMPLES",
+    "MAX_PROFILE_AXES",
+    "MIN_PROFILE_AXES",
     "ai_selector_available",
+    "axis_count_report",
+    "axis_evidence_split",
     "build_profile_request",
     "choose_profile_sync",
+    "describe_axis_provenance",
+    "missing_evidence_rows",
     "parse_profile_reply",
+    "per_series_profile",
+    "per_series_profiles",
+    "profile_axis_count",
     "profile_fingerprint",
 ]

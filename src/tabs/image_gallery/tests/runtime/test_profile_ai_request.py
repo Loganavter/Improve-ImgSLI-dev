@@ -92,6 +92,11 @@ def _settings(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
+#: A COMPLETE selector answer: the rule is 3..8 axes, so a 1-2 axis reply is a
+#: refusal now (retried once, then WARN + fallback) — the defect this row fixes.
+_THREE_AXES = ["sharpness", "noise", "exposure"]
+
+
 def _answer(axes) -> dict:
     return {
         "model": MODEL,
@@ -219,7 +224,7 @@ def test_truncated_reply_is_retried_once_and_the_answer_is_pinned(tmp_path):
         payloads.append(payload)
         if len(payloads) == 1:
             return _starved()
-        return _answer(["sharpness"])
+        return _answer(_THREE_AXES)
 
     profile = choose_profile_sync(
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client
@@ -283,7 +288,7 @@ def test_a_normal_reply_is_one_call_and_is_pinned(tmp_path):
 
     def _client(base_url, api_key, payload):
         payloads.append(payload)
-        return _answer(["sharpness", "noise"])
+        return _answer(_THREE_AXES)
 
     first = choose_profile_sync(
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client
@@ -340,7 +345,7 @@ def test_the_pin_key_is_unchanged_by_the_budget_fix(tmp_path):
     items = _items()
 
     def _client(base_url, api_key, payload):
-        return _answer(["sharpness"])
+        return _answer(_THREE_AXES)
 
     choose_profile_sync(
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client

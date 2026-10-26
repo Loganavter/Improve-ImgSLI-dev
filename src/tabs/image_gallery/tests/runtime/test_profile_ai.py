@@ -56,6 +56,19 @@ def _item(name: str, mtime: int = 1, **metrics) -> SimpleNamespace:
     )
 
 
+def _evidence_items():
+    """Two members whose sharpness spread IS the evidence a call needs.
+
+    Owner design 2026-10-26: no measured difference ⇒ no request (the selector is
+    skipped with a WARN), so every test that expects a call must carry evidence.
+    """
+    return [_item("a.png", sharpness=0.0), _item("b.png", sharpness=400.0)]
+
+
+#: A complete answer: 3 axes (the rule is 3..8), all evidence-backed registry ids.
+_THREE_AXES = {"axes": ["sharpness", "noise", "exposure"]}
+
+
 def _settings(**overrides) -> SimpleNamespace:
     base = {
         "enabled": True,
@@ -144,7 +157,7 @@ def test_profile_pin_is_scoped_to_the_provider_endpoint(tmp_path):
     unreachable orphans — no silent migration, a cache reset deletes them.
     """
     cache = ProfileCache(tmp_path)
-    items = [_item("a.png"), _item("b.png")]
+    items = _evidence_items()
     pinned = MetricProfile(axis_ids=("ssim",), mode="camera", source="vlm")
     cache.put(
         profile_cache.profile_cache_key(
@@ -160,7 +173,7 @@ def test_profile_pin_is_scoped_to_the_provider_endpoint(tmp_path):
 
     def _client(base_url, api_key, payload):
         calls.append(base_url)
-        return _chat({"axes": ["sharpness"]})
+        return _chat(_THREE_AXES)
 
     # Same model id on another endpoint: the A pin must not be served.
     profile = choose_profile_sync(
@@ -171,7 +184,7 @@ def test_profile_pin_is_scoped_to_the_provider_endpoint(tmp_path):
         client_call=_client,
     )
     assert calls == ["http://y"], "a foreign endpoint's pin short-circuited the call"
-    assert profile.axis_ids == ("sharpness",)
+    assert profile.axis_ids == ("sharpness", "exposure", "noise")
 
     # Endpoint A still hits its own pin.
     calls.clear()
@@ -191,15 +204,21 @@ def test_profile_pin_is_scoped_to_the_provider_endpoint(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_build_profile_request_offers_examples_and_attaches_one_image_per_probe():
-    """The probe request: axis EXAMPLES + salience in the text, one image each.
+def test_build_profile_request_leads_with_evidence_and_names_no_axis_of_its_own():
+    """The probe request: EVIDENCE + the shape rule + one image each.
 
-    The closed pool listing this test used to require ("every MEASURED_POOL id is
-    offered") is withdrawn — plan-gallery-ai-judgement §OWNER REVISION 2026-10-22:
-    the judge names the axes and the examples are its vocabulary, not a menu.
+    Owner design 2026-10-26: the examples list is gone. The prompt carries the
+    measured evidence (per-axis spread, per-probe scores) and the schema, and it
+    never names an axis of its own — a labelled menu is what the model anchored
+    on, turning a paid answer into a guess.
     """
-    probes = [_item("a.png"), _item("b.png"), _item("c.png")]
-    payload = build_profile_request(probes, model="m", salience=salience_summary(probes))
+    probes = [
+        _item("a.png", sharpness=0.0, noise=0.3),
+        _item("b.png", sharpness=400.0, noise=0.3),
+        _item("c.png", sharpness=200.0, noise=0.3),
+    ]
+    summary = salience_summary(probes, probes=probes)
+    payload = build_profile_request(probes, model="m", salience=summary)
 
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["model"] == "m"
@@ -208,10 +227,15 @@ def test_build_profile_request_offers_examples_and_attaches_one_image_per_probe(
     assert content[0]["type"] == "text"
     text = content[0]["text"]
     assert "ONLY from this list" not in text
-    for name, meaning in profile_ai.AXIS_EXAMPLES:
-        assert name in text and meaning in text
+    assert "EXAMPLES of what an axis can be" not in text, "the examples menu is gone"
+    assert "EVIDENCE" in text and "from the evidence" in text, (
+        "the evidence leads and is what the axes must be tied to"
+    )
+    assert "members" in text and "spread" in text, (
+        "the measured spreads of THIS series travel with the images"
+    )
+    assert "why" in text, "every axis must be tied to an observed difference"
     assert "from 3 to 8" in text.lower()
-    assert "members=" in text, "the salience summary travels with the images"
     assert "ONLY a JSON object" in text
     image_parts = [part for part in content if part["type"] == "image_url"]
     assert len(image_parts) == 3
@@ -294,7 +318,7 @@ def test_choose_profile_sync_ai_unavailable_is_the_series_offer_without_a_call(t
 
 def test_choose_profile_sync_pin_hit_skips_the_call(tmp_path):
     cache = ProfileCache(tmp_path)
-    items = [_item("a.png"), _item("b.png")]
+    items = _evidence_items()
     pinned = MetricProfile(axis_ids=("ssim",), mode="camera", source="vlm")
     cache.put(
         profile_cache.profile_cache_key(
@@ -318,12 +342,12 @@ def test_choose_profile_sync_pin_hit_skips_the_call(tmp_path):
 
 def test_choose_profile_sync_calls_once_then_pins(tmp_path):
     cache = ProfileCache(tmp_path)
-    items = [_item("a.png"), _item("b.png")]
+    items = _evidence_items()
     calls: list = []
 
     def _client(*args, **kwargs):
         calls.append(1)
-        return _chat({"axes": ["sharpness", "noise"]})
+        return _chat(_THREE_AXES)
 
     first = choose_profile_sync(
         items, mode="camera", settings=_settings(), cache=cache, client_call=_client
@@ -437,10 +461,10 @@ def test_choose_profile_sync_default_transport_is_ai_client_call_sync(monkeypatc
 
     def _fake_call_sync(base_url, api_key, payload):
         captured.update(base_url=base_url, api_key=api_key, payload=payload)
-        return _chat({"axes": ["sharpness"]})
+        return _chat(_THREE_AXES)
 
     monkeypatch.setattr(ai_client, "call_sync", _fake_call_sync)
-    items = [_item("a.png"), _item("b.png")]
+    items = _evidence_items()
     profile = choose_profile_sync(
         items, mode="camera", settings=_settings(), cache=ProfileCache(tmp_path)
     )
@@ -488,10 +512,18 @@ def test_profile_ai_is_qt_free_at_import():
 
 def test_module_exports_are_the_frozen_interface():
     assert set(profile_ai.__all__) == {
-        "AXIS_EXAMPLES",
+        "MAX_PROFILE_AXES",
+        "MIN_PROFILE_AXES",
         "ai_selector_available",
+        "axis_count_report",
+        "axis_evidence_split",
         "build_profile_request",
         "choose_profile_sync",
+        "describe_axis_provenance",
+        "missing_evidence_rows",
         "parse_profile_reply",
+        "per_series_profile",
+        "per_series_profiles",
+        "profile_axis_count",
         "profile_fingerprint",
     }

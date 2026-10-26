@@ -326,24 +326,28 @@ def test_refresh_is_the_explicit_upgrade_seam(tmp_path) -> None:
         return {"choices": [{"message": {"content": "not json"}}]}
 
     def _answer(*args, **kwargs):
+        # A COMPLETE answer (3..8 axes, each tied to the evidence) — a thin one
+        # is refused with a WARN by the rule the phase-3 row enforces.
+        rows = [
+            {
+                "name": name,
+                "definition": definition,
+                "scale": "0-100",
+                "direction": "higher-is-better",
+                "why": why,
+            }
+            for name, definition, why in (
+                ("banding", "stepped tone transitions; 0 = none, 100 = heavy",
+                 "the probes differ on stepped gradients"),
+                ("ringing", "halo oscillations at edges; 0 = none, 100 = severe",
+                 "the probes differ on edge halos"),
+                ("sharpness", "micro-contrast; 0 = mushy, 100 = crisp",
+                 "the measured spread separates the probes"),
+            )
+        ]
         return {
             "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {
-                                "axes": [
-                                    {
-                                        "name": "banding",
-                                        "definition": "stepped tone transitions; 0 = none, 100 = heavy",
-                                        "scale": "0-100",
-                                        "direction": "lower-is-better",
-                                    }
-                                ]
-                            }
-                        )
-                    }
-                }
+                {"message": {"content": json.dumps({"axes": rows})}}
             ]
         }
 

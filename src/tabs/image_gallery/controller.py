@@ -709,6 +709,9 @@ class GalleryController:
                     )
                 except Exception:
                     pass
+                # The honest count beside the source: how many axes the judge
+                # named and how many of them a local detector can also produce.
+                GalleryController._trace_axis_provenance(self, profile)
             return profile
         except Exception:
             logger.debug("metric profile refresh failed", exc_info=True)
@@ -1184,6 +1187,7 @@ class GalleryController:
             # P5 precedence: the judge's own choice won over the series offer —
             # the trace says which source decided, not merely which axes won.
             _ai_debug("profile source: %s — %s", describe_source(self.state), line)
+            GalleryController._trace_axis_provenance(self, profile)
         except Exception:
             logger.debug("metric profile describe failed", exc_info=True)
         try:
@@ -1259,12 +1263,58 @@ class GalleryController:
 
         members_of = GalleryController._section_members
         ranked_ids: set[int] = set()
+        # Per-SERIES axis sets (2026-10-26, ``task-profile-granularity``): with
+        # more than one series the folder-wide profile is the SEED — each series
+        # reads its own registry half from its own spreads and keeps the judge's
+        # axes, so an axis that does not move inside a series carries no weight
+        # there. One series is the folder; there is nothing to resolve.
+        folder_profile = getattr(self.state, "metric_profile", None)
+        per_series: dict[int, object] = {}
+        if len(groups) > 1:
+            try:
+                from tabs.image_gallery.use_cases.profile_ai import (
+                    per_series_profiles as _per_series,
+                )
+
+                for group, prof in _per_series(
+                    groups,
+                    mode=mode,
+                    seed=folder_profile,
+                    has_reference=bool(getattr(self.state, "source_path", None)),
+                ):
+                    per_series[id(group)] = prof
+            except Exception:
+                logger.debug("per-series profile resolution failed", exc_info=True)
+                per_series = {}
+        logged_series: set[int] = set()
         for entry in groups:
             members = members_of(entry)
             if not members:
                 continue
             for m in members:
                 ranked_ids.add(id(m))
+            series_profile = per_series.get(id(entry), folder_profile)
+            if len(groups) > 1 and id(entry) not in logged_series:
+                # One line per series: WHICH axes this series was ordered on, and
+                # where the set came from (evidence vs the folder's judge answer).
+                logged_series.add(id(entry))
+                try:
+                    # Local import: the later ``fusion ranks`` trace binds the
+                    # same name, which makes it function-local (UnboundLocal
+                    # otherwise) — one import site inside this block is cheapest.
+                    from tabs.image_gallery.services.ai_client import _ai_debug as _trace
+                    from tabs.image_gallery.services.metric_profile import (
+                        format_profile as _format_profile,
+                    )
+
+                    _trace(
+                        "series profile: id=%s members=%d %s",
+                        getattr(entry, "id", "?") if hasattr(entry, "id") else "?",
+                        len(members),
+                        _format_profile(series_profile),
+                    )
+                except Exception:
+                    logger.debug("series profile trace failed", exc_info=True)
             try:
                 # The STORED metric profile (plan P1) selects the axes — the
                 # same set the dots, the prompt and the Jev vector read. Without
@@ -1272,7 +1322,7 @@ class GalleryController:
                 ranks = _rank(
                     members,
                     mode=mode,
-                    profile=getattr(self.state, "metric_profile", None),
+                    profile=series_profile,
                     pairwise_order=pairwise_order,
                 )
             except Exception:
@@ -2346,7 +2396,8 @@ class GalleryController:
         "ИИ" for the same run). Never raises.
         """
         try:
-            if self._ai_tail_pending():
+            pending_probe = getattr(self, "_ai_tail_pending", None)
+            if callable(pending_probe) and pending_probe():
                 from tabs.image_gallery.ui.stats_strip import RANK_SOURCE_PENDING
 
                 self.widget.set_rank_provenance(
@@ -2374,6 +2425,45 @@ class GalleryController:
             )
         except Exception:
             logger.debug("rank provenance refresh failed", exc_info=True)
+
+    def _trace_axis_provenance(self, profile=None) -> None:
+        """State HOW MANY axes came from the judge and how many a detector covers.
+
+        "N axes from the judge, M of them also have a local detector" (owner design
+        2026-10-26): the count is a fact about the profile in hand, and stating it
+        is what stops "the judge named 5 axes" from silently meaning "3 of them will
+        never carry a local number". The log line and the strip's tooltip read the
+        same numbers (:func:`profile_ai.axis_count_report`), never a rounded claim.
+        Never raises.
+        """
+        if profile is None:
+            try:
+                profile = getattr(self.state, "metric_profile", None)
+            except Exception:
+                profile = None
+        try:
+            from tabs.image_gallery.use_cases.profile_ai import (
+                axis_count_report,
+                describe_axis_provenance,
+            )
+
+            counts = axis_count_report(profile)
+            _ai_debug("profile axes: %s", describe_axis_provenance(profile))
+        except Exception:
+            logger.debug("axis provenance trace failed", exc_info=True)
+            return
+        strip = getattr(getattr(self, "widget", None), "stats_strip", None)
+        setter = getattr(strip, "set_axis_counts", None)
+        if not callable(setter):
+            return
+        try:
+            setter(
+                counts.get("judged", 0),
+                counts.get("judged_with_local_detector", 0),
+                counts.get("registry", 0),
+            )
+        except Exception:
+            logger.debug("axis provenance strip update failed", exc_info=True)
 
     # -- analysis phase state (metrics settled != analysis finished) --------
 
