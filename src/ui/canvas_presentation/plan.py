@@ -92,6 +92,27 @@ class CanvasRenderPlan:
     live main-window canvas — live may set ``overlay_clip_rect`` for
     uncrop/magnifier without making the canvas the letterbox owner.
     """
+    envelope_dims: tuple[int, int, int, int] | None = None
+    """
+    The comparison envelope the canvas basis was sized from, in SOURCE space:
+    ``(w1, h1, w2, h2)`` of each side's own decoded pixels (not the installed
+    display tier). Set by ``plan_builder.build_canvas_plan`` on the live
+    default plan only; every downstream owner that fits the pair
+    (``display_tier_service.update_common_letterbox_geometry`` /
+    ``refresh_live_content_rect``) consumes it instead of re-deriving the
+    envelope from ``image1``/``image2``.
+
+    Why source space: each preview is normalised per side to a 1024 long edge,
+    so the envelope of a PREVIEW pair has a different aspect than the envelope
+    of the source pair (2000x1400 = 1.43 vs 1024x1024 = 1.0). Fitting the
+    canvas/split/loupe to the preview aspect and then re-fitting when the
+    unified store lands is exactly the "comparison jumps for a frame or two on
+    a pair replace" report (2026-10-27).
+
+    ``None`` (default) keeps today's behaviour bit-for-bit: export/snapshot
+    plans, an active crop box (the box-clipped display dims are the truth
+    there), and a frame where a side has no source yet.
+    """
     composition_root: CompositionNode | None = None
     """
     Optional composition tree describing N-layer frames (multi-compare grid,

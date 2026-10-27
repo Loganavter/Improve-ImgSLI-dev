@@ -111,14 +111,22 @@ def _source_tier_key(path):
     return _pixel_key(path, None, None)
 
 
-def _store(display1, display2, *, source1=None, source2=None, crop_service=None):
+def _store(
+    display1,
+    display2,
+    *,
+    source1=None,
+    source2=None,
+    crop_service=None,
+    paths=("/gallery/wide_landscape.png", "/gallery/tall_portrait.png"),
+):
     """A real Store: document paths, the source tier in ``pipeline.pixel``,
     the display pair (preview/unified) in ``image_state``."""
     import tabs.image_compare.bootstrap_reducers  # noqa: F401
 
     store = Store()
     store.create_workspace_session(session_type="image_compare", activate=True)
-    p1, p2 = "/gallery/wide_landscape.png", "/gallery/tall_portrait.png"
+    p1, p2 = paths
     store.set_session_state_slot(
         "document",
         DocumentModel(
@@ -225,8 +233,11 @@ def test_source_missing_falls_back_to_the_display_tier():
         PREVIEW_RIGHT[0],
         PREVIEW_RIGHT[1],
     ), "a missing source keeps that side's display dims (no invented size)"
-    # Envelope of the mixed pair, aspect from the known side.
-    assert (plan.canvas_w, plan.canvas_h) == (SOURCE_LEFT[0], SOURCE_LEFT[1])
+    # Envelope of the mixed pair: max over the known dims of each side.
+    assert (plan.canvas_w, plan.canvas_h) == (
+        max(SOURCE_LEFT[0], PREVIEW_RIGHT[0]),
+        max(SOURCE_LEFT[1], PREVIEW_RIGHT[1]),
+    )
 
 
 # -- (b) the drawn loupe glass is a function of the letterboxed content only --
@@ -321,7 +332,7 @@ def test_crop_plan_keeps_the_display_truth(tmp_path):
     assert svc.get(p1) is not None and svc.get(p2) is not None
     disp1 = Image.open(p1).convert("RGBA")
     disp2 = Image.open(p2).convert("RGBA")
-    store = _store(disp1, disp2, crop_service=svc)
+    store = _store(disp1, disp2, crop_service=svc, paths=(p1, p2))
 
     plan = build_canvas_plan(store, disp1, disp2, preserve_zoom=True)
 

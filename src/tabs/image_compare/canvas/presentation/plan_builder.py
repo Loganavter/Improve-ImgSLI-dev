@@ -196,6 +196,7 @@ def build_canvas_plan(
         return int(img.height)
 
     w1, h1 = _w(display_image1), _h(display_image1)
+    envelope_dims: tuple[int, int, int, int] | None = None
 
     if is_live_default_plan and display_image1 is not None:
         _boxed = _box_clipped_live_inputs(store, display_image1, display_image2)
@@ -211,11 +212,39 @@ def build_canvas_plan(
         # unify cache misses, then the unified pair), so a slot-1-only canvas
         # made every canvas-px overlay (loupe radius/spacing/offsets, capture
         # ring, clip rect) change with the swap and again when unify landed
-        # (owner report 2026-10-27). Equal-size pairs, no-pad pair images and
-        # one-sided frames resolve to today's numbers unchanged.
+        # (owner report 2026-10-27).
+        #
+        # The envelope is measured in SOURCE space — each side's own decoded
+        # pixels (``source_tier.source_role_image``), never the installed
+        # display tier: previews are normalised per side to a 1024 long edge, so
+        # a preview pair's envelope has a different ASPECT than the source
+        # pair's (2000x1400 = 1.43 vs 1024x1024 = 1.0) and the whole
+        # composition re-fits the moment the unified store lands. The result is
+        # carried on the plan (``envelope_dims``) so no downstream owner
+        # re-derives it from whatever tier happens to be installed.
+        #
+        # Fallbacks keep today's numbers bit-identical: a box-clipped pair
+        # (``_boxed`` — display dims are the truth under a crop box), a side
+        # with no decoded source yet (that side keeps its display dims), and a
+        # non-live plan (export/snapshot) which never enters this branch.
         w2, h2 = _w(display_image2), _h(display_image2)
-        base_w = max(1, int(w1), int(w2))
-        base_h = max(1, int(h1), int(h2))
+        _src1 = source_image1 if source_image1 is not None else display_image1
+        _src2 = source_image2 if source_image2 is not None else display_image2
+        _sw1, _sh1 = _w(_src1), _h(_src1)
+        _sw2, _sh2 = _w(_src2), _h(_src2)
+        if (
+            _boxed is None
+            and _sw1 > 1
+            and _sh1 > 1
+            and _sw2 > 1
+            and _sh2 > 1
+        ):
+            envelope_dims = (_sw1, _sh1, _sw2, _sh2)
+            base_w = max(1, _sw1, _sw2)
+            base_h = max(1, _sh1, _sh2)
+        else:
+            base_w = max(1, int(w1), int(w2))
+            base_h = max(1, int(h1), int(h2))
         live_virtual_layout = resolve_feature_virtual_layout(
             store,
             drawing_width=base_w,
@@ -333,5 +362,6 @@ def build_canvas_plan(
         preserve_zoom=preserve_zoom,
         image_is_padded_composite=bool(image_is_padded_composite),
         geometry_letterbox=bool(geometry_letterbox),
+        envelope_dims=envelope_dims,
     )
 
