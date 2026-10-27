@@ -169,13 +169,6 @@ def test_help_toc_click_scrolls_the_host_scroll_area(qtbot, qapp):
     target = dialog._document_scroll_target(y)
     bar = dialog._scroll.verticalScrollBar()
     bar.setValue(0)
-    # The OUTER scroll range is only updated once the composed page has been
-    # laid out; a click before that clamps setValue() to the stale maximum.
-    # Measured 2026-10-27 (identical full-run order, no randomization): the
-    # range was 8 px at the click and 1150 one event turn later, so the bar
-    # ended at 8 while the assertion expected 1150 — 2 of 4 runs red, the rest
-    # green. Wait for the range the click is about to be clamped by.
-    qtbot.waitUntil(lambda: bar.maximum() >= target, timeout=2000)
 
     dialog._toc._rows[-1].click()
     qapp.processEvents()
