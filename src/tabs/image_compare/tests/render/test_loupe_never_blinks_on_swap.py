@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from core.state_management.actions import InvalidateGeometryCacheAction
-from tabs.image_compare.presenters.image_canvas.background_parts.preview import (
+from tabs.image_compare.presenters.image_canvas.background_parts.use_cases.preview import (
     pick_display_with_preview_backing,
 )
 
@@ -52,7 +52,7 @@ def test_a_swapped_image_is_not_degraded_to_its_preview():
         preview_b,
         last_applied_uid=_uid(store_a),
         superseded_preview_uid=None,
-        last_applied_uids=(_uid(store_a), _uid(store_b)),
+        other_slot_applied_uid=_uid(store_b),
     )
     assert picked is store_b, "a swapped-in image was re-degraded to its preview"
 
@@ -70,7 +70,7 @@ def test_a_genuinely_new_image_still_prefers_its_fresh_preview():
         preview_new,
         last_applied_uid=None,
         superseded_preview_uid=None,
-        last_applied_uids=(_uid(store_a), _uid(store_b)),
+        other_slot_applied_uid=_uid(store_b),
     )
     assert picked is preview_new
 
@@ -80,7 +80,7 @@ def test_a_swap_does_not_invalidate_the_pair_geometry():
     so nothing may zero pixmap_width/height (that emptied the scene graph and
     dropped the declared-visible loupe for a couple of frames)."""
     from tabs.image_compare.services.playlist_components.list_operations import (
-        ListOperations,
+        PlaylistListOperations,
     )
 
     dispatcher = _FakeDispatcher()
@@ -103,12 +103,10 @@ def test_a_swap_does_not_invalidate_the_pair_geometry():
         batch_changes=_null_batch,
         invalidate_geometry_cache=lambda: dispatcher.dispatch(InvalidateGeometryCacheAction()),
     )
-    controller = SimpleNamespace(store=store)
-
-    ListOperations(controller).swap_current_images()
+    PlaylistListOperations(store, main_controller=None).swap_current_images()
 
     assert document.image_list1[0] == ("b.png", "b")
-    assert store.viewport.session_data.image_state.image1 is image2
+    assert len(dispatcher.actions) == 2, "the pair is published in one batch, two slot writes"
     assert not [
         a for a in dispatcher.actions if isinstance(a, InvalidateGeometryCacheAction)
     ], "a same-pair swap zeroed the geometry: the loupe disappears for a frame"
