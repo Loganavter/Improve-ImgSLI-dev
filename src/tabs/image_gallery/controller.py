@@ -2046,7 +2046,21 @@ class GalleryController:
     def activate_judgment_domain(self, domain: str) -> None:
         from tabs.image_gallery.use_cases import ai_analysis as _ai_analysis
 
-        return _ai_analysis.activate_judgment_domain(self, domain)
+        result = _ai_analysis.activate_judgment_domain(self, domain)
+        # The local stack is warmed by the DURABLE domain (owner 2026-10-27):
+        # switching to Algorithms is the moment the first-use torch/piq import
+        # would otherwise land inside the user's analysis window, and the same
+        # entry point is a no-op while the AI domain owns the cards. One entry
+        # point, one kill-switch — no second warm-up path.
+        try:
+            from tabs.image_gallery.services import warmup as _warmup
+
+            _warmup.schedule_warmup(
+                "domain switch", domain=getattr(self, "_judgment_domain", None)
+            )
+        except Exception:
+            logger.debug("domain-switch warm-up schedule failed", exc_info=True)
+        return result
 
     def _run_ai_for_visible(self, *, cache_only: bool = False) -> None:
         from tabs.image_gallery.use_cases import ai_analysis as _ai_analysis

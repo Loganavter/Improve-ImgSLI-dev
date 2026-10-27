@@ -163,14 +163,21 @@ class ImageGalleryTab(TabContract):
         # the first folder does not pay the ~3 s torch/piq import inside its
         # analysis window (owner log, 2026-10-22). Once per process; a later
         # activation is a no-op; kill-switch IMGSLI_GALLERY_NO_WARMUP=1.
+        # The warm-up follows the DURABLE judgment domain (owner 2026-10-27):
+        # the tab installs the reader and lets ``schedule_warmup`` ask it at
+        # fire time, so a restored ``ai`` session schedules nothing.
         try:
             from PySide6.QtCore import QTimer as _QTimer
 
             from tabs.image_gallery.services import warmup as _warmup
 
-            _QTimer.singleShot(0, lambda: _warmup.schedule_warmup(reason="page created"))
+            _warmup.set_domain_provider(
+                lambda ctrl=self._controller: getattr(ctrl, "_judgment_domain", None)
+            )
+            _QTimer.singleShot(0, lambda: _warmup.schedule_warmup("page created"))
         except Exception:
             pass
+
         _dnd_log("create_page: EXIT widget=%s controller=%s", self._widget, self._controller)
         # Explicit owner: the tab wires controller -> widget once via the
         # attach protocol. Implemented by G2 on the widget side —
@@ -219,13 +226,19 @@ class ImageGalleryTab(TabContract):
         # One-time background warm-up of the LOCAL detection stack: the first
         # folder used to pay a ~3 s torch/piq import inside the analysis window
         # (owner log, 2026-10-22). Off the critical path, once per process,
-        # kill-switch IMGSLI_GALLERY_NO_WARMUP=1.
+        # kill-switch IMGSLI_GALLERY_NO_WARMUP=1. The durable domain decides
+        # (owner 2026-10-27): an ``ai`` gallery schedules nothing here.
         try:
             from tabs.image_gallery.services import warmup as _warmup
 
-            _warmup.schedule_warmup(reason="gallery tab activated")
+            if self._controller is not None:
+                _warmup.set_domain_provider(
+                    lambda ctrl=self._controller: getattr(ctrl, "_judgment_domain", None)
+                )
+            _warmup.schedule_warmup("gallery tab activated")
         except Exception:
             pass
+
         session_id = self._resolve_active_session_id(context)
         if session_id is not None:
             if session_id != self._active_session_id:
