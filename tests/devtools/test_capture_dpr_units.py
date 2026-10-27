@@ -388,3 +388,93 @@ def test_capture_session_reports_the_logical_frame_on_hidpi(tmp_path) -> None:
     )
     assert result["png"] == [800, 600], "the PNG really is the device-pixel raster"
     assert "pin not honoured" not in proc.stderr, proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# Resize shield: ``setFixedColorBufferSize`` takes a PIXEL size
+# ---------------------------------------------------------------------------
+
+
+class _StubRhiWidget:
+    """``QRhiWidget`` stand-in for the freeze path (no GPU init offscreen)."""
+
+    def __init__(self, *, logical, dpr, render_target=None) -> None:
+        from PySide6.QtCore import QSize
+
+        self._logical = QSize(*logical)
+        self._dpr = dpr
+        self._render_target = render_target
+        self._fixed = QSize()
+        self.pinned: list[tuple[int, int]] = []
+
+    def objectName(self):  # noqa: N802 - Qt name
+        return "stub-rhi"
+
+    def isVisible(self) -> bool:  # noqa: N802 - Qt name
+        return True
+
+    def size(self):
+        return self._logical
+
+    def devicePixelRatioF(self) -> float:  # noqa: N802 - Qt name
+        return self._dpr
+
+    def renderTarget(self):  # noqa: N802 - Qt name
+        return self._render_target
+
+    def fixedColorBufferSize(self):  # noqa: N802 - Qt name
+        return self._fixed
+
+    def setFixedColorBufferSize(self, *args):  # noqa: N802 - Qt name
+        from PySide6.QtCore import QSize
+
+        size = args[0] if len(args) == 1 else QSize(args[0], args[1])
+        self._fixed = size
+        self.pinned.append((size.width(), size.height()))
+
+    def update(self) -> None:
+        return None
+
+    def parentWidget(self):  # noqa: N802 - Qt name
+        return None
+
+
+class _StubWindow:
+    def __init__(self, widgets) -> None:
+        self._widgets = list(widgets)
+
+    def findChildren(self, _cls):  # noqa: N802 - Qt name
+        return list(self._widgets)
+
+
+def test_freeze_pins_the_device_pixel_buffer_on_hidpi() -> None:
+    """``size()`` is logical, ``setFixedColorBufferSize`` takes ``pixelSize``.
+
+    A 400x300 logical canvas at DPR=2 must pin 800x600 device px; pinning
+    400x300 asks Qt for a half-resolution buffer that it then upscales — the
+    exact blur the shield is meant to avoid.
+    """
+    from ui.main_window.runtime import _freeze_rhi_surfaces
+
+    rhi = _StubRhiWidget(logical=(400, 300), dpr=2.0)
+
+    _freeze_rhi_surfaces(_StubWindow([rhi]))
+
+    assert rhi.pinned == [(800, 600)], f"pinned {rhi.pinned} instead of device px"
+
+
+def test_freeze_prefers_the_render_targets_pixel_size() -> None:
+    """The render target's own ``pixelSize()`` is the truth when it exists."""
+    from PySide6.QtCore import QSize
+
+    from ui.main_window.runtime import _freeze_rhi_surfaces
+
+    class _Target:
+        def pixelSize(self):  # noqa: N802 - Qt name
+            return QSize(1600, 1200)
+
+    rhi = _StubRhiWidget(logical=(400, 300), dpr=2.0, render_target=_Target())
+
+    _freeze_rhi_surfaces(_StubWindow([rhi]))
+
+    assert rhi.pinned == [(1600, 1200)]
