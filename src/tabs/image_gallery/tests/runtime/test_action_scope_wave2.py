@@ -227,7 +227,7 @@ def test_reset_summary_names_the_store_scope(monkeypatch) -> None:
     assert summary["items"] == 2, "the card scope regressed to the pool"
     assert summary["targets"] == 2
     assert summary["pool"] == 100
-    assert summary["target_scope"] == "selection_or_card"
+    assert summary["target_scope"] == "targets"
     assert summary["stores_scope"] == "global", (
         "the summary hides that the measured stores are swept for the whole pool"
     )
