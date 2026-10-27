@@ -97,8 +97,8 @@ def test_switch_analyzes_the_selection_not_the_viewport() -> None:
     """Rule 7: two selected cards of twenty visible → exactly two analyzed.
 
     Guard, not a red-before: wave 1 already routes ``_run_ai_for_visible``
-    through ``resolve_scope`` (kind ``selection_else_visible``), so this pins
-    the behaviour against a future regression rather than proving the fix.
+    through the ONE resolver (kind selection_else_visible), so this pins the
+    behaviour against a future regression rather than proving the fix.
     """
     selected = _switch_paths(2)
     owner, analyzed = _switch_owner(selected=selected, visible=20)

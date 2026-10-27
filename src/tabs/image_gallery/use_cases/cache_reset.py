@@ -405,9 +405,9 @@ def clear_metrics_caches(owner, *, paths=None) -> dict:
     TWO SCOPES, BOTH NAMED (owner report 2026-10-27: "выбрал 2 — обработалось
     100"): ``items`` counts the cards whose visible state was cleared
     (``paths``), while the measured stores are pool-wide by construction. The
-    summary therefore also carries ``targets``/``pool`` (the two sizes),
-    ``target_scope`` (``"targets"`` or ``"pool"``), ``stores_scope``
-    (``"global"``) and ``stores`` (:data:`STORE_SCOPE_NAMES`), and ONE INFO
+    summary therefore also carries ``targets``/``pool`` (the two sizes), the
+    target_scope ("targets" or "pool"), stores_scope ("global") and
+    ``stores`` (:data:`STORE_SCOPE_NAMES`), and ONE INFO
     line states the same thing in log.txt — otherwise the widening was
     readable only from this docstring.
 
