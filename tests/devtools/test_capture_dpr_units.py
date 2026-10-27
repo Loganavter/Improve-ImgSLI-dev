@@ -1,18 +1,25 @@
 """Capture path: DPR enters exactly once, and the units are NAMED.
 
-``core/control/capture.compose_rhi_frames`` multiplied the canvas anchor and
-size by the DPR **and** painted into a ``QPixmap`` that already carries its own
-``devicePixelRatio`` (a ``QPainter`` on such a pixmap works in
-device-independent coordinates). Measured on a real ``QPainter``: a canvas
-meant for device ``(200,100)-(600,300)`` at DPR=2 landed in
-``(400,200)-(1198,598)`` — double the offset and double the size.
+The 2026-10-27 defect pair this module pins. Both are unit mistakes, not
+rendering bugs, so an eyeball check on a DPR=1 host cannot see them:
 
-Every assertion carries the geometry it means (device vs logical), because "a
-number is a number" is exactly what produced the bug.
+* ``core/control/capture.compose_rhi_frames`` multiplied the canvas anchor and
+  size by the DPR **and** painted into a ``QPixmap`` that already carries its
+  own ``devicePixelRatio`` (a ``QPainter`` on such a pixmap works in
+  device-independent coordinates). Measured on a real ``QPainter``: a canvas
+  meant for device ``(200,100)-(600,300)`` at DPR=2 landed in
+  ``(400,200)-(1198,598)`` — double the offset and double the size.
+* ``_clip_to_visible`` sliced a *logical* rect out of a *device*-pixel grab.
+  Measured: ``QPixmap(2560x1600)`` at DPR=2, ``copy(QRect(0,0,1280,700))``
+  returns ``1280x700`` device px — the top-left 1/DPR² of the window.
 
-Falsification story: on the pre-fix tree the paint test reports red at device
-``(250,150)`` (its paint starts at ``400``) and red at ``(650,350)``
-(double-scaled paint reaches it).
+Every assertion carries the geometry it means (device vs logical), because
+"a number is a number" is exactly what produced the bug.
+
+Falsification story: on the pre-fix tree the ``compose_rhi_frames`` test
+reports red at device ``(250,150)`` (its paint starts at ``400``) and red at
+``(650,350)`` (double-scaled paint reaches it), and the ``_clip_to_visible``
+test reports ``1280x700`` for a crop that must be ``2560x1400``.
 
 Run: ``QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m pytest
 tests/devtools/test_capture_dpr_units.py -q -o addopts=""``.
@@ -148,3 +155,169 @@ def test_compose_rhi_frames_skips_a_canvas_outside_the_logical_grab() -> None:
     )
 
     assert capture_mod.compose_rhi_frames(_FakeTarget([canvas]), pixmap) == 0
+
+
+# ---------------------------------------------------------------------------
+# _clip_to_visible: a logical rect sliced out of a device-pixel grab
+# ---------------------------------------------------------------------------
+
+
+def test_clip_to_visible_keeps_the_visible_part_in_device_pixels() -> None:
+    """A 1280x700 logical visible rect keeps 2560x1400 device px at DPR=2."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QColor, QPainter, QPixmap
+
+    _app()
+    grab = QPixmap(2560, 1600)
+    grab.setDevicePixelRatio(2.0)
+    grab.fill(QColor(0, 0, 0))
+    # A marker at device (1300, 750) — inside the visible half, outside the
+    # top-left quarter the pre-fix code cropped. Painter coords are LOGICAL on
+    # a DPR-carrying pixmap, hence the logical (650, 375) -> device (1300, 750).
+    painter = QPainter(grab)
+    painter.fillRect(650, 375, 20, 20, QColor(255, 0, 0))
+    painter.end()
+
+    clipped = capture_mod._clip_to_visible(grab, QRect(0, 0, 1280, 700))
+
+    assert (clipped.width(), clipped.height()) == (2560, 1400)
+    assert clipped.devicePixelRatio() == 2.0
+    assert clipped.deviceIndependentSize().toSize().toTuple() == (1280, 700)
+    assert clipped.toImage().pixelColor(1310, 760).red() > 200, (
+        "the visible half of the grab was cropped away"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Which screen: the target's, not the application's primary
+# ---------------------------------------------------------------------------
+
+
+class _StubScreen:
+    def __init__(self, geometry, pixmap=None) -> None:
+        from PySide6.QtCore import QRect
+
+        self._geometry = QRect(*geometry)
+        self._pixmap = pixmap
+        self.grab_calls: list[int] = []
+
+    def availableGeometry(self):  # noqa: N802 - Qt name
+        return self._geometry
+
+    def grabWindow(self, win_id):  # noqa: N802 - Qt name
+        self.grab_calls.append(win_id)
+        return self._pixmap
+
+
+class _StubWindowHandle:
+    def __init__(self, screen) -> None:
+        self._screen = screen
+
+    def screen(self):
+        return self._screen
+
+
+class _PositionedTarget:
+    """A widget on a specific screen: geometry + the screen it reports."""
+
+    def __init__(self, *, geometry, origin, screen, raster=None) -> None:
+        self._geometry = geometry
+        self._origin = origin
+        self._screen = screen
+        self._raster = raster
+
+    def width(self) -> int:
+        return self._geometry[0]
+
+    def height(self) -> int:
+        return self._geometry[1]
+
+    def mapToGlobal(self, _point):  # noqa: N802 - Qt name
+        from PySide6.QtCore import QPoint
+
+        return QPoint(*self._origin)
+
+    def mapFromGlobal(self, point):  # noqa: N802 - Qt name
+        return point
+
+    def windowHandle(self):  # noqa: N802 - Qt name
+        return _StubWindowHandle(self._screen)
+
+    def screen(self):
+        return self._screen
+
+    def grab(self):
+        return self._raster
+
+    def winId(self):  # noqa: N802 - Qt name
+        return 4242
+
+    def findChildren(self, _cls):  # noqa: N802 - Qt name
+        return []
+
+    def window(self):
+        return self
+
+
+class _StubApp:
+    def __init__(self, primary) -> None:
+        self._primary = primary
+
+    def primaryScreen(self):  # noqa: N802 - Qt name
+        return self._primary
+
+
+def _colored_pixmap(size, color):
+    from PySide6.QtGui import QColor, QPixmap
+
+    pixmap = QPixmap(*size)
+    pixmap.fill(QColor(*color))
+    return pixmap
+
+
+def test_visible_geometry_uses_the_targets_screen_not_the_primary() -> None:
+    """Window on a 640x480 display: the visible rect is 640x480-based.
+
+    The window is 1000x900 at global ``(100, 50)``, so on a 640x480 screen its
+    visible part is logical ``(0,0,540,430)``. The application's primary
+    screen here is 800x600, which would report ``(0,0,700,550)`` — a window
+    the primary screen calls "more visible" than it is.
+    """
+    from PySide6.QtCore import QRect
+
+    _app()
+    secondary = _StubScreen((0, 0, 640, 480))
+    primary = _StubScreen((0, 0, 800, 600))
+    target = _PositionedTarget(geometry=(1000, 900), origin=(100, 50), screen=secondary)
+
+    visible, fully_visible = capture_mod._target_visible_geometry(
+        _StubApp(primary), target
+    )
+
+    assert (visible.x(), visible.y(), visible.width(), visible.height()) == (
+        0,
+        0,
+        540,
+        430,
+    )
+    assert fully_visible is False
+    assert primary.grab_calls == []
+
+
+def test_grab_window_grabs_the_targets_screen_pixels() -> None:
+    """The X grab asks the screen the window is on, not the primary one."""
+    _app()
+    secondary_pixmap = _colored_pixmap((40, 30), (255, 0, 0))
+    primary_pixmap = _colored_pixmap((40, 30), (0, 255, 0))
+    secondary = _StubScreen((0, 0, 640, 480), pixmap=secondary_pixmap)
+    primary = _StubScreen((0, 0, 800, 600), pixmap=primary_pixmap)
+    target = _PositionedTarget(
+        geometry=(40, 30), origin=(0, 0), screen=secondary, raster=primary_pixmap
+    )
+
+    pixmap, method, _layers = capture_mod.grab_window(_StubApp(primary), target)
+
+    assert method == "grabWindow", "the grab fell back to the widget raster"
+    assert secondary.grab_calls == [4242]
+    assert primary.grab_calls == [], "the primary screen was grabbed instead"
+    assert pixmap.toImage().pixelColor(10, 10).red() > 200
