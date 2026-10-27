@@ -51,10 +51,20 @@ def _jxl_decodes_here() -> bool:
     """
     if ".jxl" in vips_suffixes():
         return True
+    # imagecodecs exposes no ``jxl`` symbol (measured: no attribute, no
+    # ``jxl_version()``) even when its codec dispatch has one, so capability has
+    # to be probed BEHAVIOURALLY. A 2x2 encode into a memory buffer costs ~10 ms
+    # once per run and proves the codec is actually loaded, which no attribute
+    # check can.
     try:
-        import imagecodecs
+        import io
 
-        return bool(getattr(imagecodecs, "JXL", None))
+        import imagecodecs
+        import numpy as np
+
+        buffer = io.BytesIO()
+        imagecodecs.imwrite(buffer, np.zeros((2, 2, 3), np.uint8), codec="jxl")
+        return len(buffer.getvalue()) > 0
     except Exception:
         return False
 
@@ -151,9 +161,14 @@ def test_allowlist_entries_name_accepted_suffixes():
     )
 
 
-@pytest.mark.parametrize("suffix, reason", sorted(NON_PILLOW_ALLOWLIST.items()))
-def test_allowlist_entries_are_justified_and_shrink_only(suffix: str, reason: str):
-    """Each entry needs a real reason and must disappear once Pillow covers it."""
+@pytest.mark.parametrize("suffix, entry", sorted(NON_PILLOW_ALLOWLIST.items()))
+def test_allowlist_entries_are_justified_and_shrink_only(suffix: str, entry):
+    """Each entry needs a real reason, a live backend and a shrink-only life."""
+    reason, probe = entry
+    assert callable(probe), (
+        f"NON_PILLOW_ALLOWLIST[{suffix!r}] must carry a backend probe callable "
+        "so the claim is re-checked on every machine, not asserted once."
+    )
     assert suffix not in pillow_suffixes(), (
         f"stale NON_PILLOW_ALLOWLIST entry {suffix!r}: Pillow registers this "
         "suffix now, so the entry is no longer needed -- delete it (the list "
