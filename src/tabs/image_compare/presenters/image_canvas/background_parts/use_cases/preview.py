@@ -12,7 +12,7 @@ from engine.cache.image_identity import image_uid
 
 
 def pick_display_with_preview_backing(
-    *candidates, last_applied_uid=None, superseded_preview_uid=None
+    *candidates, last_applied_uid=None, superseded_preview_uid=None, last_applied_uids=None
 ):
     """Display-pair picker for the live canvas (stored role).
 
@@ -46,7 +46,19 @@ def pick_display_with_preview_backing(
     preview = candidates[1] if len(candidates) > 1 else None
     if preview is not None:
         uid = image_uid(preview)
-        if uid != last_applied_uid and uid != superseded_preview_uid:
+        applied_uids = set()
+        if last_applied_uid is not None:
+            applied_uids.add(last_applied_uid)
+        if last_applied_uids:
+            applied_uids.update(last_applied_uids)
+        # ``last_applied_uids`` is BOTH slots' last applied ids: a swap inside
+        # the pair moves an image that was already on screen into the other
+        # slot, so its preview must not count as fresh. Preferring it degraded
+        # the canvas (and every canvas-px overlay: loupe radius, capture ring,
+        # divider/border) to a 1024-long-edge tier for one or two frames and
+        # then flipped back when the store was picked again -- the owner's
+        # "лупа подскакивает / пропадает на пару мгновений" (2026-10-27).
+        if uid and uid not in applied_uids and uid != superseded_preview_uid:
             return preview
     return pick_display_image(*candidates)
 
