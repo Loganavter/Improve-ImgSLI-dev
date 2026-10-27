@@ -177,21 +177,13 @@ Y_CONVENTION_HELPER = "src/engine/gpu/rt_y_orientation.py"
 #: fails the suite, so the fix cannot land without deleting its declaration.
 KNOWN_DEFECTS: frozenset[tuple[str, int, str]] = frozenset(
     {
-        # engine-side single grab: 800x600 export at DPR=2 -> grab 1600x1200 ->
-        # resized to 800x600, composition in the top-left quarter.
-        ("src/engine/gpu/export_tiling.py", 128, RULE_SILENT_DOWNSAMPLE),
-        # same, per tile of the tiled export.
-        ("src/engine/gpu/export_tiling.py", 157, RULE_SILENT_DOWNSAMPLE),
-        # multi_compare's own export path, same composition-space assumption.
-        ("src/tabs/multi_compare/services/gpu_export.py", 304, RULE_SILENT_DOWNSAMPLE),
-        # plugin export proxy: same shape as the engine site (qimage_to_pil of a
-        # device grab resized to the plan's logical widget size). Found here,
-        # not named in the task — verify it is covered before deleting.
-        (
-            "src/plugins/export/services/gpu_export_proxy.py",
-            347,
-            RULE_SILENT_DOWNSAMPLE,
-        ),
+        # Empty as of 2026-10-28: the four entries that lived here were the MC
+        # tiled-export group, fixed by app #756 (one device px per output px,
+        # no silent grab resample). They expired exactly as this ratchet
+        # intends — the fix removed the shapes instead of hiding them. The
+        # remaining legacy-downscale hit (image_compare's supersampled surface
+        # through plugins/export/services/gpu_export_proxy.py) is a deliberate
+        # policy, so it moved to the allowlist with its measurement.
     }
 )
 

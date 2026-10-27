@@ -30,6 +30,28 @@ removed the shapes instead of hiding them.
 from __future__ import annotations
 
 DPR_ALLOWLIST: dict[tuple[str, str, str], str] = {
+    # --- silent-downsample ---------------------------------------------------
+    ("src/engine/gpu/export_tiling.py", "_read_frame", "silent-downsample"): (
+        "the resample branch is reachable ONLY with fit_framebuffer=False, i.e. "
+        "image_compare's legacy logical-space surface, and resolve_export_framebuffer "
+        "has already logged it as 'downscaling supersampled legacy logical-space "
+        "surface'. A fitted surface (multi_compare) never reaches it: the same "
+        "function raises ExportFramebufferMismatch instead, which is the #756 rule."
+    ),
+    (
+        "src/plugins/export/services/gpu_export_proxy.py",
+        "_render_plan_frame_single",
+        "silent-downsample",
+    ): (
+        "image_compare's tiled export deliberately renders into a LOGICAL-space "
+        "surface and therefore reads back a DPR-supersampled grab, then "
+        "downscales it to the plan's widget size: supersampling is the contract "
+        "there, not a units bug (#756 measured both paths and pinned this one as "
+        "intentional, with engine/gpu/export_tiling.py logging the downscale). "
+        "multi_compare is the side that had the units bug and it no longer "
+        "downscales at all (export_surface_size + ExportFramebufferMismatch)."
+    ),
+
     # --- clip-matrix-literal -------------------------------------------------
     ("src/devtools/canvas_scene/multi_compare.py", "_mc_transform", "clip-matrix-literal"): (
         "devtools scene dump builds a synthetic render context with an empty "
