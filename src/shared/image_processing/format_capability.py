@@ -138,6 +138,7 @@ def _jxl_backend() -> _JxlBackend | None:
         import imagecodecs  # type: ignore[import-untyped]
         import numpy as np  # type: ignore[import-untyped]
     except Exception:
+        logger.debug("JXL export: imagecodecs/numpy not installed; format not offered.")
         return None
 
     probe = np.zeros((2, 2, 3), dtype=np.uint8)
@@ -153,6 +154,11 @@ def _jxl_backend() -> _JxlBackend | None:
         if os.path.getsize(scratch) > 0:
             return _JxlBackend(accepts_sink=False)
     except Exception:
+        logger.debug(
+            "JXL export: imagecodecs present but its libjxl cannot encode; "
+            "format not offered.",
+            exc_info=True,
+        )
         return None
     finally:
         try:
