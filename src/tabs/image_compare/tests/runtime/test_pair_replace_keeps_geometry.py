@@ -26,8 +26,8 @@ the picture jumps.
 Contract asserted here:
 
 * a both-sides-absent frame that has a load in flight for a document side
-  **waits** — exactly like the sibling one-side branch (``wait_other_side``) —
-  so the last frame and its letterbox survive;
+  **waits** — exactly like the sibling one-side branch (reason
+  ``"wait_other_side"``) — so the last frame and its letterbox survive;
 * the arriving pair then converges **in place**: ``capture_letterbox_focus`` →
   ``update_common_letterbox_geometry`` → ``restore_letterbox_focus`` keeps the
   image sample point under the viewport centre unchanged;
@@ -228,3 +228,132 @@ def test_one_side_missing_still_waits_without_touching_geometry():
     assert state._content_rect_px == rect_before
     assert state._letterbox_params == letterbox_before
     assert state._stored_pil_images[0] is not None
+
+
+# -- the pre-step that emitted that frame: no no-op clears ---------------------
+
+
+class _RecordingStore:
+    """Minimal real-reducer store double for ``load_images_from_paths``."""
+
+    def __init__(self):
+        from tabs.image_compare.state.document import DocumentModel
+
+        self.viewport = SimpleNamespace(
+            session_data=SimpleNamespace(
+                image_state=SimpleNamespace(image1=None, image2=None),
+                render_cache=SimpleNamespace(
+                    unification_in_progress=False,
+                    pending_unification_paths=None,
+                    cached_diff_image=None,
+                ),
+            )
+        )
+        self.settings = SimpleNamespace(current_language="en")
+        self._document = DocumentModel()
+        self.dispatched: list = []
+        self.emitted: list[str] = []
+
+    def get_session_state_slot(self, name, **_kw):
+        return self._document if name == "document" else None
+
+    def get_dispatcher(self):
+        return self
+
+    def dispatch(self, action, scope="viewport"):
+        self._apply(action)
+        self.dispatched.append(action)
+        self.emit_state_change(scope)
+
+    def transact(self, actions, scope="document"):
+        for action in actions:
+            self.dispatch(action, scope)
+
+    def batch_changes(self):
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+    def emit_state_change(self, scope):
+        self.emitted.append(scope)
+
+    def invalidate_render_cache(self):
+        pass
+
+    def _apply(self, action):
+        from dataclasses import replace
+
+        from core.state_management.actions import (
+            ClearImageSlotDataAction,
+            SetCachedDiffImageAction,
+            SetCurrentIndexAction,
+            SetImageSessionImageAction,
+            SetPendingUnificationPathsAction,
+            SetUnificationInProgressAction,
+        )
+        from core.state_management.document_actions import AppendImageItemsAction
+
+        doc = self._document
+        images = self.viewport.session_data.image_state
+        render_cache = self.viewport.session_data.render_cache
+        if isinstance(action, AppendImageItemsAction):
+            attr = "image_list1" if action.slot == 1 else "image_list2"
+            self._document = replace(doc, **{attr: list(getattr(doc, attr)) + list(action.items)})
+        elif isinstance(action, SetCurrentIndexAction):
+            attr = "current_index1" if action.slot == 1 else "current_index2"
+            self._document = replace(doc, **{attr: action.index})
+        elif isinstance(action, ClearImageSlotDataAction):
+            attr = "_last_display_name1" if action.slot == 1 else "_last_display_name2"
+            self._document = replace(doc, **{attr: ""})
+            setattr(images, f"image{action.slot}", None)
+        elif isinstance(action, SetImageSessionImageAction):
+            setattr(images, f"image{action.slot}", action.image)
+        elif isinstance(action, SetUnificationInProgressAction):
+            render_cache.unification_in_progress = action.enabled
+        elif isinstance(action, SetPendingUnificationPathsAction):
+            render_cache.pending_unification_paths = action.paths
+        elif isinstance(action, SetCachedDiffImageAction):
+            render_cache.cached_diff_image = action.image
+
+
+def test_pair_load_into_a_pristine_session_clears_nothing():
+    """Both lists empty + both slots hold nothing: a first drop must not clear.
+
+    HEAD dispatched ``ClearImageSlotDataAction(1|2)`` +
+    ``SetImageSessionImageAction(slot=1|2, image=None)`` unconditionally here;
+    a no-op clear still emitted a viewport change, i.e. a no-sources frame that
+    tore the canvas geometry down (see the module docstring).
+    """
+    from core.state_management.actions import (
+        ClearImageSlotDataAction,
+        SetImageSessionImageAction,
+    )
+    from tabs.image_compare.use_cases import slot as slot_uc
+
+    store = _RecordingStore()
+    controller = SimpleNamespace(
+        store=store,
+        set_current_image=lambda *a, **k: None,
+        presenter=None,
+        _get_crop_service=lambda: None,
+        thread_pool=None,
+        diff_service=None,
+        event_bus=None,
+        error_occurred=SimpleNamespace(emit=lambda *a, **k: None),
+    )
+
+    slot_uc.load_images_from_paths(controller, ["/pair-replace/first.png"], 1)
+
+    destructive = [
+        action
+        for action in store.dispatched
+        if isinstance(action, (ClearImageSlotDataAction, SetImageSessionImageAction))
+        and not getattr(action, "image", None)
+    ]
+    assert destructive == []
+    # The load itself still landed (append + current index).
+    assert [item.path for item in store._document.image_list1] == [
+        "/pair-replace/first.png"
+    ]
+    assert store._document.current_index1 == 0
+
