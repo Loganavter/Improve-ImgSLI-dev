@@ -95,7 +95,9 @@ def test_save_composite_refusal_names_the_missing_backend(tmp_path, monkeypatch)
     from shared.image_processing import format_capability as caps
 
     monkeypatch.setattr(caps, "_jxl_backend", lambda: None)
-    monkeypatch.setattr(caps, "_pillow_writable_formats", lambda: frozenset(_BASE_FORMATS))
+    monkeypatch.setattr(
+        caps, "_pillow_writable_formats", lambda: frozenset(_BASE_FORMATS)
+    )
 
     image = Image.new("RGBA", (16, 12), (40, 80, 120, 255))
     with pytest.raises(ValueError) as excinfo:
