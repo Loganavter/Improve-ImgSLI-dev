@@ -28,6 +28,8 @@ be caught instead of passing by accident.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import pytest
 
 from shared.image_extensions import ACCEPTED_IMAGE_EXTENSIONS
@@ -38,20 +40,57 @@ from shared.image_extensions import ACCEPTED_IMAGE_EXTENSIONS
 #: this gate exists to stop; an entry is only valid for a format another
 #: decoder really reads on this machine, and the alternative backend is
 #: re-probed below.
-NON_PILLOW_ALLOWLIST: dict[str, str] = {
+def _jxl_decodes_here() -> bool:
+    """JXL has two possible backends and a build may have either one.
+
+    libvips lists ``.jxl`` only when built with libjxl; ``imagecodecs`` carries
+    its own JXL codec regardless. Measured 2026-10-28: the dev venv has
+    imagecodecs but a libvips WITHOUT the JXL loader, the system interpreter the
+    reverse - so a gate that hardcoded either backend would be red on one of the
+    two machines the app runs on.
+    """
+    if ".jxl" in vips_suffixes():
+        return True
+    try:
+        import imagecodecs
+
+        return bool(getattr(imagecodecs, "JXL", None))
+    except Exception:
+        return False
+
+
+#: suffix -> (why Pillow cannot read it, probe for the backend that can).
+#: SHRINK-ONLY: delete an entry the moment Pillow registers the suffix. Never
+#: add a suffix here to turn a red gate green -- that is exactly the drift this
+#: gate exists to stop; an entry is only valid for a format another decoder
+#: really reads on THIS machine, which the probe re-checks on every run.
+NON_PILLOW_ALLOWLIST: dict[str, tuple[str, Callable[[], bool]]] = {
     ".jxl": (
         "No Pillow JXL plugin in any supported build; libvips (libjxl) or "
         "imagecodecs decodes it -- see JXL_SUPPORTED in "
-        "shared/image_processing/progressive_loader.py."
+        "shared/image_processing/progressive_loader.py.",
+        _jxl_decodes_here,
     ),
 }
 
 
 def pillow_suffixes() -> frozenset[str]:
-    """Lowercased suffixes Pillow registers a decoder for (installed build)."""
+    """Suffixes this Pillow build can actually *open* (not merely register).
+
+    ``Image.registered_extensions()`` is not the oracle: it lists the
+    WRITE-ONLY ``.pdf`` plugin, so a gate built on registration alone would
+    bless a suffix that raises ``UnidentifiedImageError`` on open (70
+    registered vs 67 readable on this stack, measured 2026-10-28).
+    """
     from PIL import Image
 
-    return frozenset(ext.lower() for ext in Image.registered_extensions())
+    Image.init()
+    opening = set(getattr(Image, "OPEN", ()))
+    return frozenset(
+        ext.lower()
+        for ext, fmt in Image.registered_extensions().items()
+        if fmt in opening
+    )
 
 
 def vips_suffixes() -> frozenset[str]:
@@ -77,16 +116,17 @@ def unsupported_suffixes(suffixes) -> dict[str, str]:
     for suffix in sorted(suffixes):
         if suffix in pillow:
             continue
-        reason = NON_PILLOW_ALLOWLIST.get(suffix)
-        if reason is None:
+        entry = NON_PILLOW_ALLOWLIST.get(suffix)
+        if entry is None:
             failures[suffix] = (
-                "not registered by Pillow and not in NON_PILLOW_ALLOWLIST"
+                "not readable by Pillow and not in NON_PILLOW_ALLOWLIST"
             )
             continue
-        if suffix not in vips:
+        reason, probe = entry
+        if not probe():
             failures[suffix] = (
-                "allowlisted, but the alternative backend (libvips) does not "
-                "list this suffix either"
+                "allowlisted, but the named alternative backend does not decode "
+                f"it on this machine ({reason})"
             )
     return failures
 
