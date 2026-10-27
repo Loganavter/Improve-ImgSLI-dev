@@ -24,8 +24,18 @@ This file pins the design that removes the guesswork:
   tier is installed (``update_common_letterbox_geometry``,
   ``refresh_live_content_rect``) consumes that field instead.
 * fallback is today's behaviour, byte-identical: no live default plan
-  (export/snapshot), an active crop box (display dims are the truth there), or
-  a side whose source is not decoded yet all leave ``envelope_dims is None``.
+  (export/snapshot) and an active crop box (display dims are the truth there)
+  both leave ``envelope_dims is None``.
+* a side whose source tier is not decoded yet must never be mixed with the
+  other side's source dims: a PREVIEW is normalised to a 1024 long edge, so
+  ``max(preview1, source2)`` is a frame that describes neither pair (measured
+  live 2026-10-27: ``canvas [1024,1400]`` between ``[1600,1400]`` frames).
+  Such a plan carries ``envelope_hold`` and the live apply keeps the previous
+  consistent frame untouched instead of presenting the hybrid.
+* the parallel frame: a declared-visible magnifier must never lose its circles
+  when the scene is rebuilt over a transiently empty image state (a slot
+  replace clears the side before the preview lands) — the previous scene's
+  overlay geometry is kept.
 
 The frames are reproduced offscreen through the real apply chain
 (``build_canvas_plan`` → ``apply_canvas_render_plan`` on a real ``CanvasWidget``
@@ -83,8 +93,20 @@ SIZE_RELATIVE = 0.2
 @pytest.fixture(autouse=True)
 def _register_image_compare_canvas_features():
     from tabs.image_compare.tab import ImageCompareTab
+    from tabs.registry import get_shared_tab_registry
 
     ImageCompareTab().register_canvas_features()
+    # ``build_canvas_scene`` asks the shared registry for the tab's
+    # ``session_has_content`` service; a bare Store built here never went
+    # through the real session-activation flow, so force the active tab for
+    # the duration of each test (same recipe as test_export_diff_support).
+    registry = get_shared_tab_registry()
+    previous_active = registry._active_session_type
+    registry._active_session_type = "image_compare"
+    try:
+        yield
+    finally:
+        registry._active_session_type = previous_active
 
 
 def _app():
@@ -187,6 +209,20 @@ def _frame(store, display1, display2):
     }
 
 
+def _apply_frame(store, canvas, display1, display2):
+    """Apply one real frame onto an EXISTING canvas (the live apply seam)."""
+    from tabs.image_compare.canvas.presentation.surface import apply_store_to_canvas
+
+    apply_store_to_canvas(canvas, store, display1, display2)
+    state = canvas.runtime_state
+    return {
+        "plan": getattr(canvas, "_active_render_plan", None),
+        "content_rect": tuple(state._content_rect_px or ()),
+        "letterbox": [tuple(p) if p is not None else None for p in state._letterbox_params],
+        "glass_radius_px": float(state._feature_overlay_gpu._radius),
+    }
+
+
 def _preview_pair_store():
     return _store(
         _qimage(PREVIEW_LEFT, (200, 40, 40, 255)),
@@ -213,30 +249,55 @@ def test_plan_envelope_is_source_space_while_display_is_preview_tier():
     assert (preview["plan"].canvas_w, preview["plan"].canvas_h) == SOURCE_ENVELOPE
 
 
-def test_source_missing_falls_back_to_the_display_tier():
-    """One side not decoded yet: the plan must stay on today's display dims."""
-    store = _store(
-        _qimage(PREVIEW_LEFT, (200, 40, 40, 255)),
-        _qimage(PREVIEW_RIGHT, (40, 200, 40, 255)),
-        source1=_pil(SOURCE_LEFT, (200, 40, 40, 255)),
-        source2=None,
+def test_a_side_without_a_decoded_source_holds_instead_of_mixing():
+    """One side's source not decoded yet: no mixed envelope, hold the frame.
+
+    ``max(w1,w2) x max(h1,h2)`` over ``(preview1, source2)`` describes neither
+    pair: a preview is normalised to a 1024 long edge, so the transient canvas
+    basis is ``[1024,1400]`` between two settled ``[1600,1400]`` frames
+    (measured live 2026-10-27). The plan must state that its basis is a preview
+    guess (``envelope_hold``, ``envelope_dims is None``) and the live apply must
+    keep the previous consistent frame byte-identically.
+
+    Red on HEAD: the plan advertises the hybrid ``(source1, preview2)`` and the
+    apply draws it.
+    """
+    store = _preview_pair_store()
+    canvas = _canvas(store)
+    display1 = _qimage(PREVIEW_LEFT, (200, 40, 40, 255))
+    display2 = _qimage(PREVIEW_RIGHT, (40, 200, 40, 255))
+    settled = _apply_frame(store, canvas, display1, display2)
+    assert settled["plan"].envelope_dims == (*SOURCE_LEFT, *SOURCE_RIGHT)
+
+    # Replace slot 1: the pending load has installed only the new side's
+    # preview tier so far, while slot 2 still holds its own decoded pixels.
+    document = store.get_session_state_slot("document")
+    pipeline = store.get_session_state_slot("pipeline")
+    pipeline.pixel.pop(_source_tier_key(document.image1_path), None)
+    new_preview = _qimage((1024, 768), (200, 40, 40, 255))  # C 1600x1200
+    store.viewport.session_data.image_state.image1 = new_preview
+
+    mixed = build_canvas_plan(store, new_preview, display2, preserve_zoom=True)
+    assert mixed.envelope_dims is None, (
+        "a mixed preview/source envelope must not be advertised as the pair"
+        f" envelope: got {mixed.envelope_dims!r}"
     )
-    plan = build_canvas_plan(
-        store,
-        _qimage(PREVIEW_LEFT, (200, 40, 40, 255)),
-        _qimage(PREVIEW_RIGHT, (40, 200, 40, 255)),
-        preserve_zoom=True,
+    assert mixed.envelope_hold is True, (
+        "a frame whose basis is one side's preview guess must be held"
     )
-    assert plan.envelope_dims == (
-        SOURCE_LEFT[0],
-        SOURCE_LEFT[1],
-        PREVIEW_RIGHT[0],
-        PREVIEW_RIGHT[1],
-    ), "a missing source keeps that side's display dims (no invented size)"
-    # Envelope of the mixed pair: max over the known dims of each side.
-    assert (plan.canvas_w, plan.canvas_h) == (
-        max(SOURCE_LEFT[0], PREVIEW_RIGHT[0]),
-        max(SOURCE_LEFT[1], PREVIEW_RIGHT[1]),
+    assert getattr(settled["plan"], "envelope_hold", True) is False, (
+        "a frame with both sides' own pixels must not be held"
+    )
+
+    held = _apply_frame(store, canvas, new_preview, display2)
+    assert held["plan"] is settled["plan"], (
+        "the apply must keep the previous plan, not install the hybrid one"
+    )
+    assert held["content_rect"] == settled["content_rect"]
+    assert held["letterbox"] == settled["letterbox"]
+    assert held["glass_radius_px"] == settled["glass_radius_px"], (
+        "a held frame repeats byte-identically: no re-fit, no geometry change —"
+        f" {held['glass_radius_px']:.3f}px vs {settled['glass_radius_px']:.3f}px"
     )
 
 
@@ -358,3 +419,73 @@ def test_export_shaped_plan_has_no_envelope():
     )
     assert plan.envelope_dims is None
     assert (plan.canvas_w, plan.canvas_h) == (500, 400)
+
+
+# -- (d) a declared-visible magnifier is never rendered away for a frame -----
+
+
+def test_declared_visible_magnifier_keeps_its_circles_across_a_transiently_empty_frame():
+    """A declared-visible loupe must keep its overlay on a transiently empty frame.
+
+    Replacing a slot dispatches ``ClearImageSlotDataAction`` before the new
+    display lands, so ``image_state.image1`` is briefly ``None`` while the
+    document still names the pair. ``build_canvas_scene`` answered that frame
+    with an EMPTY graph, which drops every overlay object — measured live
+    2026-10-27 as ``magnifiers[0].visible == True`` with ``circles == []``.
+    Red on HEAD: the held graph has no magnifier at all.
+
+    The frame is rebuilt through the real scene builder (the seam that produces
+    the scene-graph circles the live probe reads), not by skipping the rebuild.
+    """
+    from ui.canvas_infra.scene.builder import build_canvas_scene
+
+    store = _preview_pair_store()
+    canvas = _canvas(store)
+    display1 = _qimage(PREVIEW_LEFT, (200, 40, 40, 255))
+    display2 = _qimage(PREVIEW_RIGHT, (40, 200, 40, 255))
+    _apply_frame(store, canvas, display1, display2)
+
+    def _magnifiers(graph):
+        return [
+            obj for obj in graph.objects if getattr(obj, "kind", None) == "magnifier"
+        ]
+
+    label_width, label_height = WIDGET
+    settled_graph = build_canvas_scene(
+        store,
+        image_label=canvas,
+        label_width=label_width,
+        label_height=label_height,
+    )
+    canvas.runtime_state._canvas_scene_graph = settled_graph
+    settled = _magnifiers(settled_graph)
+    assert settled, "precondition: the settled frame builds the declared-visible loupe"
+    assert settled[0].visible
+    assert settled[0].circles, (
+        "precondition: a visible loupe carries circles on a settled frame"
+    )
+
+    # The replace's clear moment: the slot's display is momentarily gone, the
+    # document still names the pair (see use_cases/slot.py's
+    # ClearImageSlotDataAction before the preview lands).
+    store.viewport.session_data.image_state.image1 = None
+    held_graph = build_canvas_scene(
+        store,
+        image_label=canvas,
+        label_width=label_width,
+        label_height=label_height,
+    )
+
+    held = _magnifiers(held_graph)
+    assert held, (
+        "a declared-visible magnifier must not be dropped by a transiently empty"
+        " frame: the scene graph came back without any magnifier object"
+    )
+    assert held[0].visible
+    assert held[0].circles, (
+        "the previous overlay geometry must be kept, not rebuilt empty:"
+        f" visible={held[0].visible} circles={held[0].circles!r}"
+    )
+    assert held[0].circles == settled[0].circles, (
+        "a held frame repeats the previous overlay byte-identically"
+    )
