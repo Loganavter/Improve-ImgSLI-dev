@@ -55,6 +55,29 @@ _LEGACY_STATE_SLOT = _persistence._LEGACY_STATE_SLOT
 _SERIALIZE_VERSION = _persistence._SERIALIZE_VERSION
 
 
+def _durable_domain_reader(controller):
+    """Reader for the warm-up: the controller's DURABLE judgment domain.
+
+    Goes through ``use_cases.action_context.current_backend`` — the one resolver
+    that locates/spells the domain — so the follow-the-domain rule never grows a
+    second ad-hoc read. Callable at any time (the timer fires after the session
+    restore), and ``None`` when the controller cannot answer yet, which keeps
+    the historical "warm on open" behaviour.
+    """
+
+    def _read():
+        try:
+            from tabs.image_gallery.use_cases.action_context import current_backend
+
+            if controller is None:
+                return None
+            return current_backend(controller)
+        except Exception:
+            return None
+
+    return _read
+
+
 class ImageGalleryTab(TabContract):
     """Self-contained folder gallery with on-demand AI tagging (Stage 1)."""
 
@@ -171,9 +194,7 @@ class ImageGalleryTab(TabContract):
 
             from tabs.image_gallery.services import warmup as _warmup
 
-            _warmup.set_domain_provider(
-                lambda ctrl=self._controller: getattr(ctrl, "_judgment_domain", None)
-            )
+            _warmup.set_domain_provider(_durable_domain_reader(self._controller))
             _QTimer.singleShot(0, lambda: _warmup.schedule_warmup("page created"))
         except Exception:
             pass
@@ -232,9 +253,7 @@ class ImageGalleryTab(TabContract):
             from tabs.image_gallery.services import warmup as _warmup
 
             if self._controller is not None:
-                _warmup.set_domain_provider(
-                    lambda ctrl=self._controller: getattr(ctrl, "_judgment_domain", None)
-                )
+                _warmup.set_domain_provider(_durable_domain_reader(self._controller))
             _warmup.schedule_warmup("gallery tab activated")
         except Exception:
             pass

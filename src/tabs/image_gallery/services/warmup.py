@@ -120,8 +120,17 @@ def schedule_warmup(reason: str = "tab-open", *, domain: str | None = None) -> b
     global _started
     if _disabled():
         return False
-    live = str(domain).strip().lower() if domain is not None else durable_domain()
-    if live == "ai":
+    # The domain vocabulary is the one ``services.quality_read`` defines (never a
+    # second spelling of "ai"): the warm-up reads the same token the read path
+    # does, and a provider that cannot answer ("" / None) keeps the historical
+    # Algorithms behaviour.
+    from tabs.image_gallery.services.quality_read import AI_DOMAIN, normalize_domain
+
+    try:
+        live = normalize_domain(domain) if domain is not None else normalize_domain(durable_domain())
+    except Exception:
+        live = ""
+    if live == AI_DOMAIN:
         logger.debug(
             "warmup: not scheduled (%s) — the ai domain reads no local numbers", reason
         )

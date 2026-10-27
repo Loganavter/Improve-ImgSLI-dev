@@ -2099,10 +2099,9 @@ class GalleryController:
         # point, one kill-switch — no second warm-up path.
         try:
             from tabs.image_gallery.services import warmup as _warmup
+            from tabs.image_gallery.use_cases.action_context import current_backend
 
-            _warmup.schedule_warmup(
-                "domain switch", domain=getattr(self, "_judgment_domain", None)
-            )
+            _warmup.schedule_warmup("domain switch", domain=current_backend(self))
         except Exception:
             logger.debug("domain-switch warm-up schedule failed", exc_info=True)
         return result
@@ -3770,8 +3769,28 @@ class GalleryController:
         return _triage_run._start_triage(self, items, cover_grid=cover_grid)
 
     def _mark_local_pass(self, items, phase) -> None:
+        """Local-pass activity — SILENT while the AI domain owns the cards.
+
+        Owner 2026-10-27: opening a folder in the AI domain made the badge blink
+        "alg → ai" — the local metrics pass (usually served from the metrics
+        cache) stamped the USER-VISIBLE analysis phase, its numbers are not even
+        displayed in that domain, and the AI tail then restarted the phase. In
+        the AI domain the local pass therefore only drops ITS OWN stale phase and
+        repaints: the AI tail owns the one visible cycle and the one fade. The
+        numbers still land (the selector/salience read the items, not the
+        badge), and the Algorithms domain keeps the local badge — there it IS the
+        work the card shows.
+        """
         from tabs.image_gallery.use_cases import triage_run as _triage_run
 
+        from tabs.image_gallery.use_cases.action_context import BACKEND_AI, current_backend
+
+        try:
+            silent = current_backend(self) == BACKEND_AI
+        except Exception:
+            silent = False
+        if silent and phase is not None:
+            phase = None
         return _triage_run._mark_local_pass(self, items, phase)
 
     def _settle_metrics_pass(self, items) -> None:

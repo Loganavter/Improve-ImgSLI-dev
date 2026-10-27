@@ -32,12 +32,17 @@ from tabs.image_gallery.services import warmup
 
 @pytest.fixture(autouse=True)
 def _reset_warmup():
+    # ``set_domain_provider`` is the seam this task adds; a missing one must not
+    # mask the test's own assertion (that is the RED-before state).
+    set_provider = getattr(warmup, "set_domain_provider", None)
     warmup.reset_for_tests()
-    warmup.set_domain_provider(None)
+    if callable(set_provider):
+        set_provider(None)
     os.environ.pop("IMGSLI_GALLERY_NO_WARMUP", None)
     yield
     warmup.reset_for_tests()
-    warmup.set_domain_provider(None)
+    if callable(set_provider):
+        set_provider(None)
     os.environ.pop("IMGSLI_GALLERY_NO_WARMUP", None)
 
 
@@ -276,4 +281,92 @@ def test_a_new_folder_generation_drops_the_request(monkeypatch) -> None:
     assert owner._folder_gen == 4
     assert owner._analysis_requested_gen == -1, (
         "the fresh folder was not requested: its cards claim nothing"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. the local pass is SILENT in the AI domain
+# ---------------------------------------------------------------------------
+
+
+class _PassWidget:
+    def __init__(self) -> None:
+        self.refreshed: list = []
+
+    def refresh_cards(self, items) -> None:
+        self.refreshed.append(list(items))
+
+
+def _pass_owner(domain: str, items):
+    return SimpleNamespace(
+        _judgment_domain=domain,
+        widget=_PassWidget(),
+        state=SimpleNamespace(items=list(items)),
+    )
+
+
+def test_the_local_pass_does_not_claim_the_badge_in_the_ai_domain() -> None:
+    """The reported flicker: "alg → ai" on every folder open in the AI domain."""
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.models import ActivityPhase
+
+    item, _ = _item("a.png")
+    owner = _pass_owner("ai", [item])
+
+    GalleryController._mark_local_pass(owner, [item], ActivityPhase.ANALYZING)
+
+    assert getattr(item, "activity_phase", None) is None, (
+        "the local metrics pass published the user-visible analysis phase in the "
+        "AI domain, where its numbers are not even shown — the AI tail then "
+        "restarted it (owner 2026-10-27)"
+    )
+    # The numbers are untouched: the pass still ran and the cards still repaint.
+    assert item.metrics, "the local numbers must keep feeding the selector"
+    assert owner.widget.refreshed, "the pass still repaints its cards"
+
+
+def test_the_algorithms_domain_keeps_the_local_badge() -> None:
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.models import ActivityPhase
+
+    item, _ = _item("a.png")
+    owner = _pass_owner("algorithms", [item])
+
+    GalleryController._mark_local_pass(owner, [item], ActivityPhase.ANALYZING)
+
+    assert item.activity_phase == ActivityPhase.ANALYZING.value
+    assert item.activity_source == "local"
+
+
+def test_a_silent_local_settle_does_not_wipe_the_ai_tails_phase() -> None:
+    """The AI tail owns the visible cycle: the local settle must not touch it."""
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.models import ActivityPhase
+    from tabs.image_gallery.services.activity import set_activity
+
+    item, _ = _item("a.png")
+    owner = _pass_owner("ai", [item])
+    set_activity(item, ActivityPhase.QUEUED, "ai")
+
+    GalleryController._mark_local_pass(owner, [item], ActivityPhase.DONE)
+
+    assert item.activity_phase == ActivityPhase.QUEUED.value
+    assert item.activity_source == "ai", (
+        "the local pass cleared a phase that belongs to the AI tail"
+    )
+
+
+def test_the_ai_domain_drops_a_stale_local_phase() -> None:
+    from tabs.image_gallery.controller import GalleryController
+    from tabs.image_gallery.models import ActivityPhase
+    from tabs.image_gallery.services.activity import set_activity
+
+    item, _ = _item("a.png")
+    owner = _pass_owner("ai", [item])
+    set_activity(item, ActivityPhase.ANALYZING, "local")  # left over from a pass
+
+    GalleryController._mark_local_pass(owner, [item], ActivityPhase.DONE)
+
+    assert getattr(item, "activity_phase", None) is None, (
+        "a local phase left over from before the switch keeps the moved badge"
     )
