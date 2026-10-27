@@ -3,18 +3,29 @@ import os
 from PySide6.QtWidgets import QFileDialog
 
 from core.events import CoreUpdateRequestedEvent
+from shared.image_extensions import build_image_dialog_filter
 from sli_ui_toolkit.i18n import tr
 from tabs.image_compare.canvas.registry import registry
 from tabs.image_compare.presenters.toolbar.state import _get_settings_presenter_from_window
 
+def _canon_dialog_filter(lang: str) -> str:
+    """QFileDialog filter built by the canon only (``shared.image_extensions``).
+
+    Do NOT compose a glob list here. A local copy of the list made this dialog
+    offer ``.gif`` while every other entry (DnD/chrome/carry, which gate on the
+    same module) bounced it — one file accepted in one place and rejected in
+    another, the drift class closed for ``.jxl`` in the 2026-08-25 C9 review.
+    Only the "All files" label is localised; the suffix set is the canon's.
+    """
+    return build_image_dialog_filter(
+        all_files_label=f"{tr('common.file_type.all_files', lang)} (*)"
+    )
+
+
 def open_image_dialog(presenter, image_number: int):
     start_dir = presenter.store.settings.export_default_dir or os.path.expanduser("~")
     lang = presenter.store.settings.current_language
-    filters = (
-        f"{tr('common.file_type.image_files', lang)} "
-        "(*.png *.bmp *.gif *.webp *.tif *.tiff *.jxl *.jpg *.jpeg);;"
-        f"{tr('common.file_type.all_files', lang)} (*)"
-    )
+    filters = _canon_dialog_filter(lang)
     paths, _ = QFileDialog.getOpenFileNames(
         presenter.main_window_app,
         tr("image_compare.button.select_images", lang),
