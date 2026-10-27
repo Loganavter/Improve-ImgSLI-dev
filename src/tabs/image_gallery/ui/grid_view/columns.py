@@ -365,7 +365,7 @@ def resize_event(view, event) -> None:  # noqa: N802
 # scanning/triage window, i.e. exactly the frames where the card badges spin)
 # switches the CURRENT page to the empty/scanning surface and only calls
 # ``show()`` on the grid ("keep in stack but not current"). QStackedLayout
-# lays out the CURRENT page only — in ``StackOne`` mode ``setGeometry`` skips
+# lays out the CURRENT page only — in StackOne mode ``setGeometry`` skips
 # every other child — and the empty surface is a transparent blank canvas, so
 # the cards stay on screen at the size they had when the page was switched
 # away. The grid then never gets a ``resizeEvent``: no ``_adapt_timer``, no

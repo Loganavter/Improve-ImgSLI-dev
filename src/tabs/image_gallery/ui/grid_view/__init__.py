@@ -120,7 +120,6 @@ from .columns import (
     container_event_filter,
     container_show_event,
     set_view_mode,
-    sync_container_geometry,
     watch_container,
 )
 from .bands import (
