@@ -110,8 +110,29 @@ class CanvasRenderPlan:
     a pair replace" report (2026-10-27).
 
     ``None`` (default) keeps today's behaviour bit-for-bit: export/snapshot
-    plans, an active crop box (the box-clipped display dims are the truth
-    there), and a frame where a side has no source yet.
+    plans and an active crop box (the box-clipped display dims are the truth
+    there). A frame whose basis cannot be stated consistently sets
+    ``envelope_hold`` instead (see below) — it never carries a mix.
+    """
+    envelope_hold: bool = False
+    """
+    This frame's pair envelope is a PREVIEW guess on one side, so no consistent
+    envelope can be stated: hold the last presented frame instead of applying.
+
+    A preview is normalised per side to a 1024 long edge, so
+    ``max(w1,w2) x max(h1,h2)`` over ``(preview1, source2)`` describes neither
+    pair (measured live 2026-10-27: canvas ``[1024,1400]`` between two settled
+    ``[1600,1400]`` frames while a replaced slot's source tier was still
+    decoding). The live apply (``presentation/surface.apply_store_to_canvas``)
+    keeps the previously presented frame and its overlays untouched; a held
+    frame repeats byte-identically (no re-fit, no geometry change). A blank
+    frame is preferable to one that describes neither pair, and the state is
+    inherently transient (a preview is installed only until the side's own
+    pixels land).
+
+    Set only by ``plan_builder.build_canvas_plan`` on the live default plan;
+    ``False`` for export/snapshot plans, crop-box plans, and any frame where
+    both sides have a real basis (own pixels or an already-real display).
     """
     composition_root: CompositionNode | None = None
     """

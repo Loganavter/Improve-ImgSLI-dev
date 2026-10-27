@@ -147,6 +147,9 @@ def build_canvas_plan(
         # then magnifies that (measured 2026-10-26: both source grids registered
         # at the canvas size). See presentation/source_tier.py.
         from tabs.image_compare.canvas.presentation.source_tier import (
+            is_preview_basis as _is_preview_basis,
+        )
+        from tabs.image_compare.canvas.presentation.source_tier import (
             source_role_image as _source_role_image,
         )
 
@@ -197,6 +200,7 @@ def build_canvas_plan(
 
     w1, h1 = _w(display_image1), _h(display_image1)
     envelope_dims: tuple[int, int, int, int] | None = None
+    envelope_hold = False
 
     if is_live_default_plan and display_image1 is not None:
         _boxed = _box_clipped_live_inputs(store, display_image1, display_image2)
@@ -224,15 +228,31 @@ def build_canvas_plan(
         # re-derives it from whatever tier happens to be installed.
         #
         # Fallbacks keep today's numbers bit-identical: a box-clipped pair
-        # (``_boxed`` — display dims are the truth under a crop box), a side
-        # with no decoded source yet (that side keeps its display dims), and a
+        # (``_boxed`` — display dims are the truth under a crop box) and a
         # non-live plan (export/snapshot) which never enters this branch.
+        #
+        # A side whose own source tier is not decoded yet falls back to its
+        # DISPLAY tier (``source_role_image``). When that display tier is a
+        # preview, its dims are a 1024-long-edge guess: mixing them with the
+        # other side's real dims yields an envelope that describes neither pair
+        # (measured live 2026-10-27: [1024,1400] between [1600,1400] frames).
+        # That frame is not presentable — mark it ``envelope_hold`` and leave
+        # ``envelope_dims`` unset so no downstream owner re-derives the mix.
+        # Both sides guessing is a preview PAIR (self-consistent, today's first
+        # paint); only a one-sided guess is a mix.
         w2, h2 = _w(display_image2), _h(display_image2)
         _src1 = source_image1 if source_image1 is not None else display_image1
         _src2 = source_image2 if source_image2 is not None else display_image2
         _sw1, _sh1 = _w(_src1), _h(_src1)
         _sw2, _sh2 = _w(_src2), _h(_src2)
-        if (
+        _guess1 = _is_preview_basis(_src1)
+        _guess2 = _is_preview_basis(_src2)
+        _has_pair = _src1 is not None and _src2 is not None
+        if _boxed is None and _has_pair and _guess1 != _guess2:
+            envelope_hold = True
+            base_w = max(1, int(w1), int(w2))
+            base_h = max(1, int(h1), int(h2))
+        elif (
             _boxed is None
             and _sw1 > 1
             and _sh1 > 1
@@ -363,5 +383,6 @@ def build_canvas_plan(
         image_is_padded_composite=bool(image_is_padded_composite),
         geometry_letterbox=bool(geometry_letterbox),
         envelope_dims=envelope_dims,
+        envelope_hold=envelope_hold,
     )
 

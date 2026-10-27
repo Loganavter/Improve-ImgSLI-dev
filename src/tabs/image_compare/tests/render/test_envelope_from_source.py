@@ -97,7 +97,7 @@ def _register_image_compare_canvas_features():
 
     ImageCompareTab().register_canvas_features()
     # ``build_canvas_scene`` asks the shared registry for the tab's
-    # ``session_has_content`` service; a bare Store built here never went
+    # session-content service; a bare Store built here never went
     # through the real session-activation flow, so force the active tab for
     # the duration of each test (same recipe as test_export_diff_support).
     registry = get_shared_tab_registry()
@@ -247,6 +247,30 @@ def test_plan_envelope_is_source_space_while_display_is_preview_tier():
     )
     # The canvas basis is that envelope — the aspect the settled pair will have.
     assert (preview["plan"].canvas_w, preview["plan"].canvas_h) == SOURCE_ENVELOPE
+
+
+def test_preview_pair_first_paint_is_not_held():
+    """Both sides preview-tier is a self-consistent PAIR — first paint applies.
+
+    The hold must be about a MIX (one side's guess against the other side's
+    real dims), not about previews in general: holding here would delay the
+    first paint of every pair load until the full decode lands.
+    """
+    store = _store(
+        _qimage(PREVIEW_LEFT, (200, 40, 40, 255)),
+        _qimage(PREVIEW_RIGHT, (40, 200, 40, 255)),
+    )
+    display1 = _qimage(PREVIEW_LEFT, (200, 40, 40, 255))
+    display2 = _qimage(PREVIEW_RIGHT, (40, 200, 40, 255))
+    plan = build_canvas_plan(store, display1, display2, preserve_zoom=True)
+    assert plan.envelope_hold is False
+    assert plan.envelope_dims == (*PREVIEW_LEFT, *PREVIEW_RIGHT)
+
+    canvas = _canvas(store)
+    applied = _apply_frame(store, canvas, display1, display2)
+    assert applied["plan"] is not None, "the preview pair must be presented"
+    assert applied["plan"].envelope_hold is False
+    assert applied["content_rect"], "the preview pair must get a drawn rect"
 
 
 def test_a_side_without_a_decoded_source_holds_instead_of_mixing():
@@ -488,4 +512,25 @@ def test_declared_visible_magnifier_keeps_its_circles_across_a_transiently_empty
     )
     assert held[0].circles == settled[0].circles, (
         "a held frame repeats the previous overlay byte-identically"
+    )
+
+    # A one-sided document is NOT a replace in flight: the user's content
+    # changed, so the pair's overlay may go (the hold must not freeze it).
+    store.set_session_state_slot(
+        "document",
+        DocumentModel(
+            image_list1=[],
+            image_list2=[ImageItem(path="/gallery/tall_portrait.png", display_name="b")],
+            current_index1=-1,
+            current_index2=0,
+        ),
+    )
+    one_sided = build_canvas_scene(
+        store,
+        image_label=canvas,
+        label_width=label_width,
+        label_height=label_height,
+    )
+    assert not _magnifiers(one_sided), (
+        "a genuinely one-sided document must not keep the pair's overlay alive"
     )
