@@ -93,8 +93,12 @@ def test_marker_text_uses_the_short_tokens() -> None:
     from tabs.image_gallery.ui.card.provenance import marker_text
 
     assert marker_text(_item("ai.png", analysis=True)) == "AI"
-    assert marker_text(_item("local.png")) == "ALG"
+    # Owner 2026-10-27: an ALG token is a claim about an EXPLICIT run — a card
+    # whose metrics came from the passive folder-open pass says nothing.
+    assert marker_text(_item("local.png")) == ""
+    assert marker_text(_item("local.png"), domain="algorithms", requested=True) == "ALG"
     assert marker_text(_item("none.png", metrics=False)) == ""
+
     def ru(key, default):
         return {"image_gallery.card.source_ai": "ИИ"}.get(key, default)
 
@@ -303,14 +307,24 @@ def test_restoring_the_sort_index_reorders_the_current_items(qtbot) -> None:
     assert [Path(it.path).name for it in w._items] == ["a.png", "b.png", "c.png"]
 
 
-def test_the_marker_follows_the_active_domain() -> None:
-    """Algorithms mode says ALG even when an AI scorecard still sits on the item."""
+def test_the_marker_names_who_analyzed_not_what_is_displayed() -> None:
+    """Owner 2026-10-27: "ИИ" = a scorecard EXISTS; "АЛГ" = an explicit local run.
+
+    Supersedes the 2026-10-22 wording of this test ("Algorithms mode says ALG
+    even when an AI scorecard still sits on the item"): the card now answers
+    "who analyzed me", and a cached AI read IS an answer about that, while a
+    passively filled metrics dict is not.
+    """
     from tabs.image_gallery.ui.card.provenance import marker_text
 
     analyzed = _item("ai.png", analysis=True)
     assert marker_text(analyzed, domain="ai") == "AI"
-    assert marker_text(analyzed, domain="algorithms") == "ALG"
+    assert marker_text(analyzed, domain="algorithms") == "AI"
     assert marker_text(_item("none.png", metrics=False), domain="algorithms") == ""
+    assert marker_text(analyzed, domain="algorithms", requested=True) == "AI", (
+        "the scorecard outranks the local run: whoever produced the read the card "
+        "knows about is named"
+    )
 
 
 def test_a_domain_switch_is_cache_only() -> None:
@@ -458,12 +472,12 @@ def test_the_marker_waits_for_the_analysis_to_finish() -> None:
 
     item = _item("fresh.png")  # local metrics present (the pass is running)
     set_activity(item, ActivityPhase.QUEUED, "local")
-    assert marker_text(item, domain="algorithms") == "", (
+    assert marker_text(item, domain="algorithms", requested=True) == "", (
         "the card claims a backend while its analysis is still running"
     )
 
     set_activity(item, ActivityPhase.DONE, "local")
-    assert marker_text(item, domain="algorithms") == "ALG"
+    assert marker_text(item, domain="algorithms", requested=True) == "ALG"
 
 
 def test_the_marker_clears_the_hover_underline(qapp) -> None:
@@ -479,7 +493,9 @@ def test_the_marker_clears_the_hover_underline(qapp) -> None:
     canvas.fill(0)
     painter = QPainter(canvas)
     try:
-        paint_source_marker(painter, box, item, domain="algorithms")
+        # The explicit Algorithms run: the only case that paints this caption
+        # (owner 2026-10-27 — a passively warmed card says nothing).
+        paint_source_marker(painter, box, item, domain="algorithms", requested=True)
     finally:
         painter.end()
 
