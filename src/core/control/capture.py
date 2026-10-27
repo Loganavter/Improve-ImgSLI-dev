@@ -27,6 +27,36 @@ from typing import Any
 from .discovery import MethodError, resolve_capture_target
 
 
+def _device_pixel_ratio(pixmap: Any) -> float:
+    """The grab's own device px per logical px; ``1.0`` when it cannot answer."""
+    try:
+        return float(pixmap.devicePixelRatio() or 1.0)
+    except Exception:
+        return 1.0
+
+
+def _device_independent_size(pixmap: Any) -> tuple[float, float]:
+    """(*pixmap*'s size in LOGICAL px) — the space a ``QPainter`` on it uses.
+
+    ``QPixmap.width()/height()`` are DEVICE pixels, while a ``QPainter`` on a
+    pixmap that carries a ``devicePixelRatio`` paints in device-INDEPENDENT
+    coordinates. Comparing the two ("is this canvas on the grab?") or scaling a
+    logical rect by the DPR before drawing mixes the two spaces — the
+    2026-10-27 defect: a canvas meant for device ``(200,100)-(600,300)`` at
+    DPR=2 landed in ``(400,200)-(1198,598)``.
+    """
+    try:
+        size = pixmap.deviceIndependentSize()
+        return float(size.width()), float(size.height())
+    except Exception:
+        pass
+    try:
+        dpr = _device_pixel_ratio(pixmap)
+        return float(pixmap.width()) / dpr, float(pixmap.height()) / dpr
+    except Exception:
+        return 0.0, 0.0
+
+
 def compose_rhi_frames(target: Any, pixmap: Any) -> int:
     """Paint the visible ``QRhiWidget`` canvases into *pixmap* (live grabs).
 
@@ -47,6 +77,13 @@ def compose_rhi_frames(target: Any, pixmap: Any) -> int:
     cannot hand its frame over, or returns a null image is skipped rather
     than failing the capture — the grab stays useful either way and never
     raises.
+
+    Units: the widget geometry below (``anchor``/``width``/``height``) and the
+    painter's coordinate system on *pixmap* are both LOGICAL, so the target
+    rect is built from logical numbers only; the pixmap's own
+    ``devicePixelRatio`` (and the frame's, which ``drawImage`` absorbs) applies
+    the DPR exactly once. The grab rect comes from
+    ``deviceIndependentSize()`` for the same reason — ``width()`` is device px.
     """
     try:
         from PySide6.QtCore import QPoint, QRectF
@@ -68,14 +105,10 @@ def compose_rhi_frames(target: Any, pixmap: Any) -> int:
         widgets = root.findChildren(QRhiWidget)
     except Exception:
         return 0
-    try:
-        dpr = float(pixmap.devicePixelRatio() or 1.0)
-    except Exception:
-        dpr = 1.0
-    try:
-        on_grab = QRectF(0.0, 0.0, float(pixmap.width()), float(pixmap.height()))
-    except Exception:
+    grab_width_logical, grab_height_logical = _device_independent_size(pixmap)
+    if grab_width_logical <= 0.0 or grab_height_logical <= 0.0:
         return 0
+    on_grab = QRectF(0.0, 0.0, grab_width_logical, grab_height_logical)
     painter = None
     painted = 0
     try:
@@ -93,17 +126,20 @@ def compose_rhi_frames(target: Any, pixmap: Any) -> int:
                 # mapTo(target, ...) only promises ancestors; go through the
                 # screen so a canvas under a sibling/overlay still lands right.
                 anchor = target.mapFromGlobal(widget.mapToGlobal(QPoint(0, 0)))
-                rect = QRectF(
-                    float(anchor.x()) * dpr,
-                    float(anchor.y()) * dpr,
-                    float(width) * dpr,
-                    float(height) * dpr,
+                # LOGICAL rect: the painter already applies the pixmap's DPR.
+                rect_logical = QRectF(
+                    float(anchor.x()),
+                    float(anchor.y()),
+                    float(width),
+                    float(height),
                 )
-                if not rect.intersects(on_grab):
+                if not rect_logical.intersects(on_grab):
                     continue
                 if painter is None:
                     painter = QPainter(pixmap)
-                painter.drawImage(rect, frame)
+                # ``drawImage(QRectF, QImage)`` scales the DEVICE-pixel frame
+                # into this logical rect, so the frame is handed over as is.
+                painter.drawImage(rect_logical, frame)
                 painted += 1
             except Exception:
                 continue
