@@ -249,3 +249,43 @@ def test_the_digest_is_short_and_matches_hashlib(tmp_path) -> None:
     # compare one against the other.
     path = _write(tmp_path / "frame.bin", data)
     assert content_digest.file_digest(path) == expected
+
+
+# ---------------------------------------------------------------------------
+# every gallery cache, one identity
+# ---------------------------------------------------------------------------
+
+
+def test_a_content_change_reaches_every_gallery_cache_key(tmp_path) -> None:
+    """The four keyed stores must agree on "what file is this".
+
+    Each one is asked through its own public key function, in the call shape the
+    production path uses, so a store that keeps a stale key is caught here
+    instead of by a wrong thumbnail/scorecard/rank in the gallery.
+    """
+    from types import SimpleNamespace
+
+    from tabs.image_gallery.services import jev_cache, vlm_cache
+
+    def _item(path: Path) -> SimpleNamespace:
+        return SimpleNamespace(path=path, mtime_ns=_MTIME_NS)
+
+    first = _write(tmp_path / "frame.png", _PAYLOAD)
+    other = _write(tmp_path / "other.png", b"\x89PNG\r\n\x1a\nother-frame")
+    stale = {
+        "thumbnail": cache_key_for(first, _MTIME_NS),
+        "vlm": vlm_cache._brief_key(first, _MTIME_NS, other, _MTIME_NS),
+        "jev": jev_cache.rank_cache_key([_item(first), _item(other)], {}),
+    }
+
+    _write(first, _OTHER_PAYLOAD)  # same path, same size, mtime restored
+    fresh = {
+        "thumbnail": cache_key_for(first, _MTIME_NS),
+        "vlm": vlm_cache._brief_key(first, _MTIME_NS, other, _MTIME_NS),
+        "jev": jev_cache.rank_cache_key([_item(first), _item(other)], {}),
+    }
+
+    assert all(stale[name] != fresh[name] for name in stale), (
+        f"a store kept its key across a content change: {stale} vs {fresh}"
+    )
+
