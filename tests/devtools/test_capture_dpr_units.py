@@ -321,3 +321,70 @@ def test_grab_window_grabs_the_targets_screen_pixels() -> None:
     assert secondary.grab_calls == [4242]
     assert primary.grab_calls == [], "the primary screen was grabbed instead"
     assert pixmap.toImage().pixelColor(10, 10).red() > 200
+
+
+# ---------------------------------------------------------------------------
+# capture_surface: the pin is a LOGICAL frame, the PNG is DEVICE pixels
+# ---------------------------------------------------------------------------
+
+
+_HIDPI_GRAB_SCRIPT = """
+import json
+from pathlib import Path
+
+from PySide6.QtWidgets import QApplication, QWidget
+
+from devtools.capture_surface import CaptureSession
+
+app = QApplication.instance() or QApplication([])
+widget = QWidget()
+widget.setFixedSize(400, 300)
+session = CaptureSession(app, Path({out!r}), width=400, height=300)
+path = session.grab(widget, "hidpi.png", 400, 300, delay=0)
+from PIL import Image
+
+with Image.open(path) as image:
+    png = list(image.size)
+print("RESULT " + json.dumps({{"pin": session.last_pin, "size": session.last_size, "png": png}}))
+"""
+
+
+def test_capture_session_reports_the_logical_frame_on_hidpi(tmp_path) -> None:
+    """At ``QT_SCALE_FACTOR=2`` a 400x300 pin grabs an 800x600 PNG, not a lie.
+
+    ``QWidget.grab()`` returns DEVICE pixels (800x600) while ``last_pin`` is
+    the LOGICAL request (400x300); comparing the two raw numbers reported
+    "pin not honoured: requested 400x300, window settled at 400x300, grabbed
+    800x600" and made every HiDPI capture look like a refused pin. Real DPR=2
+    is produced here by a real ``QApplication`` in a child process (the QPA
+    scale comes from ``QT_SCALE_FACTOR`` at app creation).
+    """
+    import json
+
+    out_dir = tmp_path / "hidpi"
+    out_dir.mkdir()
+    script = _HIDPI_GRAB_SCRIPT.format(out=out_dir.as_posix())
+    env = dict(os.environ)
+    env.update(
+        QT_QPA_PLATFORM="offscreen",
+        QT_SCALE_FACTOR="2",
+        PYTHONDONTWRITEBYTECODE="1",
+        PYTHONPATH=str(SRC_ROOT),
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(proc.stdout.split("RESULT ", 1)[1].strip())
+
+    assert result["pin"] == [400, 300], "the pin is a logical frame"
+    assert result["size"] == [400, 300], (
+        f"the grabbed frame was reported in device px: {result['size']}"
+    )
+    assert result["png"] == [800, 600], "the PNG really is the device-pixel raster"
+    assert "pin not honoured" not in proc.stderr, proc.stderr
