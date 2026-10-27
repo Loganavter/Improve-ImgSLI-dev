@@ -40,6 +40,14 @@ module's ``RED-BEFORE`` notes):
   reads like "the judge has not scored yet". ``RED-BEFORE``: the pass logged
   ``jev rank partial: 0/6 scored``.
 
+The SECOND live symptom, same profile-life seam (owner run ~04:00):
+
+- **i** — a MANUAL metrics reset drops the results, not the axis set: the
+  judge's answer survives in the AI slot, so the next Analyze builds a
+  scorecard for those names instead of refusing "no_profile". ``RED-BEFORE``:
+  ``04:00:29 reset`` → ``04:00:30 analyze refused: no_profile`` → ``04:00:37``
+  the same, twice, on a folder whose judge had named six axes seconds earlier.
+
 Network-free: the transport is a stub that ranks the measured vector it is
 given; the REAL vector builder, parser, gate, resume and apply path run.
 """
@@ -65,7 +73,7 @@ from tabs.image_gallery.models import (
     Mode,
     Series,
 )
-from tabs.image_gallery.services import jev_cache
+from tabs.image_gallery.services import ai_cache, jev_cache, profile_cache, vlm_cache
 from tabs.image_gallery.services.jev_client import (
     build_measured_vector,
     rank_series_jev_detailed,
@@ -682,3 +690,135 @@ def test_a_missing_ai_profile_is_named_not_silently_partial(tmp_path, caplog) ->
         "the missing axis set must be named at the default log level; got "
         f"{caplog.text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# (i) a manual reset drops RESULTS, not the judge's axes
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def isolated_caches(tmp_path, monkeypatch):
+    """Redirect every measured store the reset really deletes."""
+    ai_dir = tmp_path / "ai"
+    ai_dir.mkdir()
+    monkeypatch.setattr(ai_cache, "ai_cache_dir", lambda: ai_dir)
+    pins = tmp_path / "pins"
+    pins.mkdir()
+    monkeypatch.setattr(profile_cache, "_default_cache", profile_cache.ProfileCache(pins))
+    jev_dir = tmp_path / "jev"
+    jev_dir.mkdir()
+    monkeypatch.setattr(jev_cache, "jev_cache_dir", lambda: jev_dir)
+    vlm_dir = tmp_path / "vlm"
+    vlm_dir.mkdir()
+    monkeypatch.setattr(vlm_cache, "vlm_cache_dir", lambda: vlm_dir)
+    return ai_dir, pins, jev_dir, vlm_dir
+
+
+class _ResetAnalyzeCtrl(_FreeRankCtrl):
+    """The same controller surface, plus what the reset/analyze seams touch."""
+
+    def __init__(self, items, groups, *, cache_dir, ai_profile=None, mode=Mode.CAMERA):
+        super().__init__(items, groups, cache_dir=cache_dir, ai_profile=ai_profile, mode=mode)
+        self.state.folder = Path("/gallery")
+        self._last_analysis_fingerprint = ("stale",)
+        self.profile_clears = 0
+        self.built: list = []
+        self.widget = SimpleNamespace(
+            visible_paths=lambda: [],
+            refresh_card=lambda it: None,
+            refresh_cards=lambda its: None,
+            set_ranks_visible=lambda visible: None,
+            set_rank_provenance=lambda source=None, domain=None: None,
+            set_triage_done=lambda: None,
+            toolbar=None,
+        )
+
+    def clear_metric_profile(self) -> None:
+        self.profile_clears += 1
+        self.state.algorithms_profile = None
+        self.state.ai_profile = None
+
+    def _begin_analysis(self, ctx, item) -> None:
+        self.built.append((ctx, item))
+
+
+def test_a_manual_reset_keeps_the_judges_axis_set(tmp_path, isolated_caches) -> None:
+    from tabs.image_gallery.use_cases import cache_reset
+
+    img = tmp_path / "a.jpg"
+    img.write_bytes(b"\x00")
+    item = GalleryItem(path=img, mtime_ns=img.stat().st_mtime_ns)
+    item.metrics = {"ssim": 0.9}
+    owner = _ResetAnalyzeCtrl(
+        [item], [_series(item)], cache_dir=tmp_path, ai_profile=_free_profile()
+    )
+
+    summary = cache_reset.clear_metrics_caches(owner, paths=[str(img)])
+
+    assert summary["items"] == 1, "the card's measurements are still dropped"
+    assert item.metrics == {}, "a reset IS a reset: the numbers go"
+    assert owner.state.algorithms_profile is None, (
+        "the local offer is derived FROM the dropped measurements"
+    )
+    kept = owner.state.ai_profile
+    assert kept is not None and kept.source == "vlm", (
+        "the judge's axis set is a JUDGMENT, not a measurement — dropping it with "
+        "the scorecards is what made the next Analyze refuse no_profile"
+    )
+    assert set(getattr(kept, "axis_ids", ())) | {
+        str(getattr(e, "name", "")) for e in kept.axis_entries
+    } == set(FREE)
+
+
+def test_analyze_right_after_a_manual_reset_sends_the_scorecard_by_the_names(
+    tmp_path, isolated_caches
+) -> None:
+    """The owner's expectation: manual reset → Analyze works, on those axes."""
+    from tabs.image_gallery.use_cases import ai_analyze, cache_reset
+    from tabs.image_gallery.use_cases.action_context import (
+        BACKEND_AI,
+        ORIGIN_ACTION,
+        ActionContext,
+    )
+    from tabs.image_gallery.services.ai_client.prompt import build_prompt
+
+    img = tmp_path / "a.jpg"
+    img.write_bytes(b"\x00")
+    item = GalleryItem(path=img, mtime_ns=img.stat().st_mtime_ns)
+    owner = _ResetAnalyzeCtrl(
+        [item], [_series(item)], cache_dir=tmp_path, ai_profile=_free_profile()
+    )
+    cache_reset.clear_metrics_caches(owner, paths=[str(img)])
+
+    # The context the action builds carries the ACTIVE profile of the domain.
+    from tabs.image_gallery.use_cases.profile_select import active_profile
+
+    profile = active_profile(owner.state, domain=BACKEND_AI)
+    assert profile is not None, "the AI slot is empty right after its own reset"
+    ctx = ActionContext(
+        targets=(img,),
+        origin=ORIGIN_ACTION,
+        backend=BACKEND_AI,
+        profile=profile,
+        mode=owner.state.mode,
+        effort=None,
+    )
+
+    refusal = ai_analyze.analyze(owner, ctx)
+
+    assert refusal is None, (
+        "Analyze must not refuse no_profile because of its own reset: "
+        f"{getattr(refusal, 'reason', None)} ({getattr(refusal, 'detail', '')})"
+    )
+    assert len(owner.built) == 1, "a scorecard payload was built for the card"
+    built_ctx, _built_item = owner.built[0]
+    prompt = build_prompt(
+        str(getattr(built_ctx.mode, "value", built_ctx.mode)),
+        profile=built_ctx.profile,
+        measured_block="",
+    )
+    for axis in FREE:
+        assert axis in prompt, (
+            f"the scorecard must ask for the judge's axis '{axis}'; prompt={prompt}"
+        )
