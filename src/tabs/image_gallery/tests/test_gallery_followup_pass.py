@@ -307,24 +307,22 @@ def test_restoring_the_sort_index_reorders_the_current_items(qtbot) -> None:
     assert [Path(it.path).name for it in w._items] == ["a.png", "b.png", "c.png"]
 
 
-def test_the_marker_names_who_analyzed_not_what_is_displayed() -> None:
-    """Owner 2026-10-27: "ИИ" = a scorecard EXISTS; "АЛГ" = an explicit local run.
+def test_the_marker_names_the_backend_whose_numbers_are_shown() -> None:
+    """Owner decision 2026-10-27 (asked explicitly): follow the domain.
 
-    Supersedes the 2026-10-22 wording of this test ("Algorithms mode says ALG
-    even when an AI scorecard still sits on the item"): the card now answers
-    "who analyzed me", and a cached AI read IS an answer about that, while a
-    passively filled metrics dict is not.
+    The 2026-10-22 rule stands: the caption names the backend whose numbers are
+    on screen, so a cached AI scorecard does not make an Algorithms card say
+    "AI". What the 2026-10-27 wording adds is the other half — an empty caption
+    until somebody was ASKED (a passively filled metrics dict is not a claim).
     """
     from tabs.image_gallery.ui.card.provenance import marker_text
 
     analyzed = _item("ai.png", analysis=True)
     assert marker_text(analyzed, domain="ai") == "AI"
-    assert marker_text(analyzed, domain="algorithms") == "AI"
-    assert marker_text(_item("none.png", metrics=False), domain="algorithms") == ""
-    assert marker_text(analyzed, domain="algorithms", requested=True) == "AI", (
-        "the scorecard outranks the local run: whoever produced the read the card "
-        "knows about is named"
+    assert marker_text(analyzed, domain="algorithms") == "", (
+        "the card shows detector numbers here, so it does not claim AI"
     )
+    assert marker_text(_item("none.png", metrics=False), domain="algorithms") == ""
 
 
 def test_a_domain_switch_is_cache_only() -> None:

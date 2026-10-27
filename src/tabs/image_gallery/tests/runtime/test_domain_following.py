@@ -198,14 +198,25 @@ def test_a_request_without_a_finished_pass_claims_nothing() -> None:
     )
 
 
-def test_a_scorecard_claims_the_ai_token_in_any_domain() -> None:
+def test_the_marker_names_the_domain_on_screen() -> None:
+    """Owner decision 2026-10-27: follow the domain, not the cached blob.
+
+    Asked explicitly after the first implementation: a cached AI scorecard did
+    NOT entitle an Algorithms card to "AI" — the marker names the backend whose
+    numbers are shown. So the same item says "AI" in the AI domain and nothing
+    (no explicit Algorithms run) in Algorithms.
+    """
     from tabs.image_gallery.ui.card.provenance import marker_text
 
     item, _ = _item("ai.png", analysis=True)
     assert marker_text(item) == "AI"
-    assert marker_text(item, domain="algorithms") == "AI", (
-        "an AiAnalysisResult IS the answer to 'who analyzed this card'"
+    assert marker_text(item, domain="algorithms") == "", (
+        "an Algorithms card shows detector numbers, so it does not claim AI"
     )
+    # An item carrying BOTH blobs reports the AI source first (analysis_source
+    # precedence), so even an explicit Algorithms run does not relabel it: the
+    # card is not showing detector numbers here.
+    assert marker_text(item, domain="algorithms", requested=True) == ""
 
 
 def test_a_queued_ai_card_claims_the_ai_token_only_in_the_ai_domain() -> None:

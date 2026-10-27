@@ -52,8 +52,11 @@ def marker_text(item, translate=None, *, domain=None, requested: bool = False) -
     Owner rule 2026-10-27 (verbatim: "пусто, пока карточка не знает, кто её
     анализировал или будет анализировать"):
 
-    - ``AI`` — an ``AiAnalysisResult`` sits on the item, or the card is queued /
-      in flight for the AI domain right now (``analysis_status == PENDING``);
+    - ``AI`` — the ACTIVE domain is AI and either an ``AiAnalysisResult`` sits on
+      the item or the card is queued / in flight for AI (``analysis_status ==
+      PENDING``). A cached scorecard alone does NOT claim "AI" while the
+      Algorithms domain is on screen (owner decision 2026-10-27: follow the
+      domain, i.e. name the backend whose numbers are shown);
     - ``ALG`` — the LOCAL analysis was part of an EXPLICIT run for the active
       domain (``requested``), i.e. the user asked for it; a number the passive
       folder-open pass filled is not a claim about who analyzed the card;
@@ -80,14 +83,18 @@ def _marker_source(item, *, domain=None, requested: bool = False) -> str:
     from tabs.image_gallery.analysis.read import SOURCE_AI, SOURCE_LOCAL, analysis_source
 
     live = str(domain or "").strip().lower()
+    # The marker names the backend whose numbers the card CURRENTLY shows
+    # (owner decision 2026-10-27, asked and answered: "follow the domain").
+    # A cached AI scorecard does not entitle the card to say "AI" while the
+    # Algorithms domain is the one on screen — that is the 2026-10-22 rule and
+    # it stays.
+    ai_view = live != "algorithms"
     source = analysis_source(item)
-    if source == SOURCE_AI or _ai_pending(item, live):
-        # A scorecard IS an answer about who analyzed the card, whatever domain
-        # the tab currently shows (owner 2026-10-27).
+    if ai_view and (source == SOURCE_AI or _ai_pending(item, live)):
         return SOURCE_AI
     if (
         requested
-        and live != SOURCE_AI
+        and not ai_view
         and source == SOURCE_LOCAL
         and not _analyzing(item)
     ):
