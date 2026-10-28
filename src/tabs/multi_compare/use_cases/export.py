@@ -532,7 +532,7 @@ def build_suggested_export_filename(controller) -> str:
     """Suggested dialog name: ``<stem of first filled slot>_<N>images``.
 
     N is the number of filled slots, so a four-up grid reads
-    ``AniScale2_DITN_i16_75K_4images``. Falls back to the bare literal
+    "AniScale2_DITN_i16_75K_4images". Falls back to the bare literal
     ``multi_compare`` when no slot carries a path or label. Total length is
     capped at :data:`EXPORT_SUGGESTED_NAME_MAX_LEN` by trimming the stem —
     the ``_<N>images`` tail always survives whole. No uniquification (by

@@ -76,7 +76,10 @@ def test_label_stands_in_when_a_slot_has_no_path():
         [_slot(1, path=None, label="Pasted from clipboard")]
     )
 
-    assert build_suggested_export_filename(controller) == "Pasted from clipboard_1images"
+    assert (
+        build_suggested_export_filename(controller)
+        == "Pasted from clipboard_1images"
+    )
 
 
 def test_long_stem_is_trimmed_to_cap_and_keeps_the_count_tail():
