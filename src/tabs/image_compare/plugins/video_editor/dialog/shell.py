@@ -601,50 +601,6 @@ class VideoEditorDialog(ThemedDialog):
     def _update_preview_palette(self):
         self.runtime.update_preview_palette()
 
-    def _keep_csd_chrome_filter_first(self) -> None:
-        """Re-order the CSD geometry filter ahead of later window filters.
-
-        ``decorate_dialog`` installs the toolkit's TitleBarGeometryFilter on
-        this dialog, and it is what re-fits the rounded background and the
-        title bar after every resize. Qt runs event filters newest-first, and
-        the timeline widget installs *itself* as an event filter on its
-        top-level window, consuming ``Resize``/``WindowStateChange``
-        (the toolkit's timeline interaction filter returns True for
-        ``obj is widget.window()``). Installed later, that filter starves the
-        CSD one: the window resizes and the content re-lays out while the
-        chrome stays at the size it had on show (measured offscreen:
-        window 1636 px, chrome 784 px; on the owner's screen 1620 vs 1200 —
-        white band on the right, title-bar buttons off-position), and
-        ``WindowStateChange`` is lost the same way, so maximize never
-        re-lays-out the chrome either.
-
-        Re-adding the filter moves it to the front of the chain, so the chrome
-        syncs before the timeline consumes the event. Only chrome sync is
-        recovered this way — this dialog's own ``resizeEvent`` is still
-        swallowed (toolkit bug, reported as ``INTERFACE``); it does not drive
-        the chrome.
-
-        Ordering, not a race: the timeline installs its window filter from its
-        own ``showEvent``, which Qt delivers to children before this dialog's
-        ``showEvent`` (verified), so doing it here always lands last.
-        """
-        filt = getattr(self, "_csd_geom_filter", None)
-        if filt is None:
-            return
-        try:
-            self.removeEventFilter(filt)
-            self.installEventFilter(filt)
-        except RuntimeError:
-            return
-        # The Show that already went by was consumed too: one explicit sync
-        # puts the chrome on the shown size instead of waiting for a resize.
-        try:
-            from sli_ui_toolkit.ui.windows.csd_helpers import sync_csd_chrome
-
-            sync_csd_chrome(self)
-        except Exception:
-            logger.debug("video editor CSD sync after re-arm skipped", exc_info=True)
-
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         self.windowResized.emit()
@@ -670,7 +626,6 @@ class VideoEditorDialog(ThemedDialog):
         # Children (the timeline) install their own window event filters during
         # *their* showEvent, i.e. before this one — keep the CSD chrome filter
         # ahead of them or the chrome freezes at its show-time size.
-        self._keep_csd_chrome_filter_first()
 
         if hasattr(self, "timeline"):
             QTimer.singleShot(100, self._fit_timeline_if_alive)
