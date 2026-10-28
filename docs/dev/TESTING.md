@@ -86,13 +86,40 @@ non-Python resources with no path rule print a `note:` and contribute nothing.
 |---|---|---|
 | Edit inside one module / one tab | `python3 tools/test_affected.py <files>`; if exit 2 or the list looks wrong, the tab folder instead: `pytest src/tabs/<tab>/tests -q` | The graph bounds it to tests that actually import the changed module (2 hops up). |
 | Before `git push` (pre-push) | `tools/test_affected.py --since origin/main` **plus** `pytest tests/contracts -q` | Contracts are the architectural gate: a feature that violates a dogma goes red here, and a subset run would not see it (~2:18, cheap next to the 9-min full run). |
-| Merge / pre-merge (supervisor) | `pytest -n auto -q` (full, parallel) | Cross-cutting breakage lives in suites the import graph cannot see (Qt plugin/fixture discovery, session order, `slow` whole-tree scans). One parallel full run ≈ the local merge-readiness signal; CI is the async backstop. |
+| Merge / pre-merge (supervisor) | `pytest -q` (full — parallel is now the DEFAULT, `pytest.ini`) | Cross-cutting breakage lives in suites the import graph cannot see (Qt plugin/fixture discovery, session order, `slow` whole-tree scans). One parallel full run ≈ the local merge-readiness signal; CI is the async backstop. |
 | Nightly / release | `pytest -q` + `pytest -m "slow" -q` separately, and the toolkit pair | Nightly wants the unparallelized signal (order + timing flakiness) and the slow scans measured on their own; release additionally pins the sibling toolkit commit. |
 
-`-n auto` needs `pytest-xdist` (already in `requirements-dev.txt`);
-`pytest-timeout` is pinned there too so a hung Qt test becomes a failure
-instead of a stuck run. `QT_QPA_PLATFORM=offscreen` and
-`PYTHONDONTWRITEBYTECODE=1` belong in every headless/agent command.
+### 3a. The parallel default (`pytest.ini`, measured 2026-10-28)
+
+`addopts` now carries `-n 4 --dist loadfile --timeout=300`, so every bare
+`pytest` in this repo is parallel: **one FILE per worker**.
+
+| run | measured |
+|---|---|
+`src/tabs/image_gallery/tests` serial | 196 s |
+same, `-n 4 --dist loadfile` | **56 s**, identical result set (2686 passed / 4 skipped) |
+`tests/contracts` serial | 185 s |
+same, `-n 4 --dist loadfile` | **66 s**, identical result set (3152 passed) |
+
+Why `loadfile` and not `--dist loadgroup` (per TEST, the shape W7 first tried):
+per-test distribution ran `test_algorithms_action_issues_no_post` RED — an
+algorithms action "issued a POST" that is green in every other order. That is a
+real cross-file leak the per-test interleaving exposes, not an xdist artefact, so
+the smallest unit whose order this repo has PROVEN is the file. `--timeout=300`
+is a hang guard (a wedged Qt test used to eat the run), not a speed knob.
+
+Constraints worth knowing:
+
+- the pinned `--randomly-seed` is a **per-process** seed, so under xdist each
+  worker takes a different order. The reproducible single order is the SERIAL
+  run: `-p no:xdist` (or `-n0`) restores it for a flake hunt — that is the run to
+  quote when the question is "is this failure new?".
+- a clone cell that must pass `-o addopts=""` (no `pytest-randomly` on the system
+  interpreter) loses the parallel default too; that is deliberate — a cell's
+  acceptance stays one order.
+- `-n auto` needs `pytest-xdist` (already in `requirements-dev.txt`);
+  `pytest-timeout` is pinned there too. `QT_QPA_PLATFORM=offscreen` and
+  `PYTHONDONTWRITEBYTECODE=1` belong in every headless/agent command.
 
 ### 4. Duration markers (unchanged by the tier table)
 
@@ -130,6 +157,8 @@ Timing-sensitive tests that fail only under parallel load are marked
 | `src/tabs/session_picker/tests/runtime/test_keyboard_navigation.py::test_down_from_last_header_enters_recent_items` | Offscreen focus handoff (header → recent items) can be dropped under full `-n` load (whole tree in one session); green in the tab suite alone. Hardened to `widget.focusWidget()` + `qtbot.waitUntil`; residual is Qt-offscreen focus timing, not a product bug. |
 | `src/tabs/session_picker/tests/runtime/test_session_picker_refresh_focus.py::test_tab_stores_widget_and_hooks_are_order_safe` | Tab lifecycle + focus timing under parallel load; green alone. |
 | `src/tabs/session_picker/tests/runtime/test_keyboard_navigation.py::test_up_from_first_recent_item_returns_to_last_create_card` | Same offscreen focus handoff as the Down case; fails only in full-suite order (journal `1bf913a7` and 2026-10-14), green in isolation. |
+| `src/tabs/image_gallery/tests/isolation/test_algorithms_action_issues_no_post.py::test_algorithms_action_issues_no_post` | **Order-dependent, not timing**: green serially, in its own file and under the tier default (`--dist loadfile`, 4/4 runs); fails in SOME orders when xdist schedules one TEST per worker and each worker shuffles with its own seed (measured 2026-10-28: the failure set CHANGED between two runs of the same pinned seed — this test once, `test_grid_reflows_during_analysis` the next — so there is no single polluter to bisect). |
+| `src/tabs/image_gallery/tests/runtime/test_grid_reflows_during_analysis.py::test_a_resize_does_not_turn_a_chunked_build_into_a_full_build` | Same measurement and same order class as the row above; the counter it asserts (a chunked build must not become a full build) is state from an earlier file in the same worker. |
 | `tests/devtools/test_control_nav_state.py::test_nav_key_on_an_unowned_widget_is_reported_unhandled` | Global `NavigationManager` state left by a previous test makes the key report `surface` instead of `unhandled/focus`; fails only in full-suite order (journal `1bf913a7`), green in isolation. |
 
 These stay in the fast tier (no deselect): the list is documentation, not
