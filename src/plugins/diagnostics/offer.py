@@ -26,6 +26,12 @@ from sli_ui_toolkit.widgets import Button, Text
 from shared_toolkit.ui.themed_dialog import ThemedDialog
 from resources.translations import get_current_language
 
+#: Minimum size of the offer (smaller than the report dialog: it is a question,
+#: not a document preview).
+_DIALOG_MIN_WIDTH = 520
+_DIALOG_MIN_HEIGHT = 240
+
+
 #: The app translator, imported lazily so this module stays importable in a test.
 def _default_tr(key: str, language: str | None = None) -> str:
     try:
@@ -77,6 +83,34 @@ class UncleanShutdownDialog(ThemedDialog):
         except Exception:
             pass
         QTimer.singleShot(0, self._finalize_layout_and_size)
+
+    # -- geometry ---------------------------------------------------------
+
+    def _apply_dialog_geometry(self) -> None:
+        try:
+            self.setMinimumSize(
+                scaled_px(_DIALOG_MIN_WIDTH), scaled_px(_DIALOG_MIN_HEIGHT)
+            )
+            if (
+                self.width() < scaled_px(_DIALOG_MIN_WIDTH)
+                or self.height() < scaled_px(_DIALOG_MIN_HEIGHT)
+            ):
+                self.resize(scaled_px(_DIALOG_MIN_WIDTH), scaled_px(_DIALOG_MIN_HEIGHT))
+        except Exception:
+            pass
+
+    def _finalize_layout_and_size(self) -> None:
+        self._apply_dialog_geometry()
+        try:
+            from sli_ui_toolkit.ui.windows.csd_helpers import sync_csd_chrome
+
+            sync_csd_chrome(self)
+        except Exception:
+            pass
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt)
+        super().showEvent(event)
+        self._finalize_layout_and_size()
 
     # -- i18n -------------------------------------------------------------
 
