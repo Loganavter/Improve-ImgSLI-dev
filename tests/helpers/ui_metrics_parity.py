@@ -239,14 +239,15 @@ def _font_lever() -> tuple[Callable[[], None], Callable[[], None]]:
             break
         if fallback is None and metrics.horizontalAdvance(_PROBE_TEXT) != base_advance:
             fallback = family
-    if alternate is None and fallback is not None:
-        # No height-moving face here; the advance-only lever still pins
-        # "a metric changed", which is what the width-derived probes need.
-        alternate = fallback
+    del fallback  # advance-only faces are NOT a usable lever: see below
     if alternate is None:
+        # Measured on a CI runner: families that change only the ADVANCE left
+        # `value_slider_row` at the same (54, 19) — these probes' geometry follows
+        # the font HEIGHT, so an advance-only face cannot exercise the contract
+        # and using it turned an unmeasurable environment into a red test.
         pytest.skip(
-            "no alternate font family changes the metrics these probes derive "
-            "from; the font lever cannot move font-derived geometry here"
+            "no alternate font family changes the font HEIGHT on this system; "
+            "the height-derived geometry these probes measure cannot move here"
         )
 
     # Capture the original override BEFORE the first apply can change it.
