@@ -158,7 +158,10 @@ def test_settled_size_bakes_one_frame_and_a_stale_bake_is_not_painted(qapp):
     dialog = _dialog(qapp)
     try:
         label = dialog.preview_label
-        label.resize(QSize(300, 200))
+        width, height = dialog.width(), dialog.height()
+        # A real resize goes through the dialog: its resizeEvent pings the
+        # settle gate (resizing the label alone does not).
+        dialog.resize(width + 60, height + 40)
         qapp.processEvents()
         dialog._preview_resize_settle.flush()
         qapp.processEvents()
@@ -168,9 +171,9 @@ def test_settled_size_bakes_one_frame_and_a_stale_bake_is_not_painted(qapp):
             "the quiet-period bake must rasterize the settled target size"
         )
 
-        # Grow the pane without letting the settle gate fire: the old raster is
-        # stale and must not be drawn (and must not be stretched by QLabel).
-        label.resize(QSize(520, 240))
+        # Grow again without letting the gate fire: the old raster is stale and
+        # must not be drawn (nor stretched by QLabel).
+        dialog.resize(width + 140, height + 20)
         qapp.processEvents()
         grown = label.preview_target_rect()
         assert grown.size() != settled.size()
