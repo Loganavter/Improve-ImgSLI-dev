@@ -339,133 +339,30 @@ class DiagnosticsPlugin(Plugin, IControllablePlugin, IServicePlugin):
     def offer_unclean_shutdown(self, previous: Any) -> bool:
         """Offer a report for a session that did not exit normally.
 
-        Called by the startup path with the marker's :class:`PreviousSession`
-        (``plugins.diagnostics.session_marker``). Returns ``False`` when the user
-        opted out or the payload could not be formed — never raises into startup.
-
-        Nothing is collected here: the failure payload is built only when the user
-        presses "Create report", and the report itself is still Copy / Save /
-        Open issue.
+        The startup path calls this with the marker's ``PreviousSession``; the
+        decision lives in ``unclean_offer`` (file-size policy), this is the host's
+        seam. Returns ``False`` when the user opted out — never raises.
         """
-        try:
-            from . import session_marker
-        except Exception:
-            return False
-        if session_marker.offer_is_suppressed(self._settings_store()):
-            return False
-        try:
-            self._pending_failure = session_marker.failure_payload(previous)
-        except Exception:
-            return False
-        self._breadcrumbs_record("crash", "unclean previous session")
-        self._schedule_offer(previous)
-        return True
+        from . import unclean_offer
 
-    def _settings_store(self) -> Any | None:
-        """The live QSettings store (the manager, or the raw store as a fallback)."""
-        for candidate in (
-            getattr(self.store, "settings_manager", None),
-            getattr(self.store, "settings", None),
-        ):
-            if candidate is not None:
-                return candidate
-        return None
-
-    def _schedule_offer(self, previous: Any) -> None:
-        try:
-            QTimer.singleShot(0, lambda: self._show_offer(previous))
-        except Exception:
-            pass
-
-    def _show_offer(self, previous: Any) -> None:
-        try:
-            from .offer import show_unclean_shutdown_dialog
-
-            summary = self._offer_summary(previous)
-            existing = self._offer
-            if existing is not None:
-                try:
-                    existing.close()
-                except Exception:
-                    pass
-            self._offer = show_unclean_shutdown_dialog(
-                summary,
-                parent=self._parent_widget(),
-                on_report=self._report_pending_failure,
-                on_suppress=self._suppress_offer,
-            )
-        except Exception:
-            logger.exception("diagnostics: failed to offer the unclean-shutdown report")
-
-    def _offer_summary(self, previous: Any) -> str:
-        """One honest line about what the report will carry (no secret values)."""
-        parts = []
-        started = getattr(previous, "started_at", "") or "unknown"
-        parts.append(f"started {started}")
-        if getattr(previous, "log_file", ""):
-            parts.append("the end of the previous log")
-        if getattr(previous, "fault_file", ""):
-            parts.append("the crash traceback, if one was written")
-        return "; ".join(parts)
-
-    def _report_pending_failure(self) -> None:
-        failure = self._pending_failure
-        self._pending_failure = None
-        try:
-            self.create_report(failure)
-        except Exception:
-            logger.exception("diagnostics: failed to build the unclean-shutdown report")
-
-    def _suppress_offer(self) -> None:
-        from . import session_marker
-
-        session_marker.suppress_offer(self._settings_store())
-
-    def _breadcrumbs_record(self, kind: str, label: str) -> None:
-        try:
-            self.breadcrumbs.record(kind, label)
-        except Exception:
-            pass
+        return unclean_offer.offer(self, previous)
 
     # -- dialog -----------------------------------------------------------
 
     def _schedule_dialog(self, diagnostics: report.DiagnosticsReport) -> None:
-        presenter = self._presenter
-        if presenter is not None:
-            try:
-                presenter.request(diagnostics)
-                return
-            except Exception:
-                pass
-        try:
-            QTimer.singleShot(0, lambda: self._show_dialog(diagnostics))
-        except Exception:
-            pass
+        from . import report_ui
+
+        report_ui.schedule(self, diagnostics)
 
     def _show_dialog(self, diagnostics: report.DiagnosticsReport) -> None:
-        try:
-            from .dialog import show_diagnostics_dialog
+        from . import report_ui
 
-            existing = self._dialog
-            if existing is not None:
-                try:
-                    existing.close()
-                except Exception:
-                    pass
-            self._dialog = show_diagnostics_dialog(
-                diagnostics, parent=self._parent_widget()
-            )
-        except Exception:
-            logger.exception("diagnostics: failed to show report dialog")
+        report_ui.show(self, diagnostics)
 
     def _parent_widget(self) -> Any | None:
-        try:
-            from PySide6.QtWidgets import QApplication
+        from . import report_ui
 
-            app = QApplication.instance()
-            return app.activeWindow() if app is not None else None
-        except Exception:
-            return None
+        return report_ui.parent_widget()
 
     # -- runtime context --------------------------------------------------
 

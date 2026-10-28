@@ -19,7 +19,7 @@ import pytest
 
 from core.state_management.dispatcher import Dispatcher
 from core.store import Store
-from plugins.diagnostics import session_marker
+from plugins.diagnostics import session_marker, unclean_offer
 from plugins.diagnostics.plugin import DiagnosticsPlugin
 
 
@@ -47,7 +47,9 @@ def test_the_offer_is_built_only_when_the_user_did_not_opt_out(tmp_path, monkeyp
     previous = _previous(tmp_path, monkeypatch)
     plugin = _plugin()
     scheduled_offers: list = []
-    monkeypatch.setattr(plugin, "_schedule_offer", scheduled_offers.append)
+    monkeypatch.setattr(
+        unclean_offer, "schedule", lambda plugin_, previous_: scheduled_offers.append(previous_)
+    )
 
     assert plugin.offer_unclean_shutdown(previous) is True
 
@@ -61,8 +63,8 @@ def test_the_offer_is_built_only_when_the_user_did_not_opt_out(tmp_path, monkeyp
 def test_the_offer_respects_the_opt_out(tmp_path, monkeypatch):
     previous = _previous(tmp_path, monkeypatch)
     plugin = _plugin()
-    monkeypatch.setattr(plugin, "_settings_store", lambda: _OptedOut())
-    monkeypatch.setattr(plugin, "_show_offer", lambda prev: pytest.fail("must not offer"))
+    monkeypatch.setattr(unclean_offer, "settings_store", lambda plugin_: _OptedOut())
+    monkeypatch.setattr(unclean_offer, "schedule", lambda *a: pytest.fail("must not offer"))
 
     assert plugin.offer_unclean_shutdown(previous) is False
     assert plugin._pending_failure is None
@@ -71,10 +73,10 @@ def test_the_offer_respects_the_opt_out(tmp_path, monkeypatch):
 def test_creating_the_report_goes_through_the_plugin_report_path(tmp_path, monkeypatch):
     previous = _previous(tmp_path, monkeypatch)
     plugin = _plugin()
-    monkeypatch.setattr(plugin, "_show_offer", lambda prev: None)
+    monkeypatch.setattr(unclean_offer, "schedule", lambda *a: None)
     plugin.offer_unclean_shutdown(previous)
 
-    plugin._report_pending_failure()
+    unclean_offer.build_pending_report(plugin)
 
     assert len(plugin._scheduled) == 1, "the report dialog is scheduled once"
     built = plugin._scheduled[0]
@@ -86,18 +88,18 @@ def test_the_offer_summary_names_what_the_report_would_carry(tmp_path, monkeypat
     previous = _previous(tmp_path, monkeypatch)
     plugin = _plugin()
 
-    summary = plugin._offer_summary(previous)
+    summary = unclean_offer.summary(previous)
 
     assert "started" in summary
     assert "previous log" in summary
 
 
-def test_an_opted_out_flag_is_written_only_by_the_never_button():
+def test_an_opted_out_flag_is_written_only_by_the_never_button(monkeypatch):
     plugin = _plugin()
     store = _SettingsDouble()
-    plugin._settings_store = lambda: store  # type: ignore[assignment]
+    monkeypatch.setattr(unclean_offer, "settings_store", lambda plugin_: store)
 
-    plugin._suppress_offer()
+    unclean_offer.suppress(plugin)
 
     assert session_marker.offer_is_suppressed(store) is True
 
