@@ -200,6 +200,16 @@ class Ui_ImageComparisonApp:
         tab_page = (
             self._tab_registry.get_page(session_type) if self._tab_registry else None
         )
+        if tab_page is None and self._tab_registry is not None:
+            # ``activate`` returns early when the type is already the active one
+            # (its ``_sync_active_session_for_type`` branch creates no page), so a
+            # lazy page that was still being assembled when the "workspace" emit
+            # arrived leaves ``get_page`` empty and the stack on the picker — the
+            # session is active in the store while its page is never shown.
+            # Measured 2026-10-28 on a leased instance through the control
+            # surface: tabs.image_compare.active true, layout dump showing the
+            # workspace page at visible=False under a visible QStackedWidget.
+            tab_page = self._tab_registry._ensure_page(session_type)
         if tab_page is not None:
             self.workspace_stack.setCurrentWidget(tab_page)
             if self._tab_registry:
