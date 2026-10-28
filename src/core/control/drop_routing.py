@@ -162,7 +162,7 @@ def route_paths(
         # The hint is tab-owned: ask THIS tab which key it reads before it
         # consumes anything. A tab that declares none keeps the historical
         # pass-through (older tabs and test doubles have no such attribute).
-        check_hint_owner(hint, getattr(tab, "drop_hint_key", None), session_type)
+        check_hint_owner(hint, getattr(type(tab), "drop_hint_key", None), session_type)
         try:
             if _drop(tab, paths, hint):
                 return session_type

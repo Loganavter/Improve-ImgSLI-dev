@@ -72,19 +72,14 @@ class TabContract(ABC):
         """
         return self.display_name
 
-    @property
-    def drop_hint_key(self) -> str | None:
-        """Placement-hint key this tab reads on a drop (``"slot"``/``"side"``).
-
-        A headless client names the drop target with ``slot=`` or ``side=``
-        instead of a pointer (see ``core.control.drop_routing.drop_hint``), and
-        the hint is *tab-owned*: a key the receiving tab does not read is not
-        silently ignored, it is refused. The host therefore asks the tab which
-        key it owns instead of keeping a table of tab names in ``core/`` — that
-        table is exactly the layout the platform-isolation contract forbids.
-        ``None`` (the default) means the tab takes no placement hint.
-        """
-        return None
+    #: Placement-hint key this tab reads on a drop (``"slot"`` / ``"side"``).
+    #:
+    #: A *class* attribute on purpose: the control surface must be able to ask
+    #: "does this tab read this hint?" without touching a widget (the sync-boundary
+    #: contract forbids widget I/O on that path), and the answer has to live with
+    #: the tab, not in a table of tab names inside ``core/`` (platform isolation).
+    #: ``None`` = the tab takes no placement hint.
+    drop_hint_key: str | None = None
 
     @property
     def icon(self) -> QIcon | None:
