@@ -24,10 +24,11 @@ from core.control.drop_routing import check_hint_owner, open_file_into, open_fol
 
 
 class _Tab:
-    """Minimal drop target that declares the key it reads, like a real tab."""
+    """Minimal drop target; the key is a CLASS attribute, like a real tab."""
 
-    def __init__(self, hint_key: str | None) -> None:
-        self.drop_hint_key = hint_key
+    drop_hint_key: str | None = "slot"
+
+    def __init__(self) -> None:
         self.dropped: list[tuple[list[Path], dict | None]] = []
 
     def accepts_drop(self, paths) -> bool:
@@ -38,14 +39,25 @@ class _Tab:
         return True
 
 
-def test_the_tabs_declare_their_own_hint_key():
-    from tabs.contract import TabContract
-    from tabs.image_compare.tab import ImageCompareTab
-    from tabs.multi_compare.tab import MultiCompareTab
+class _SideTab(_Tab):
+    drop_hint_key = "side"
 
-    assert TabContract.drop_hint_key.fget(object()) is None
-    assert ImageCompareTab.drop_hint_key.fget(object()) == "slot"
-    assert MultiCompareTab.drop_hint_key.fget(object()) == "side"
+
+
+
+def test_a_tab_declares_its_hint_key_as_a_class_attribute():
+    """The answer lives with the tab, and it is a CLASS attribute on purpose.
+
+    ``route_paths`` reads ``type(tab).drop_hint_key`` — a class lookup, never a
+    property on a live widget: the sync-boundary contract forbids widget I/O on
+    that path (a property read there was measured failing
+    ``test_sync_boundary_purity``). The real tabs' values are asserted in their own
+    suites (``src/tabs/*/tests``), which may import tab internals; this file may not.
+    """
+    from tabs.contract import TabContract
+
+    assert TabContract.drop_hint_key is None
+    assert isinstance(TabContract.__dict__["drop_hint_key"], str) is False
 
 
 @pytest.mark.parametrize(
@@ -76,7 +88,7 @@ def test_a_foreign_hint_is_refused_by_name():
 def test_route_paths_refuses_before_the_tab_consumes_anything(tmp_path):
     path = tmp_path / "probe.png"
     path.write_bytes(b"x")
-    tab = _Tab("slot")
+    tab = _Tab()
 
     with pytest.raises(ValueError, match="it takes slot="):
         route_paths([("image_compare", tab)], [path], hint={"side": "right"})
@@ -86,7 +98,7 @@ def test_route_paths_refuses_before_the_tab_consumes_anything(tmp_path):
 def test_route_paths_still_forwards_a_owned_hint(tmp_path):
     path = tmp_path / "probe.png"
     path.write_bytes(b"x")
-    tab = _Tab("side")
+    tab = _SideTab()
 
     assert route_paths([("multi_compare", tab)], [path], hint={"side": "top"}) == "multi_compare"
     assert tab.dropped == [([path], {"side": "top"})]
@@ -96,7 +108,7 @@ def test_a_refused_hint_never_reaches_the_tab_through_open_file(tmp_path):
     path = tmp_path / "probe.png"
     path.write_bytes(b"x")
 
-    tab = _Tab("slot")
+    tab = _Tab()
 
     with pytest.raises(ValueError, match="it takes slot="):
         open_file_into(
@@ -114,7 +126,7 @@ def test_a_refused_hint_never_reaches_the_tab_through_open_file(tmp_path):
 def test_open_folder_uses_the_same_rule(tmp_path):
     folder = tmp_path / "shots"
     folder.mkdir()
-    tab = _Tab("side")
+    tab = _SideTab()
     with pytest.raises(ValueError, match="it takes side="):
         open_folder_into(
             folder,
