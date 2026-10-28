@@ -106,6 +106,26 @@ def _line_ms(line: str) -> int:
         return 0
 
 
+def decode_counts(control) -> dict[str, dict[str, int]]:
+    """``{kind: {path: n}}`` from the tracer ring (``decode.proxy``/``.store``/``.coarse``).
+
+    The live decode counter W7 item 3 chose: a tracer span, not an instrumented
+    build — the tracer installs from ``IMGSLI_TRACE=1`` and ``query_trace`` is
+    already a control method, so nothing product-side had to grow a counter.
+    """
+    rows = control.call("query_trace", filter="decode.", n=2000).get("records") or []
+    counts: dict[str, dict[str, int]] = {}
+    for row in rows:
+        kind = str(row.get("kind") or "")
+        if not kind.startswith("decode."):
+            continue
+        payload = row.get("payload") or {}
+        path = str(payload.get("path") or "?")
+        bucket = counts.setdefault(kind, {})
+        bucket[path] = bucket.get(path, 0) + 1
+    return counts
+
+
 def _stub_router(delay_s: float = 0.0):
     """One stub, three question shapes: profile, pairwise, scorecard."""
 
