@@ -687,7 +687,7 @@ class ExportDialog(ThemedDialog):
         """Hand the source to the pane and bake the settled frame.
 
         The pane stretches the source on every paint (see
-        ``dialog_sections._ExportPreviewLabel``); this only refreshes the
+        ``preview_pane.ExportPreviewLabel``); this only refreshes the
         keyed smooth raster for the size it currently has.
         """
         label = getattr(self, "preview_label", None)

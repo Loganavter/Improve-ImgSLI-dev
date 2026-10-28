@@ -2,7 +2,7 @@
 
 The preview pane resolves its scale target in three steps: the label's live
 size, then its minimum size, then the design-px floor from
-``plugins.export.layout_geometry`` (``_ExportPreviewLabel.preview_target_rect``;
+``plugins.export.layout_geometry`` (``preview_pane.ExportPreviewLabel.preview_target_rect``;
 it lived in ``ExportDialog._apply_preview_pixmap`` before the pane started
 stretching its source in ``paintEvent``). That third step referenced
 ``export_geo``, which ``dialog.py`` never imported (ruff F821), so any path that
