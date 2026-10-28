@@ -85,6 +85,11 @@ class ImageCompareTab(TabContract):
         return "Image Compare"
 
     @property
+    def drop_hint_key(self) -> str:
+        """The host drops into this tab with ``slot=`` only."""
+        return "slot"
+
+    @property
     def icon(self) -> QIcon | None:
         from tabs.image_compare.icons import Icon, get_icon
 

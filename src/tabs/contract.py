@@ -73,6 +73,20 @@ class TabContract(ABC):
         return self.display_name
 
     @property
+    def drop_hint_key(self) -> str | None:
+        """Placement-hint key this tab reads on a drop (``"slot"``/``"side"``).
+
+        A headless client names the drop target with ``slot=`` or ``side=``
+        instead of a pointer (see ``core.control.drop_routing.drop_hint``), and
+        the hint is *tab-owned*: a key the receiving tab does not read is not
+        silently ignored, it is refused. The host therefore asks the tab which
+        key it owns instead of keeping a table of tab names in ``core/`` — that
+        table is exactly the layout the platform-isolation contract forbids.
+        ``None`` (the default) means the tab takes no placement hint.
+        """
+        return None
+
+    @property
     def icon(self) -> QIcon | None:
         """Optional icon for the new-session menu."""
         return None

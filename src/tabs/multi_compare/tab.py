@@ -80,6 +80,11 @@ class MultiCompareTab(TabContract):
         return "Multi Compare"
 
     @property
+    def drop_hint_key(self) -> str:
+        """The host drops into this tab with ``side=`` only."""
+        return "side"
+
+    @property
     def icon(self) -> QIcon | None:
         from tabs.multi_compare.icons import Icon, get_icon
 
