@@ -104,6 +104,9 @@ class DiagnosticsPlugin(Plugin, IControllablePlugin, IServicePlugin):
         self._presenter: _ReportPresenter | None = None
         self._dialog: Any | None = None
         self._action_id: str | None = None
+        #: Last session's failure payload while the startup offer is up.
+        self._pending_failure: dict[str, Any] | None = None
+        self._offer: Any | None = None
 
     # -- lifecycle --------------------------------------------------------
 
@@ -330,6 +333,99 @@ class DiagnosticsPlugin(Plugin, IControllablePlugin, IServicePlugin):
                 previous(mode, context, message)
             except Exception:
                 pass
+
+    # -- previous-session offer -------------------------------------------
+
+    def offer_unclean_shutdown(self, previous: Any) -> bool:
+        """Offer a report for a session that did not exit normally.
+
+        Called by the startup path with the marker's :class:`PreviousSession`
+        (``plugins.diagnostics.session_marker``). Returns ``False`` when the user
+        opted out or the payload could not be formed — never raises into startup.
+
+        Nothing is collected here: the failure payload is built only when the user
+        presses "Create report", and the report itself is still Copy / Save /
+        Open issue.
+        """
+        try:
+            from . import session_marker
+        except Exception:
+            return False
+        if session_marker.offer_is_suppressed(self._settings_store()):
+            return False
+        try:
+            self._pending_failure = session_marker.failure_payload(previous)
+        except Exception:
+            return False
+        self._breadcrumbs_record("crash", "unclean previous session")
+        self._schedule_offer(previous)
+        return True
+
+    def _settings_store(self) -> Any | None:
+        """The live QSettings store (the manager, or the raw store as a fallback)."""
+        for candidate in (
+            getattr(self.store, "settings_manager", None),
+            getattr(self.store, "settings", None),
+        ):
+            if candidate is not None:
+                return candidate
+        return None
+
+    def _schedule_offer(self, previous: Any) -> None:
+        try:
+            QTimer.singleShot(0, lambda: self._show_offer(previous))
+        except Exception:
+            pass
+
+    def _show_offer(self, previous: Any) -> None:
+        try:
+            from .offer import show_unclean_shutdown_dialog
+
+            summary = self._offer_summary(previous)
+            existing = self._offer
+            if existing is not None:
+                try:
+                    existing.close()
+                except Exception:
+                    pass
+            self._offer = show_unclean_shutdown_dialog(
+                summary,
+                parent=self._parent_widget(),
+                on_report=self._report_pending_failure,
+                on_suppress=self._suppress_offer,
+            )
+        except Exception:
+            logger.exception("diagnostics: failed to offer the unclean-shutdown report")
+
+    def _offer_summary(self, previous: Any) -> str:
+        """One honest line about what the report will carry (no secret values)."""
+        parts = []
+        started = getattr(previous, "started_at", "") or "unknown"
+        parts.append(f"started {started}")
+        if getattr(previous, "log_file", ""):
+            parts.append("the end of the previous log")
+        if getattr(previous, "fault_file", ""):
+            parts.append("the crash traceback, if one was written")
+        return "; ".join(parts)
+
+    def _report_pending_failure(self) -> None:
+        failure = self._pending_failure
+        self._pending_failure = None
+        try:
+            self.create_report(failure)
+        except Exception:
+            logger.exception("diagnostics: failed to build the unclean-shutdown report")
+
+    def _suppress_offer(self) -> None:
+        from . import session_marker
+
+        session_marker.suppress_offer(self._settings_store())
+
+    def _breadcrumbs_record(self, kind: str, label: str) -> None:
+        try:
+            self.breadcrumbs.record(kind, label)
+        except Exception:
+            pass
 
     # -- dialog -----------------------------------------------------------
 
