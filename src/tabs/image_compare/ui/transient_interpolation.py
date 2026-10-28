@@ -193,10 +193,9 @@ class InterpolationFlyoutController:
                     f"toolkit:{os.path.basename(filename)}:{frame.lineno}:{frame.name}"
                 )
             elif "/src/" in filename:
-                # "anything under src/ that is not the toolkit" — never the repo
-                # name: the identity guard scans product code for the pre-rename
-                # spelling, and a path filter does not need it (measured
-                # 2026-10-28, tests/runtime/test_app_identity.py caught this).
+                # "anything under src/ that is not the toolkit": never the repo
+                # name — the identity guard scans product code for the pre-rename
+                # spelling (caught 2026-10-28 by test_app_identity).
                 frames.append(
                     f"app:{os.path.basename(filename)}:{frame.lineno}:{frame.name}"
                 )
