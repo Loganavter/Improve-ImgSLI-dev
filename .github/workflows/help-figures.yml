@@ -32,6 +32,15 @@ jobs:
   help-figures:
     name: Help figures
     runs-on: ubuntu-latest
+    # ADVISORY until the baselines are regenerated on a runner. Measured
+    # 2026-10-28: `drift=32, ok=16` — the committed hashes were produced on the
+    # author's host (its fonts and DPR), and a GitHub runner renders the same help
+    # surfaces differently, so the gate is red by construction there. It still
+    # prints the per-figure table, so the drift stays visible without blocking.
+    # To make it a gate again: regenerate `src/devtools/help_figures.json` in the
+    # SAME environment the workflow runs in (a workflow_dispatch job that uploads
+    # the generated hashes as an artifact, then commit them).
+    continue-on-error: true
     steps:
       - name: Check Out App
         uses: actions/checkout@v4
