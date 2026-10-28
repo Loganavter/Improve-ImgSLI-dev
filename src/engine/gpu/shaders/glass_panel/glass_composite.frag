@@ -148,6 +148,23 @@ void main()
     // Steeper, lower-peak falloff than before (was pow(.,3)*0.28) -- that
     // washed out the whole top edge, worst on short panels where "top" is
     // a large fraction of the whole height.
+    //
+    // `1.0 - vUv.y` below is a gradient WEIGHT, not a raster flip, and which
+    // edge it lights is deliberate: vUv.y == 0 is the panel's displayed-top
+    // edge on every backend. This pass needs no clip correction for it -- it
+    // renders into its own scratch texture and the display path reads that
+    // back to a QImage drawn with drawImage(QPoint(0, 0)), i.e. row 0 at the
+    // widget's top (ui/widgets/glass_hud/panel_display.py); row 0 is the row
+    // clip y == -1 addresses on both conventions (framebuffers are
+    // origin-at-top-left everywhere except OpenGL), so the glow lands on the
+    // raster's own top edge either way. The ONE backend-dependent step in this
+    // chain is the *crop's* row order, and glass_blur.frag's flipY uniform
+    // already compensates exactly that (WIDGET_TEXTURE: a copy out of
+    // colorTexture()). Do not copy that flip onto this value too, and do not
+    // add a third convention here: widget_texture_needs_y_flip describes the
+    // copy, not this pass's own target, so gating the glow on it would move the
+    // highlight to the bottom edge on OpenGL -- the light mirrors with the
+    // panel, not with the image.
     float topGlow = pow(clamp(1.0 - vUv.y, 0.0, 1.0), 8.0) * 0.10;
     vec3 glass = tintedGlass + vec3(topGlow + specular);
 
