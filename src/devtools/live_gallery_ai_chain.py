@@ -68,7 +68,7 @@ from devtools.live_gallery_ai_common import (
     _line_ms,
     _local_axis_values,
     _read_entries,
-    decode_counts,
+    decode_probe,
     _socket_target,
     _stop_app,
     _stub_router,
@@ -313,22 +313,10 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(1.5)
         verdict["local_pass_settled"] = settled_local
 
-        cold = decode_counts(control)
-        verdict["decode_cold"] = cold
-        try:
-            # A folder REOPEN is the honest warm probe: measured 2026-10-28 it
-            # re-decodes every item (the proxy cache does not survive a pool
-            # reset), which is a design fact, not a defect.
-            control.call("open_folder", path=str(folder), tab="image_gallery")
-            time.sleep(3.0)
-            warm = decode_counts(control)
-            verdict["decode_warm"] = warm
-            verdict["decode_warm_added"] = {
-                kind: sum(warm.get(kind, {}).values()) - sum(cold.get(kind, {}).values())
-                for kind in set(cold) | set(warm)
-            }
-        except Exception as exc:  # noqa: BLE001 - a warm probe failure is not the chain's
-            verdict["decode_warm"] = f"unavailable: {type(exc).__name__}: {exc}"
+        probe = decode_probe(control, folder)
+        verdict["decode_cold"] = probe["cold"]
+        verdict["decode_warm"] = probe["warm"]
+        verdict["decode_warm_added"] = probe["added"]
 
         try:
             trace = control.call("query_trace", filter=JUDGE_ONLY_AXIS, n=40)
