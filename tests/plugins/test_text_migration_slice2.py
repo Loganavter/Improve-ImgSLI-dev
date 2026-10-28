@@ -40,9 +40,10 @@ allowlist entry because the source scan below only matches the toolkit
 ``Label`` name):
 
 - ``export/dialog_sections.py::_ExportPreviewLabel`` — a ``QLabel`` subclass
-  that hosts the preview pixmap and overrides ``sizeHint``; it is a pixmap
-  surface, not a text display, and the P3 rules exclude ``Label``
-  subclasses / widgets relied on as a ``Label`` type.
+  that paints the preview source in ``paintEvent`` (no ``QLabel`` pixmap) and
+  overrides ``sizeHint``; it is a pixmap surface, not a text display, and the
+  P3 rules exclude ``Label`` subclasses / widgets relied on as a ``Label``
+  type.
 - The document surface itself — ``Text(mode="document")`` in the external
   toolkit; the app hosts its chrome (TOC / lightbox / scroll area) around it.
 
